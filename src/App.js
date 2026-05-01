@@ -112,6 +112,9 @@ export default function App() {
   const [rpAutoId, setRpAutoId] = useState(null);
   const [rpPhotos, setRpPhotos] = useState({});
   const [rpYakuman, setRpYakuman] = useState([]);
+  const [rpYakumanTypes, setRpYakumanTypes] = useState({});
+  const [rpOpenRiichi, setRpOpenRiichi] = useState([]); // 開放立直したプレイヤー
+  const [rpDealIn, setRpDealIn] = useState([]);         // 振り込んだプレイヤー
   const [rpActive, setRpActive] = useState(null);
   const [addErr, setAddErr] = useState("");
   const [addChips, setAddChips] = useState({});
@@ -129,6 +132,8 @@ export default function App() {
   const [h2hA, setH2hA] = useState(null);
   const [h2hB, setH2hB] = useState(null);
   const [lifeDetail, setLifeDetail] = useState(null);
+  const [last10Mode, setLast10Mode] = useState(false);
+  const [last10Revealed, setLast10Revealed] = useState({});
 
   const fileRef = useRef(null);
   const [photoTgt, setPhotoTgt] = useState(null);
@@ -292,15 +297,15 @@ export default function App() {
     if (playing.length !== 4) { setAddErr("4人分の点数を入力してください"); return; }
     const scores = {};
     playing.forEach(id => { scores[id] = N(rpSc[id]); });
-    setAddRounds(prev => [...prev, { players: playing, scores, photos:{...rpPhotos}, yakuman:[...rpYakuman] }]);
+    setAddRounds(prev => [...prev, { players: playing, scores, photos:{...rpPhotos}, yakuman:[...rpYakuman], yakumanTypes:{...rpYakumanTypes}, openRiichi:[...rpOpenRiichi], dealIn:[...rpDealIn] }]);
     setRpSc(Object.fromEntries(addSel.map(id=>[id,""])));
-    setRpPhotos({}); setRpYakuman([]); setRpAutoId(null); setRpActive(null); setAddErr("");
+    setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes({}); setRpOpenRiichi([]); setRpDealIn([]); setRpAutoId(null); setRpActive(null); setAddErr("");
   }
 
   function startAdd() {
     setAddStep(2);
     setRpSc(Object.fromEntries(addSel.map(id=>[id,""])));
-    setRpPhotos({}); setRpYakuman([]); setRpAutoId(null); setRpActive(null);
+    setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes([]); setRpOpenRiichi([]); setRpDealIn([]); setRpAutoId(null); setRpActive(null);
     setAddRounds([]); setAddChips({}); setAddBashiro({}); setAddErr("");
   }
 
@@ -344,7 +349,8 @@ export default function App() {
 
   function resetAdd() {
     setAddStep(0); setAddRules({...lr}); setAddSel([]); setAddRounds([]);
-    setRpSc({}); setRpPhotos({}); setRpYakuman([]); setAddChips({}); setAddBashiro({});
+    setAddDate(new Date().toISOString().slice(0,10));
+    setRpSc({}); setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes({}); setRpOpenRiichi([]); setRpDealIn([]); setAddChips({}); setAddBashiro({});
     setRpActive(null); setChipActive(null); setAddErr(""); setBashiroTotal("");
   }
 
@@ -469,6 +475,21 @@ export default function App() {
                             <span style={{fontSize:12}}>{isYakuman?"☑️":"⬜"}</span>
                             <span style={{fontSize:10,color:isYakuman?"#ffd700":"#666"}}>役満</span>
                           </div>
+                          {isYakuman && (
+                            <input type="text" placeholder="種類（例: 国士無双）"
+                              value={(r.yakumanTypes?.[String(pid)]??r.yakumanTypes?.[pid])||""}
+                              onChange={e=>{
+                                const val=e.target.value;
+                                setEditSession(prev=>{
+                                  const newRounds=prev.rounds.map((rr,i)=>i!==ri?rr:{
+                                    ...rr,yakumanTypes:{...(rr.yakumanTypes||{}),[pid]:val}
+                                  });
+                                  return{...prev,rounds:newRounds};
+                                });
+                              }}
+                              onClick={e=>e.stopPropagation()}
+                              style={{marginTop:4,background:"rgba(255,215,0,0.08)",border:"1px solid rgba(255,215,0,0.3)",color:"#ffd700",borderRadius:6,padding:"4px 8px",fontSize:12,width:"100%",outline:"none"}}/>
+                          )}
                         </div>
                         {/* スコア表示 → タップでテンキー */}
                         <div onClick={()=>setEditKeypadActive(isActive?null:key)}
@@ -605,7 +626,7 @@ export default function App() {
           </div>
         )}
         <div style={{marginLeft:"auto",display:"flex",gap:3,flexWrap:"wrap",justifyContent:"flex-end"}}>
-          {[["dashboard","📊"],["calendar","🗓"],["history","📅"],["yakuman","🀄"],["add","➕"],["members","👥"]].map(([t,l])=>(
+          {[["dashboard","📊"],["calendar","🗓"],["history","📅"],["skull","💀"],["add","➕"],["members","👥"]].map(([t,l])=>(
             <button key={t} onClick={()=>setTab(t)} style={S.nav(tab===t)}>{l}</button>
           ))}
         </div>
@@ -627,7 +648,7 @@ export default function App() {
         {tab==="dashboard" && (() => {
           const lifetimeStats = members.map(m=>{
             const sid = String(m.id);
-            let sc=0,scY=0,chY=0,ba=0,games=0,r1=0,r2=0,r3=0,r4=0,yakuman=0;
+            let sc=0,scY=0,chY=0,ba=0,games=0,r1=0,r2=0,r3=0,r4=0,yakuman=0,openRiichiCount=0,dealInCount=0;
             sessions.forEach(s=>{
               if(!s.members.map(Number).includes(m.id)) return;
               let ss=0;
@@ -641,6 +662,8 @@ export default function App() {
                 const rank=sorted.map(Number).indexOf(m.id)+1;
                 if(rank===1)r1++; else if(rank===2)r2++; else if(rank===3)r3++; else if(rank===4)r4++;
                 if(r.yakuman&&r.yakuman.map(Number).includes(m.id)) yakuman++;
+                if(r.openRiichi&&r.openRiichi.map(Number).includes(m.id)) openRiichiCount++;
+                if(r.dealIn&&r.dealIn.map(Number).includes(m.id)) dealInCount++;
               });
               scY+=ss*N(s.rules.scoreRate);
               chY+=N(s.chips[sid]??s.chips[m.id])*N(s.rules.chipRate);
@@ -650,7 +673,8 @@ export default function App() {
             const avgRank=games?(r1*1+r2*2+r3*3+r4*4)/games:0;
             return{
               ...m, sc:Math.round(sc), seisan, ba, kati, games,
-              r1,r2,r3,r4,yakuman,
+              r1,r2,r3,r4,yakuman,openRiichiCount,dealInCount,
+              dealInRate: openRiichiCount?Math.round(dealInCount/openRiichiCount*1000)/10:0,
               topRate:  games?Math.round(r1/games*1000)/10:0,
               renRate:  games?Math.round((r1+r2)/games*1000)/10:0,
               lastRate: games?Math.round(r4/games*1000)/10:0,
@@ -671,8 +695,8 @@ export default function App() {
 
           return (
             <>
-              <div style={{display:"flex",gap:4,marginBottom:10}}>
-                {[["summary","📊 概要"],["lifetime","🏆 生涯成績"],["h2h","⚔️ 対人成績"]].map(([v,l])=>(
+              <div style={{display:"flex",gap:4,marginBottom:10,flexWrap:"wrap"}}>
+                {[["summary","📊 概要"],["lifetime","🏆 生涯成績"],["h2h","⚔️ 対人成績"],["yakuman","🀄 役満"]].map(([v,l])=>(
                   <button key={v} onClick={()=>setDashSub(v)} style={{padding:"5px 12px",borderRadius:16,border:"none",cursor:"pointer",fontSize:12,fontWeight:500,background:dashSub===v?"#e74c3c":"rgba(255,255,255,0.1)",color:"#fff"}}>{l}</button>
                 ))}
               </div>
@@ -825,6 +849,22 @@ export default function App() {
                             </div>
                           ))}
                         </div>
+                        {p.openRiichiCount > 0 && (
+                          <div style={{marginTop:6,background:"rgba(52,152,219,0.08)",border:"1px solid rgba(52,152,219,0.25)",borderRadius:7,padding:"6px 10px",display:"flex",gap:12,alignItems:"center"}}>
+                            <div style={{textAlign:"center"}}>
+                              <div style={{fontSize:13,fontWeight:"bold",color:"#3498db"}}>{p.openRiichiCount}回</div>
+                              <div style={{fontSize:9,color:"#666"}}>開放立直</div>
+                            </div>
+                            <div style={{textAlign:"center"}}>
+                              <div style={{fontSize:13,fontWeight:"bold",color:"#e74c3c"}}>{p.dealInCount}回</div>
+                              <div style={{fontSize:9,color:"#666"}}>振り込み</div>
+                            </div>
+                            <div style={{textAlign:"center"}}>
+                              <div style={{fontSize:13,fontWeight:"bold",color:p.dealInRate<=30?"#2ecc71":"#e74c3c"}}>{p.dealInRate}%</div>
+                              <div style={{fontSize:9,color:"#666"}}>振り込み率</div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
@@ -839,7 +879,7 @@ export default function App() {
                       {members.filter(m=>m.id!==exclude).map(m=>{
                         const on = val===m.id;
                         return (
-                          <div key={m.id} onClick={()=>setter(on?null:m.id)}
+                          <div key={m.id} onClick={()=>{setter(on?null:m.id);setLast10Mode(false);setLast10Revealed({});}}
                             style={{borderRadius:8,padding:"6px 4px",textAlign:"center",cursor:"pointer",
                               border:on?"2px solid #e74c3c":"1px solid rgba(255,255,255,0.15)",
                               background:on?"rgba(231,76,60,0.15)":"rgba(255,255,255,0.04)"}}>
@@ -983,7 +1023,7 @@ export default function App() {
 
                           {/* 対戦履歴 */}
                           <div style={S.card()}>
-                            <div style={{fontSize:11,color:"#ccc",marginBottom:7}}>📅 半荘別履歴</div>
+                            <div style={{fontSize:11,color:"#ccc",marginBottom:7}}>📅 半荘別履歴（全{history.length}戦）</div>
                             {[...history].reverse().map((h,i)=>(
                               <div key={i} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 0",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
                                 <div style={{fontSize:10,color:"#666",width:56}}>{h.date.slice(5)}</div>
@@ -999,6 +1039,112 @@ export default function App() {
                               </div>
                             ))}
                           </div>
+
+                          {/* 過去10戦ゲームモード */}
+                          {history.length > 0 && (() => {
+                            const last10 = [...history].slice(-10).reverse();
+                            const isPlaying = last10Mode;
+                            const revealed = last10Revealed;
+                            const allRevealed = last10.every((_,i)=>revealed[i]);
+                            const aWins10 = last10.filter((_,i)=>revealed[i]&&last10[i].va>last10[i].vb).length;
+                            const bWins10 = last10.filter((_,i)=>revealed[i]&&last10[i].vb>last10[i].va).length;
+                            return (
+                              <div style={{...S.card({background:"linear-gradient(135deg,rgba(231,76,60,0.08),rgba(52,152,219,0.08))",border:"1px solid rgba(255,255,255,0.15)"})}}>
+                                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:isPlaying?12:0}}>
+                                  <div>
+                                    <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>⚔️ 過去{Math.min(10,last10.length)}戦で勝負する</div>
+                                    {isPlaying&&<div style={{fontSize:10,color:"#888",marginTop:2}}>タップで結果をめくる</div>}
+                                  </div>
+                                  <button onClick={()=>{
+                                    if(isPlaying){ setLast10Mode(false); setLast10Revealed({}); }
+                                    else { setLast10Mode(true); setLast10Revealed({}); }
+                                  }} style={{padding:"7px 14px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:"bold",fontSize:12,
+                                    background:isPlaying?"rgba(255,255,255,0.1)":"linear-gradient(135deg,#e74c3c,#3498db)",color:"#fff"}}>
+                                    {isPlaying?"やめる":"START ▶"}
+                                  </button>
+                                </div>
+
+                                {isPlaying && (
+                                  <>
+                                    {/* 対戦カード */}
+                                    <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
+                                      {last10.map((h,i)=>{
+                                        const isRev = !!revealed[i];
+                                        const aWin = h.va > h.vb;
+                                        return (
+                                          <div key={i} onClick={()=>!isRev&&setLast10Revealed(prev=>({...prev,[i]:true}))}
+                                            style={{borderRadius:9,overflow:"hidden",cursor:isRev?"default":"pointer",
+                                              border:`1px solid ${isRev?(aWin?"rgba(231,76,60,0.4)":"rgba(52,152,219,0.4)"):"rgba(255,255,255,0.12)"}`,
+                                              background:isRev?(aWin?"rgba(231,76,60,0.08)":"rgba(52,152,219,0.08)"):"rgba(255,255,255,0.04)"}}>
+                                            {!isRev ? (
+                                              <div style={{padding:"14px 12px",textAlign:"center"}}>
+                                                <div style={{fontSize:22}}>🀄</div>
+                                                <div style={{fontSize:11,color:"#555",marginTop:4}}>第{i+1}戦　タップでめくる</div>
+                                              </div>
+                                            ) : (
+                                              <div style={{padding:"10px 12px",display:"flex",alignItems:"center",gap:8}}>
+                                                <div style={{fontSize:11,color:"#666",width:36}}>第{i+1}戦</div>
+                                                <div style={{flex:1,textAlign:"right"}}>
+                                                  <div style={{fontSize:15,fontWeight:"bold",color:aWin?"#2ecc71":"#e74c3c"}}>{fw(h.va)}</div>
+                                                  <div style={{fontSize:9,color:"#888"}}>{RI[h.rankA-1]} {h2hStats.mA?.name}</div>
+                                                </div>
+                                                <div style={{fontSize:13,fontWeight:700,color:aWin?"#e74c3c":"#3498db",width:36,textAlign:"center"}}>
+                                                  {aWin?"勝":"負"}
+                                                </div>
+                                                <div style={{flex:1,textAlign:"left"}}>
+                                                  <div style={{fontSize:15,fontWeight:"bold",color:aWin?"#e74c3c":"#2ecc71"}}>{fw(h.vb)}</div>
+                                                  <div style={{fontSize:9,color:"#888"}}>{RI[h.rankB-1]} {h2hStats.mB?.name}</div>
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+
+                                    {/* 全部めくったら結果発表 */}
+                                    {allRevealed && (
+                                      <div style={{background:"rgba(255,255,255,0.06)",borderRadius:10,padding:14,textAlign:"center"}}>
+                                        <div style={{fontSize:13,color:"#ccc",marginBottom:10}}>🏁 過去{last10.length}戦の結果</div>
+                                        <div style={{display:"flex",justifyContent:"space-around",alignItems:"center"}}>
+                                          <div style={{textAlign:"center"}}>
+                                            <Av m={h2hStats.mA} sz={44}/>
+                                            <div style={{fontSize:13,fontWeight:600,marginTop:5}}>{h2hStats.mA?.name}</div>
+                                            <div style={{fontSize:28,fontWeight:"bold",color:aWins10>=bWins10?"#2ecc71":"#e74c3c",marginTop:4}}>{aWins10}勝</div>
+                                          </div>
+                                          <div style={{fontSize:18,color:"#555"}}>vs</div>
+                                          <div style={{textAlign:"center"}}>
+                                            <Av m={h2hStats.mB} sz={44}/>
+                                            <div style={{fontSize:13,fontWeight:600,marginTop:5}}>{h2hStats.mB?.name}</div>
+                                            <div style={{fontSize:28,fontWeight:"bold",color:bWins10>=aWins10?"#2ecc71":"#e74c3c",marginTop:4}}>{bWins10}勝</div>
+                                          </div>
+                                        </div>
+                                        {aWins10 !== bWins10 && (
+                                          <div style={{marginTop:12,fontSize:16,fontWeight:700,color:"#ffd700"}}>
+                                            🏆 {aWins10>bWins10?h2hStats.mA?.name:h2hStats.mB?.name} の勝ち！
+                                          </div>
+                                        )}
+                                        {aWins10 === bWins10 && (
+                                          <div style={{marginTop:12,fontSize:16,fontWeight:700,color:"#aaa"}}>🤝 引き分け！</div>
+                                        )}
+                                        <button onClick={()=>{setLast10Mode(false);setLast10Revealed({});}}
+                                          style={{marginTop:14,padding:"8px 20px",borderRadius:8,border:"none",background:"rgba(255,255,255,0.1)",color:"#aaa",cursor:"pointer",fontSize:12}}>
+                                          閉じる
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    {/* 進捗 */}
+                                    {!allRevealed && (
+                                      <div style={{textAlign:"center",fontSize:11,color:"#666"}}>
+                                        {Object.keys(revealed).length} / {last10.length} めくり済み
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </>
                       );
                     })()}
@@ -1017,6 +1163,155 @@ export default function App() {
                   </>
                 );
               })()}
+
+              {/* 役満ギャラリー サブタブ */}
+              {dashSub==="yakuman" && (() => {
+                const yakumanScenes = [];
+                [...sessions].reverse().forEach(s => {
+                  s.rounds.forEach((r, ri) => {
+                    if (!r.yakuman || r.yakuman.length === 0) return;
+                    r.yakuman.forEach(pid => {
+                      const m = gm(Number(pid)||pid); if (!m) return;
+                      const sid = String(pid);
+                      const sc = N(r.scores[sid]??r.scores[pid]);
+                      const photos = (r.photos?.[sid]??r.photos?.[pid])||[];
+                      const yakumanType = r.yakumanTypes?.[sid]??r.yakumanTypes?.[pid]??"";
+                      yakumanScenes.push({ date:s.date, ri, m, sc, photos, yakumanType });
+                    });
+                  });
+                });
+                return (
+                  <>
+                    <div style={{fontSize:13,fontWeight:600,color:"#ffd700",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
+                      🀄 役満ギャラリー <span style={{fontSize:11,color:"#888",fontWeight:400}}>({yakumanScenes.length}件)</span>
+                    </div>
+                    {yakumanScenes.length === 0 ? (
+                      <div style={{textAlign:"center",padding:40,color:"#555"}}>
+                        <div style={{fontSize:36,marginBottom:10}}>🀄</div>
+                        <div style={{fontSize:13}}>まだ役満の記録がありません</div>
+                      </div>
+                    ) : (
+                      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                        {yakumanScenes.map((scene,i)=>(
+                          <div key={i} style={{background:"linear-gradient(135deg,rgba(255,215,0,0.1),rgba(255,165,0,0.05))",border:"1px solid rgba(255,215,0,0.35)",borderRadius:12,overflow:"hidden"}}>
+                            {scene.photos.length > 0 ? (
+                              <div style={{position:"relative"}}>
+                                <div style={{display:"flex",gap:2}}>
+                                  {scene.photos.map((p,pi)=><img key={pi} src={p} alt="" onClick={()=>setLb(p)} style={{flex:1,height:scene.photos.length===1?200:130,objectFit:"cover",cursor:"pointer"}}/>)}
+                                </div>
+                                <div style={{position:"absolute",top:8,left:8,background:"rgba(0,0,0,0.7)",borderRadius:6,padding:"3px 8px"}}>
+                                  <span style={{fontSize:11,color:"#ffd700",fontWeight:600}}>{scene.date}</span>
+                                </div>
+                              </div>
+                            ) : (
+                              <div style={{background:"rgba(255,215,0,0.06)",height:60,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                <span style={{fontSize:30}}>🀄</span>
+                              </div>
+                            )}
+                            <div style={{padding:"10px 12px",display:"flex",alignItems:"center",gap:10}}>
+                              <Av m={scene.m} sz={40}/>
+                              <div style={{flex:1}}>
+                                <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>{scene.m?.name}</div>
+                                <div style={{fontSize:12,color:"#ffd700",marginTop:1}}>
+                                  🀄 役満達成！{scene.yakumanType&&<span style={{fontSize:13,fontWeight:700,marginLeft:4}}>【{scene.yakumanType}】</span>}
+                                </div>
+                                <div style={{fontSize:10,color:"#888",marginTop:1}}>{scene.date}　第{scene.ri+1}半荘</div>
+                              </div>
+                              <div style={{textAlign:"right"}}>
+                                <div style={{fontSize:20,fontWeight:"bold",color:"#ffd700"}}>{fw(scene.sc)}</div>
+                                <div style={{fontSize:10,color:"#888"}}>順位点</div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </>
+          );
+        })()}
+
+        {/* ===== 💀 オープンリーチ振込ギャラリー ===== */}
+        {tab==="skull" && (() => {
+          const scenes = [];
+          [...sessions].reverse().forEach(s => {
+            s.rounds.forEach((r, ri) => {
+              if (!r.openRiichi || r.openRiichi.length === 0) return;
+              r.openRiichi.forEach(pid => {
+                const m = gm(Number(pid)||pid); if (!m) return;
+                const sid = String(pid);
+                const dealedIn = r.dealIn && r.dealIn.map(Number).includes(Number(pid));
+                const sc = N(r.scores[sid]??r.scores[pid]);
+                const photos = (r.photos?.[sid]??r.photos?.[pid])||[];
+                scenes.push({ date:s.date, ri, m, sc, photos, dealedIn });
+              });
+            });
+          });
+          const dealInScenes = scenes.filter(s=>s.dealedIn);
+          const openRiichiTotal = scenes.length;
+          const dealInTotal = dealInScenes.length;
+          return (
+            <>
+              <div style={{fontSize:13,fontWeight:600,color:"#e74c3c",marginBottom:4,display:"flex",alignItems:"center",gap:6}}>
+                💀 オープンリーチ振込ギャラリー
+              </div>
+              <div style={{fontSize:10,color:"#888",marginBottom:10}}>開放立直を宣言して振り込んだ屈辱の記録</div>
+
+              {/* 統計 */}
+              {openRiichiTotal > 0 && (
+                <div style={S.card({background:"rgba(231,76,60,0.06)",border:"1px solid rgba(231,76,60,0.2)",marginBottom:10})}>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,textAlign:"center"}}>
+                    <div>
+                      <div style={{fontSize:20,fontWeight:"bold",color:"#3498db"}}>{openRiichiTotal}</div>
+                      <div style={{fontSize:10,color:"#666"}}>開放立直</div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:20,fontWeight:"bold",color:"#e74c3c"}}>{dealInTotal}</div>
+                      <div style={{fontSize:10,color:"#666"}}>振り込み</div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:20,fontWeight:"bold",color:dealInTotal/openRiichiTotal<=0.3?"#2ecc71":"#e74c3c"}}>
+                        {Math.round(dealInTotal/openRiichiTotal*100)}%
+                      </div>
+                      <div style={{fontSize:10,color:"#666"}}>振り込み率</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {dealInScenes.length === 0 ? (
+                <div style={{textAlign:"center",padding:40,color:"#555"}}>
+                  <div style={{fontSize:36,marginBottom:10}}>💀</div>
+                  <div style={{fontSize:13}}>振り込み記録がありません</div>
+                  <div style={{fontSize:11,color:"#444",marginTop:4}}>開放立直で振り込んだら記録されます</div>
+                </div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {dealInScenes.map((scene,i)=>(
+                    <div key={i} style={{background:"linear-gradient(135deg,rgba(231,76,60,0.1),rgba(192,57,43,0.05))",border:"1px solid rgba(231,76,60,0.35)",borderRadius:12,overflow:"hidden"}}>
+                      {scene.photos.length > 0 && (
+                        <div style={{display:"flex",gap:2}}>
+                          {scene.photos.map((p,pi)=><img key={pi} src={p} alt="" onClick={()=>setLb(p)} style={{flex:1,height:scene.photos.length===1?180:120,objectFit:"cover",cursor:"pointer"}}/>)}
+                        </div>
+                      )}
+                      <div style={{padding:"10px 12px",display:"flex",alignItems:"center",gap:10}}>
+                        <Av m={scene.m} sz={40}/>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>{scene.m?.name}</div>
+                          <div style={{fontSize:12,color:"#e74c3c",marginTop:1}}>💀 開放立直で振り込み</div>
+                          <div style={{fontSize:10,color:"#888",marginTop:1}}>{scene.date}　第{scene.ri+1}半荘</div>
+                        </div>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontSize:20,fontWeight:"bold",color:cc(scene.sc)}}>{fw(scene.sc)}</div>
+                          <div style={{fontSize:10,color:"#888"}}>順位点</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </>
           );
         })()}
@@ -1088,82 +1383,6 @@ export default function App() {
           </>
         )}
 
-        {/* ===== 役満 ===== */}
-        {tab==="yakuman" && (() => {
-          // 全役満シーンを収集
-          const yakumanScenes = [];
-          [...sessions].reverse().forEach(s => {
-            s.rounds.forEach((r, ri) => {
-              if (!r.yakuman || r.yakuman.length === 0) return;
-              r.yakuman.forEach(pid => {
-                const m = gm(Number(pid) || pid);
-                if (!m) return;
-                const sid = String(pid);
-                const sc = N(r.scores[sid] ?? r.scores[pid]);
-                const photos = (r.photos?.[sid] ?? r.photos?.[pid]) || [];
-                yakumanScenes.push({ date: s.date, ri, m, sc, photos });
-              });
-            });
-          });
-
-          return (
-            <>
-              <div style={{fontSize:13,fontWeight:600,color:"#ffd700",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
-                🀄 役満ギャラリー
-                <span style={{fontSize:11,color:"#888",fontWeight:400}}>({yakumanScenes.length}件)</span>
-              </div>
-
-              {yakumanScenes.length === 0 ? (
-                <div style={{textAlign:"center",padding:48,color:"#555"}}>
-                  <div style={{fontSize:40,marginBottom:12}}>🀄</div>
-                  <div style={{fontSize:14,marginBottom:6}}>まだ役満の記録がありません</div>
-                  <div style={{fontSize:11,color:"#444"}}>対局入力時に役満チェックを入れると表示されます</div>
-                </div>
-              ) : (
-                <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                  {yakumanScenes.map((scene, i) => (
-                    <div key={i} style={{background:"linear-gradient(135deg,rgba(255,215,0,0.1),rgba(255,165,0,0.05))",border:"1px solid rgba(255,215,0,0.35)",borderRadius:12,overflow:"hidden"}}>
-                      {/* 写真エリア */}
-                      {scene.photos.length > 0 ? (
-                        <div style={{position:"relative"}}>
-                          <div style={{display:"flex",gap:2}}>
-                            {scene.photos.map((p, pi) => (
-                              <img key={pi} src={p} alt="" onClick={()=>setLb(p)}
-                                style={{flex:1,height:scene.photos.length===1?200:130,objectFit:"cover",cursor:"pointer"}}/>
-                            ))}
-                          </div>
-                          {/* 日付バッジ */}
-                          <div style={{position:"absolute",top:8,left:8,background:"rgba(0,0,0,0.7)",borderRadius:6,padding:"3px 8px"}}>
-                            <span style={{fontSize:11,color:"#ffd700",fontWeight:600}}>{scene.date}</span>
-                          </div>
-                        </div>
-                      ) : (
-                        <div style={{background:"rgba(255,215,0,0.06)",height:72,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                          <span style={{fontSize:36}}>🀄</span>
-                        </div>
-                      )}
-
-                      {/* 情報エリア */}
-                      <div style={{padding:"10px 12px",display:"flex",alignItems:"center",gap:10}}>
-                        <Av m={scene.m} sz={40}/>
-                        <div style={{flex:1}}>
-                          <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>{scene.m?.name}</div>
-                          <div style={{fontSize:11,color:"#ffd700",marginTop:1}}>🀄 役満達成！</div>
-                          <div style={{fontSize:10,color:"#888",marginTop:1}}>{scene.date}　第{scene.ri+1}半荘</div>
-                        </div>
-                        <div style={{textAlign:"right"}}>
-                          <div style={{fontSize:20,fontWeight:"bold",color:"#ffd700"}}>{fw(scene.sc)}</div>
-                          <div style={{fontSize:10,color:"#888"}}>順位点</div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          );
-        })()}
-
         {/* ===== HISTORY ===== */}
         {tab==="history" && (
           <>
@@ -1214,16 +1433,16 @@ export default function App() {
                     {isOpen && (
                       <>
                         {s.rounds.map((r,ri)=>{
-                          const sortedPl=[...r.players].sort((a,b)=>N(r.scores[b])-N(r.scores[a]));
+                          const sortedPl=[...r.players].sort((a,b)=>N(r.scores[String(b)]??r.scores[b])-N(r.scores[String(a)]??r.scores[a]));
                           return (
                             <div key={ri} style={{background:"rgba(0,0,0,0.18)",borderRadius:7,padding:6,marginBottom:5}}>
                               <div style={{fontSize:10,color:"#888",marginBottom:4}}>第{ri+1}半荘</div>
                               <div style={{display:"flex",flexDirection:"column",gap:3}}>
                                 {sortedPl.map((pid,rank)=>{
                                   const m=gm(pid); if(!m) return null;
-                                  const sc2=N(r.scores[pid]);
-                                  const ph=(r.photos?.[pid])||[];
-                                  const isYakuman=r.yakuman&&r.yakuman.includes(pid);
+                                  const sc2=N(r.scores[String(pid)]??r.scores[pid]);
+                                  const ph=(r.photos?.[String(pid)]??r.photos?.[pid])||[];
+                                  const isYakuman=r.yakuman&&(r.yakuman.map(Number).includes(Number(pid)));
                                   return (
                                     <div key={pid} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 8px",background:rank===0?"rgba(231,76,60,0.1)":"rgba(255,255,255,0.03)",borderRadius:6}}>
                                       <span style={{fontSize:14,width:22,textAlign:"center"}}>{RI[rank]||"—"}</span>
@@ -1240,7 +1459,7 @@ export default function App() {
                                     </div>
                                   );
                                 })}
-                                {mems.filter(m=>!r.players.includes(m.id)).map(m=>(
+                                {mems.filter(m=>!r.players.map(Number).includes(m.id)).map(m=>(
                                   <div key={m.id} style={{display:"flex",alignItems:"center",gap:7,padding:"4px 8px",opacity:0.35}}>
                                     <span style={{fontSize:14,width:22,textAlign:"center"}}>💤</span>
                                     <Av m={m} sz={24}/>
@@ -1404,11 +1623,36 @@ export default function App() {
                                   </div>
                                 )}
                                 {isActive&&<Keypad value={v} onChange={val=>handleScore(id,val)}/>}
-                                <div onClick={()=>setRpYakuman(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id])}
-                                  style={{display:"flex",alignItems:"center",gap:5,marginTop:6,padding:"5px 8px",borderRadius:6,cursor:"pointer",background:rpYakuman.includes(id)?"rgba(255,215,0,0.15)":"rgba(255,255,255,0.03)",border:rpYakuman.includes(id)?"1px solid rgba(255,215,0,0.5)":"1px solid rgba(255,255,255,0.08)"}}>
-                                  <span style={{fontSize:14}}>{rpYakuman.includes(id)?"☑️":"⬜"}</span>
-                                  <span style={{fontSize:11,color:rpYakuman.includes(id)?"#ffd700":"#666",fontWeight:rpYakuman.includes(id)?600:400}}>役満</span>
-                                  {rpYakuman.includes(id)&&<span style={{fontSize:10,color:"#ffd700"}}>🀄</span>}
+                                {/* 役満チェック + 種類入力 */}
+                                <div style={{marginTop:6}}>
+                                  <div onClick={()=>setRpYakuman(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id])}
+                                    style={{display:"flex",alignItems:"center",gap:5,padding:"5px 8px",borderRadius:6,cursor:"pointer",background:rpYakuman.includes(id)?"rgba(255,215,0,0.15)":"rgba(255,255,255,0.03)",border:rpYakuman.includes(id)?"1px solid rgba(255,215,0,0.5)":"1px solid rgba(255,255,255,0.08)"}}>
+                                    <span style={{fontSize:14}}>{rpYakuman.includes(id)?"☑️":"⬜"}</span>
+                                    <span style={{fontSize:11,color:rpYakuman.includes(id)?"#ffd700":"#666",fontWeight:rpYakuman.includes(id)?600:400}}>役満</span>
+                                    {rpYakuman.includes(id)&&<span style={{fontSize:10,color:"#ffd700"}}>🀄</span>}
+                                  </div>
+                                  {rpYakuman.includes(id) && (
+                                    <input type="text" placeholder="種類を入力（例: 四暗刻）"
+                                      value={rpYakumanTypes[id]||""}
+                                      onChange={e=>setRpYakumanTypes(prev=>({...prev,[id]:e.target.value}))}
+                                      onClick={e=>e.stopPropagation()}
+                                      style={{...S.inp({marginTop:4,fontSize:12,background:"rgba(255,215,0,0.08)",border:"1px solid rgba(255,215,0,0.3)",color:"#ffd700"})}}/>
+                                  )}
+                                </div>
+                                {/* 開放立直 */}
+                                <div style={{marginTop:4}}>
+                                  <div onClick={()=>setRpOpenRiichi(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id])}
+                                    style={{display:"flex",alignItems:"center",gap:5,padding:"5px 8px",borderRadius:6,cursor:"pointer",background:rpOpenRiichi.includes(id)?"rgba(52,152,219,0.15)":"rgba(255,255,255,0.03)",border:rpOpenRiichi.includes(id)?"1px solid rgba(52,152,219,0.5)":"1px solid rgba(255,255,255,0.08)"}}>
+                                    <span style={{fontSize:14}}>{rpOpenRiichi.includes(id)?"☑️":"⬜"}</span>
+                                    <span style={{fontSize:11,color:rpOpenRiichi.includes(id)?"#3498db":"#666",fontWeight:rpOpenRiichi.includes(id)?600:400}}>開放立直</span>
+                                  </div>
+                                  {rpOpenRiichi.includes(id) && (
+                                    <div onClick={()=>setRpDealIn(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id])}
+                                      style={{display:"flex",alignItems:"center",gap:5,marginTop:3,padding:"5px 8px",borderRadius:6,cursor:"pointer",background:rpDealIn.includes(id)?"rgba(231,76,60,0.15)":"rgba(255,255,255,0.03)",border:rpDealIn.includes(id)?"1px solid rgba(231,76,60,0.5)":"1px solid rgba(255,255,255,0.08)"}}>
+                                      <span style={{fontSize:14}}>{rpDealIn.includes(id)?"☑️":"⬜"}</span>
+                                      <span style={{fontSize:11,color:rpDealIn.includes(id)?"#e74c3c":"#666",fontWeight:rpDealIn.includes(id)?600:400}}>💀 振り込み</span>
+                                    </div>
+                                  )}
                                 </div>
                                 <div style={{marginTop:6}}>
                                   {ph.length > 0 && (
