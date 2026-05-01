@@ -117,7 +117,8 @@ export default function App() {
   const [bashiroTotal, setBashiroTotal] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [editSession, setEditSession] = useState(null);
-  const [memberDeleteStep, setMemberDeleteStep] = useState({}); // {id: 1 or 2}
+  const [memberDeleteStep, setMemberDeleteStep] = useState({});
+  const [editKeypadActive, setEditKeypadActive] = useState(null); // "ri-pid"
   const [dashSub, setDashSub] = useState("summary");
   const [sortKey, setSortKey] = useState("sc");
   const [sortAsc, setSortAsc] = useState(false);
@@ -426,20 +427,49 @@ export default function App() {
                   <div style={{fontSize:11,color:"#ccc",marginBottom:7}}>第{ri+1}半荘</div>
                   {sortedPl.map(pid => {
                     const m = gm(pid); if (!m) return null;
+                    const key = `${ri}-${pid}`;
+                    const isActive = editKeypadActive === key;
+                    const v = String(r.scores[pid] ?? "");
+                    const isYakuman = r.yakuman && r.yakuman.includes(pid);
                     return (
-                      <div key={pid} style={{display:"flex",alignItems:"center",gap:7,marginBottom:6}}>
-                        <Av m={m} sz={22}/>
-                        <div style={{fontSize:12,flex:1}}>{m.name}</div>
-                        <input type="text" inputMode="decimal" value={r.scores[pid]}
-                          onChange={e => {
-                            setEditSession(prev => {
-                              const newRounds = prev.rounds.map((rr, i) => i !== ri ? rr : {
-                                ...rr, scores: { ...rr.scores, [pid]: e.target.value }
+                      <div key={pid} style={{marginBottom:8,background:"rgba(255,255,255,0.04)",borderRadius:7,padding:7}}>
+                        <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5}}>
+                          <Av m={m} sz={22}/>
+                          <div style={{fontSize:12,flex:1}}>{m.name}</div>
+                          {/* 役満チェック */}
+                          <div onClick={()=>{
+                            setEditSession(prev=>{
+                              const newRounds = prev.rounds.map((rr,i)=>i!==ri?rr:{
+                                ...rr, yakuman: isYakuman
+                                  ? (rr.yakuman||[]).filter(x=>x!==pid)
+                                  : [...(rr.yakuman||[]), pid]
                               });
-                              return { ...prev, rounds: newRounds };
+                              return{...prev,rounds:newRounds};
                             });
-                          }}
-                          style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",color:N(r.scores[pid])>=0?"#2ecc71":"#e74c3c",borderRadius:6,padding:"5px 8px",fontSize:13,width:80,textAlign:"center",outline:"none"}}/>
+                          }} style={{display:"flex",alignItems:"center",gap:4,padding:"3px 7px",borderRadius:6,cursor:"pointer",background:isYakuman?"rgba(255,215,0,0.15)":"rgba(255,255,255,0.05)",border:isYakuman?"1px solid rgba(255,215,0,0.5)":"1px solid rgba(255,255,255,0.1)"}}>
+                            <span style={{fontSize:12}}>{isYakuman?"☑️":"⬜"}</span>
+                            <span style={{fontSize:10,color:isYakuman?"#ffd700":"#666"}}>役満</span>
+                          </div>
+                        </div>
+                        {/* スコア表示 → タップでテンキー */}
+                        <div onClick={()=>setEditKeypadActive(isActive?null:key)}
+                          style={{textAlign:"center",padding:"8px 6px",borderRadius:7,cursor:"pointer",marginBottom:isActive?4:0,
+                            background:isActive?"rgba(231,76,60,0.12)":"rgba(255,255,255,0.06)",
+                            border:isActive?"1px solid rgba(231,76,60,0.4)":"1px solid rgba(255,255,255,0.1)"}}>
+                          <span style={{fontSize:18,fontWeight:"bold",color:N(v)>=0?"#2ecc71":"#e74c3c"}}>
+                            {v!==""?(N(v)>=0?"+":"")+v:"タップで入力"}
+                          </span>
+                        </div>
+                        {isActive && (
+                          <Keypad value={v} onChange={val=>{
+                            setEditSession(prev=>{
+                              const newRounds = prev.rounds.map((rr,i)=>i!==ri?rr:{
+                                ...rr, scores:{...rr.scores,[pid]:val}
+                              });
+                              return{...prev,rounds:newRounds};
+                            });
+                          }}/>
+                        )}
                       </div>
                     );
                   })}
@@ -487,7 +517,7 @@ export default function App() {
 
             <div style={{display:"flex",gap:6}}>
               <button onClick={saveEditSession} style={S.br({flex:1})}>💾 保存する</button>
-              <button onClick={()=>setEditSession(null)} style={S.bg()}>キャンセル</button>
+              <button onClick={()=>{setEditSession(null);setEditKeypadActive(null);}} style={S.bg()}>キャンセル</button>
             </div>
           </div>
         </div>
