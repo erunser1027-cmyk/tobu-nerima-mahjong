@@ -105,7 +105,7 @@ export default function App() {
 
   const [addStep, setAddStep] = useState(0);
   const [addDate, setAddDate] = useState(new Date().toISOString().slice(0,10));
-  const [addRules, setAddRules] = useState({ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:50, chipRate:100 });
+  const [addRules, setAddRules] = useState({ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:30, chipRate:50 });
   const [addSel, setAddSel] = useState([]);
   const [addRounds, setAddRounds] = useState([]);
   const [rpSc, setRpSc] = useState({});
