@@ -11,6 +11,55 @@ const SCORE_RATES = [
   { label:"0.3レート（1000点=30円）", val:30 },
 ];
 
+const CHANGELOG = [
+  { date:"2026-05-02", features:[
+    "生涯成績の各項目に色分け基準を設定（黄・オレンジ・紫・青）",
+    "ゲスト追加機能（ゲスト1・2…と自動採番）",
+    "役満達成時に演出アニメーション追加",
+    "LIVE途中経過パネル追加（LIVEバッジタップで表示）",
+    "対局開始ボタン押下でLIVEバッジ点滅開始",
+    "対人成績をランダム選出に変更（🎲）",
+    "生涯成績詳細に各項目の順位表示追加（👑）",
+    "履歴を日付順に変更",
+    "メンバー名前編集機能追加（✏️ボタン）",
+    "役満の種類入力追加（編集モーダル・入力画面両対応）",
+    "開放立直振込ギャラリー（💀タブ）追加",
+    "役満ギャラリーをダッシュボードのサブタブに移動",
+    "対人成績に過去ランダム10戦ゲームモード追加",
+    "生涯成績テーブルを上部に移動・行タップで詳細表示",
+    "対人成績タブ（⚔️）追加",
+    "過去の成績編集に開放立直・振り込みチェック追加",
+    "編集モーダルに写真追加機能",
+    "編集モーダルにレート変更追加",
+    "過去の成績編集にテンキー・役満チェック追加",
+    "履歴の削除・編集機能追加",
+    "メンバー削除2段階確認追加",
+    "保存後すぐ反映されるよう修正",
+    "場代を合計入力→人数割り勘自動計算に変更",
+    "チップ自動計算ボタン追加",
+    "生涯成績タブ追加（トップ率・連対率・ラスト率・役満回数）",
+    "カレンダーの役満日を金色表示",
+    "対局履歴のタップで展開・折りたたみ機能",
+    "役満チェックボックス追加",
+  ]},
+  { date:"2026-05-01", features:[
+    "Supabase統合（リアルタイムデータ共有）",
+    "独自ドメイン設定（tleague.nerima-night-crew.com）",
+    "PWA化（ホーム画面アイコン追加対応）",
+    "Vercelデプロイ・GitHub連携",
+    "デフォルトを0.3レート・チップ50円に変更",
+    "日付タイムゾーンバグ修正",
+    "バグ修正：履歴スコア表示・役満バッジ・抜け番",
+    "アイコン・レイアウト修正",
+    "順位点直接入力方式に変更（テンキー・±キー付き）",
+    "5人以上参加時の抜け番対応",
+    "写真アップロード機能（半荘・プロフィール）",
+    "月別スコア推移グラフ追加",
+    "カレンダー機能追加",
+    "対人成績基本機能",
+  ]},
+];
+
 const N = v => { const n = Number(v); return isNaN(n) ? 0 : n; };
 const fw = n => (n >= 0 ? "+" : "") + Math.round(n).toLocaleString();
 const fwy = n => fw(n) + "円";
@@ -142,7 +191,8 @@ export default function App() {
   const [last10Revealed, setLast10Revealed] = useState({});
   const [last10Seed, setLast10Seed] = useState(0);
   const [showLivePanel, setShowLivePanel] = useState(false);
-  const [yakumanCelebration, setYakumanCelebration] = useState(null); // {name, type}
+  const [yakumanCelebration, setYakumanCelebration] = useState(null);
+  const [showChangelog, setShowChangelog] = useState(false); // {name, type}
 
   const fileRef = useRef(null);
   const [photoTgt, setPhotoTgt] = useState(null);
@@ -732,10 +782,38 @@ export default function App() {
 
       <div style={{padding:10,paddingBottom:28}}>
         {(tab==="dashboard"||tab==="history") && (
-          <div style={{display:"flex",gap:4,marginBottom:8}}>
+          <div style={{display:"flex",gap:4,marginBottom:8,alignItems:"center"}}>
             {[["all","全期間"],["year","今年"],["month","今月"]].map(([v,l])=>(
               <button key={v} onClick={()=>setPeriod(v)} style={S.pd(period===v)}>{l}</button>
             ))}
+            <button onClick={()=>setShowChangelog(p=>!p)} style={{marginLeft:"auto",padding:"4px 10px",borderRadius:13,cursor:"pointer",fontSize:11,background:"transparent",border:showChangelog?"1px solid #7fb9e0":"1px solid rgba(255,255,255,0.18)",color:showChangelog?"#7fb9e0":"#888"}}>
+              📋 更新履歴
+            </button>
+          </div>
+        )}
+
+        {/* 更新履歴モーダル */}
+        {showChangelog && (
+          <div style={{...S.card({background:"rgba(52,152,219,0.06)",border:"1px solid rgba(52,152,219,0.25)",marginBottom:10})}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <div style={{fontSize:13,fontWeight:600,color:"#7fb9e0"}}>📋 更新履歴</div>
+              <button onClick={()=>setShowChangelog(false)} style={S.bs()}>✕</button>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:0}}>
+              {CHANGELOG.map((item,i)=>(
+                <div key={i} style={{display:"flex",gap:10,padding:"8px 0",borderBottom:i<CHANGELOG.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
+                  <div style={{fontSize:10,color:"#555",whiteSpace:"nowrap",minWidth:70,paddingTop:2}}>{item.date}</div>
+                  <div style={{flex:1}}>
+                    {item.features.map((f,j)=>(
+                      <div key={j} style={{fontSize:11,color:"#ccc",marginBottom:2,display:"flex",gap:5,alignItems:"flex-start"}}>
+                        <span style={{color:"#3498db",fontSize:10,marginTop:1}}>✦</span>
+                        <span>{f}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
