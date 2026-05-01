@@ -777,6 +777,11 @@ export default function App() {
             };
           }).filter(p=>p.games>0);
 
+          const avgRankCol = v => v<=2.32?"#ffd700":v<=2.37?"#f39c12":v<=2.5?"#9b59b6":"#3498db";
+          const topRateCol = v => v>=30?"#ffd700":v>=28?"#f39c12":v>=25?"#9b59b6":"#3498db";
+          const renRateCol = v => v>=60?"#ffd700":v>=55?"#f39c12":v>=50?"#9b59b6":"#3498db";
+          const lastRateCol = v => v<=16?"#ffd700":v<=20?"#f39c12":v<=23?"#9b59b6":"#3498db";
+
           const handleSort = (key) => {
             if(sortKey===key) setSortAsc(a=>!a);
             else { setSortKey(key); setSortAsc(false); }
@@ -853,6 +858,15 @@ export default function App() {
               {dashSub==="lifetime" && (
                 <>
                   <div style={{fontSize:10,color:"#888",marginBottom:6}}>列タップでソート　行タップで詳細</div>
+                  {/* 色凡例 */}
+                  <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+                    {[["#ffd700","最高"],["#f39c12","良"],["#9b59b6","平均"],["#3498db","要改善"]].map(([col,label])=>(
+                      <div key={label} style={{display:"flex",alignItems:"center",gap:3}}>
+                        <span style={{width:10,height:10,borderRadius:"50%",background:col,display:"inline-block"}}/>
+                        <span style={{fontSize:9,color:"#666"}}>{label}</span>
+                      </div>
+                    ))}
+                  </div>
 
                   {/* 比較テーブル（上に移動） */}
                   <div style={S.card({padding:"8px 6px"})}>
@@ -887,10 +901,10 @@ export default function App() {
                               </td>
                               <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#aaa"}}>{p.games}</td>
                               <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:cc(p.sc),fontWeight:"bold"}}>{fw(p.sc)}</td>
-                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:p.avgRank<=2.5?"#2ecc71":"#e74c3c"}}>{p.avgRank.toFixed(2)}</td>
-                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:p.topRate>=25?"#2ecc71":"#aaa"}}>{p.topRate}%</td>
-                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:p.renRate>=50?"#2ecc71":"#aaa"}}>{p.renRate}%</td>
-                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:p.lastRate<=25?"#2ecc71":"#e74c3c"}}>{p.lastRate}%</td>
+                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:avgRankCol(p.avgRank)}}>{p.avgRank.toFixed(2)}</td>
+                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:topRateCol(p.topRate)}}>{p.topRate}%</td>
+                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:renRateCol(p.renRate)}}>{p.renRate}%</td>
+                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:lastRateCol(p.lastRate)}}>{p.lastRate}%</td>
                               <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#f39c12"}}>{p.r1}</td>
                               <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#aaa"}}>{p.r2}</td>
                               <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#888"}}>{p.r3}</td>
@@ -925,10 +939,10 @@ export default function App() {
                         </div>
                         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginBottom:6}}>
                           {[
-                            ["平均順位", p.avgRank.toFixed(2)+"位", cc(-p.avgRank+3), [...liSorted].sort((a,b)=>a.avgRank-b.avgRank).findIndex(x=>x.id===p.id)+1],
-                            ["トップ率", p.topRate+"%", p.topRate>=25?"#2ecc71":"#aaa", [...liSorted].sort((a,b)=>b.topRate-a.topRate).findIndex(x=>x.id===p.id)+1],
-                            ["連対率",   p.renRate+"%",  p.renRate>=50?"#2ecc71":"#aaa", [...liSorted].sort((a,b)=>b.renRate-a.renRate).findIndex(x=>x.id===p.id)+1],
-                            ["ラスト率", p.lastRate+"%", p.lastRate<=25?"#2ecc71":"#e74c3c", [...liSorted].sort((a,b)=>a.lastRate-b.lastRate).findIndex(x=>x.id===p.id)+1],
+                            ["平均順位", p.avgRank.toFixed(2)+"位", avgRankCol(p.avgRank), [...liSorted].sort((a,b)=>a.avgRank-b.avgRank).findIndex(x=>x.id===p.id)+1],
+                            ["トップ率", p.topRate+"%", topRateCol(p.topRate), [...liSorted].sort((a,b)=>b.topRate-a.topRate).findIndex(x=>x.id===p.id)+1],
+                            ["連対率",   p.renRate+"%", renRateCol(p.renRate), [...liSorted].sort((a,b)=>b.renRate-a.renRate).findIndex(x=>x.id===p.id)+1],
+                            ["ラスト率", p.lastRate+"%", lastRateCol(p.lastRate), [...liSorted].sort((a,b)=>a.lastRate-b.lastRate).findIndex(x=>x.id===p.id)+1],
                           ].map(([label,val,col,rank])=>(
                             <div key={label} style={{background:"rgba(255,255,255,0.05)",borderRadius:7,padding:"7px 4px",textAlign:"center"}}>
                               <div style={{fontSize:15,fontWeight:"bold",color:col}}>{val}</div>
