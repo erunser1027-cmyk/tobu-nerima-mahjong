@@ -341,8 +341,7 @@ export default function App() {
       chips: updated.chips,
       bashiro: updated.bashiro,
       rules: updated.rules,
-    }).eq("id", updated.id);
-    setSessions(p => p.map(s => s.id === updated.id ? updated : s));
+    }).eq("id", updated.id);    setSessions(p => p.map(s => s.id === updated.id ? updated : s));
     setEditSession(null);
     setEditKeypadActive(null);
   }
@@ -456,41 +455,59 @@ export default function App() {
                     const isActive = editKeypadActive === key;
                     const v = String(r.scores[pid] ?? "");
                     const isYakuman = r.yakuman && r.yakuman.includes(pid);
+                    const isOpenRiichi = r.openRiichi && r.openRiichi.map(Number).includes(Number(pid));
+                    const isDealIn = r.dealIn && r.dealIn.map(Number).includes(Number(pid));
+
+                    const toggleArr = (field, pid) => {
+                      setEditSession(prev=>{
+                        const newRounds=prev.rounds.map((rr,i)=>i!==ri?rr:{
+                          ...rr,[field]: (rr[field]||[]).map(Number).includes(Number(pid))
+                            ? (rr[field]||[]).filter(x=>Number(x)!==Number(pid))
+                            : [...(rr[field]||[]),pid]
+                        });
+                        return{...prev,rounds:newRounds};
+                      });
+                    };
+
                     return (
                       <div key={pid} style={{marginBottom:8,background:"rgba(255,255,255,0.04)",borderRadius:7,padding:7}}>
                         <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5}}>
                           <Av m={m} sz={22}/>
                           <div style={{fontSize:12,flex:1}}>{m.name}</div>
                           {/* 役満チェック */}
-                          <div onClick={()=>{
-                            setEditSession(prev=>{
-                              const newRounds = prev.rounds.map((rr,i)=>i!==ri?rr:{
-                                ...rr, yakuman: isYakuman
-                                  ? (rr.yakuman||[]).filter(x=>x!==pid)
-                                  : [...(rr.yakuman||[]), pid]
-                              });
-                              return{...prev,rounds:newRounds};
-                            });
-                          }} style={{display:"flex",alignItems:"center",gap:4,padding:"3px 7px",borderRadius:6,cursor:"pointer",background:isYakuman?"rgba(255,215,0,0.15)":"rgba(255,255,255,0.05)",border:isYakuman?"1px solid rgba(255,215,0,0.5)":"1px solid rgba(255,255,255,0.1)"}}>
+                          <div onClick={()=>toggleArr("yakuman",pid)} style={{display:"flex",alignItems:"center",gap:4,padding:"3px 7px",borderRadius:6,cursor:"pointer",background:isYakuman?"rgba(255,215,0,0.15)":"rgba(255,255,255,0.05)",border:isYakuman?"1px solid rgba(255,215,0,0.5)":"1px solid rgba(255,255,255,0.1)"}}>
                             <span style={{fontSize:12}}>{isYakuman?"☑️":"⬜"}</span>
                             <span style={{fontSize:10,color:isYakuman?"#ffd700":"#666"}}>役満</span>
                           </div>
-                          {isYakuman && (
-                            <input type="text" placeholder="種類（例: 国士無双）"
-                              value={(r.yakumanTypes?.[String(pid)]??r.yakumanTypes?.[pid])||""}
-                              onChange={e=>{
-                                const val=e.target.value;
-                                setEditSession(prev=>{
-                                  const newRounds=prev.rounds.map((rr,i)=>i!==ri?rr:{
-                                    ...rr,yakumanTypes:{...(rr.yakumanTypes||{}),[pid]:val}
-                                  });
-                                  return{...prev,rounds:newRounds};
-                                });
-                              }}
-                              onClick={e=>e.stopPropagation()}
-                              style={{marginTop:4,background:"rgba(255,215,0,0.08)",border:"1px solid rgba(255,215,0,0.3)",color:"#ffd700",borderRadius:6,padding:"4px 8px",fontSize:12,width:"100%",outline:"none"}}/>
-                          )}
+                          {/* 開放立直チェック */}
+                          <div onClick={()=>toggleArr("openRiichi",pid)} style={{display:"flex",alignItems:"center",gap:4,padding:"3px 7px",borderRadius:6,cursor:"pointer",background:isOpenRiichi?"rgba(52,152,219,0.15)":"rgba(255,255,255,0.05)",border:isOpenRiichi?"1px solid rgba(52,152,219,0.5)":"1px solid rgba(255,255,255,0.1)"}}>
+                            <span style={{fontSize:12}}>{isOpenRiichi?"☑️":"⬜"}</span>
+                            <span style={{fontSize:10,color:isOpenRiichi?"#3498db":"#666"}}>開放立直</span>
+                          </div>
                         </div>
+                        {/* 役満種類入力 */}
+                        {isYakuman && (
+                          <input type="text" placeholder="種類（例: 国士無双）"
+                            value={(r.yakumanTypes?.[String(pid)]??r.yakumanTypes?.[pid])||""}
+                            onChange={e=>{
+                              const val=e.target.value;
+                              setEditSession(prev=>{
+                                const newRounds=prev.rounds.map((rr,i)=>i!==ri?rr:{
+                                  ...rr,yakumanTypes:{...(rr.yakumanTypes||{}),[pid]:val}
+                                });
+                                return{...prev,rounds:newRounds};
+                              });
+                            }}
+                            onClick={e=>e.stopPropagation()}
+                            style={{marginBottom:4,background:"rgba(255,215,0,0.08)",border:"1px solid rgba(255,215,0,0.3)",color:"#ffd700",borderRadius:6,padding:"4px 8px",fontSize:12,width:"100%",outline:"none"}}/>
+                        )}
+                        {/* 振り込みチェック（開放立直のときのみ） */}
+                        {isOpenRiichi && (
+                          <div onClick={()=>toggleArr("dealIn",pid)} style={{display:"flex",alignItems:"center",gap:5,marginBottom:4,padding:"5px 8px",borderRadius:6,cursor:"pointer",background:isDealIn?"rgba(231,76,60,0.15)":"rgba(255,255,255,0.03)",border:isDealIn?"1px solid rgba(231,76,60,0.5)":"1px solid rgba(255,255,255,0.08)"}}>
+                            <span style={{fontSize:12}}>{isDealIn?"☑️":"⬜"}</span>
+                            <span style={{fontSize:11,color:isDealIn?"#e74c3c":"#666",fontWeight:isDealIn?600:400}}>💀 振り込み</span>
+                          </div>
+                        )}
                         {/* スコア表示 → タップでテンキー */}
                         <div onClick={()=>setEditKeypadActive(isActive?null:key)}
                           style={{textAlign:"center",padding:"8px 6px",borderRadius:7,cursor:"pointer",marginBottom:isActive?4:0,
@@ -674,7 +691,7 @@ export default function App() {
             return{
               ...m, sc:Math.round(sc), seisan, ba, kati, games,
               r1,r2,r3,r4,yakuman,openRiichiCount,dealInCount,
-              dealInRate: openRiichiCount?Math.round(dealInCount/openRiichiCount*1000)/10:0,
+              dealInRate: games?Math.round(dealInCount/games*1000)/10:0,
               topRate:  games?Math.round(r1/games*1000)/10:0,
               renRate:  games?Math.round((r1+r2)/games*1000)/10:0,
               lastRate: games?Math.round(r4/games*1000)/10:0,
@@ -849,19 +866,12 @@ export default function App() {
                             </div>
                           ))}
                         </div>
-                        {p.openRiichiCount > 0 && (
-                          <div style={{marginTop:6,background:"rgba(52,152,219,0.08)",border:"1px solid rgba(52,152,219,0.25)",borderRadius:7,padding:"6px 10px",display:"flex",gap:12,alignItems:"center"}}>
-                            <div style={{textAlign:"center"}}>
-                              <div style={{fontSize:13,fontWeight:"bold",color:"#3498db"}}>{p.openRiichiCount}回</div>
-                              <div style={{fontSize:9,color:"#666"}}>開放立直</div>
-                            </div>
-                            <div style={{textAlign:"center"}}>
-                              <div style={{fontSize:13,fontWeight:"bold",color:"#e74c3c"}}>{p.dealInCount}回</div>
-                              <div style={{fontSize:9,color:"#666"}}>振り込み</div>
-                            </div>
-                            <div style={{textAlign:"center"}}>
-                              <div style={{fontSize:13,fontWeight:"bold",color:p.dealInRate<=30?"#2ecc71":"#e74c3c"}}>{p.dealInRate}%</div>
-                              <div style={{fontSize:9,color:"#666"}}>振り込み率</div>
+                        {p.dealInCount > 0 && (
+                          <div style={{marginTop:6,background:"rgba(231,76,60,0.1)",border:"1px solid rgba(231,76,60,0.5)",borderRadius:7,padding:"8px 12px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                            <div style={{fontSize:11,color:"#e74c3c",fontWeight:600}}>💀 開放立直振込</div>
+                            <div style={{fontSize:13,fontWeight:"bold",color:"#e74c3c"}}>
+                              {p.dealInCount}回
+                              <span style={{fontSize:11,color:"#aaa",marginLeft:6}}>({p.dealInRate}% / {p.games}半荘)</span>
                             </div>
                           </div>
                         )}
@@ -1259,27 +1269,40 @@ export default function App() {
               </div>
               <div style={{fontSize:10,color:"#888",marginBottom:10}}>開放立直を宣言して振り込んだ屈辱の記録</div>
 
-              {/* 統計 */}
-              {openRiichiTotal > 0 && (
-                <div style={S.card({background:"rgba(231,76,60,0.06)",border:"1px solid rgba(231,76,60,0.2)",marginBottom:10})}>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,textAlign:"center"}}>
-                    <div>
-                      <div style={{fontSize:20,fontWeight:"bold",color:"#3498db"}}>{openRiichiTotal}</div>
-                      <div style={{fontSize:10,color:"#666"}}>開放立直</div>
-                    </div>
-                    <div>
-                      <div style={{fontSize:20,fontWeight:"bold",color:"#e74c3c"}}>{dealInTotal}</div>
-                      <div style={{fontSize:10,color:"#666"}}>振り込み</div>
-                    </div>
-                    <div>
-                      <div style={{fontSize:20,fontWeight:"bold",color:dealInTotal/openRiichiTotal<=0.3?"#2ecc71":"#e74c3c"}}>
-                        {Math.round(dealInTotal/openRiichiTotal*100)}%
+              {/* 統計：プレイヤー別振込率 */}
+              {dealInScenes.length > 0 && (() => {
+                // プレイヤーごとの振込回数を集計
+                const playerStats = {};
+                dealInScenes.forEach(scene => {
+                  const id = scene.m.id;
+                  if (!playerStats[id]) playerStats[id] = { m: scene.m, count: 0, games: 0 };
+                  playerStats[id].count++;
+                });
+                // 総半荘数を取得
+                sessions.forEach(s => {
+                  s.rounds.forEach(r => {
+                    r.players.map(Number).forEach(pid => {
+                      if (playerStats[pid]) playerStats[pid].games++;
+                    });
+                  });
+                });
+                return (
+                  <div style={S.card({background:"rgba(231,76,60,0.06)",border:"1px solid rgba(231,76,60,0.2)",marginBottom:10})}>
+                    <div style={{fontSize:11,color:"#ccc",marginBottom:8}}>💀 プレイヤー別振込率</div>
+                    {Object.values(playerStats).sort((a,b)=>b.count-a.count).map(ps=>(
+                      <div key={ps.m.id} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+                        <Av m={ps.m} sz={24}/>
+                        <div style={{flex:1,fontSize:12,fontWeight:500}}>{ps.m.name}</div>
+                        <div style={{fontSize:13,fontWeight:"bold",color:"#e74c3c"}}>{ps.count}回</div>
+                        <div style={{fontSize:11,color:"#aaa"}}>
+                          {ps.games?Math.round(ps.count/ps.games*1000)/10:0}%
+                          <span style={{fontSize:10,color:"#666",marginLeft:4}}>/ {ps.games}半荘</span>
+                        </div>
                       </div>
-                      <div style={{fontSize:10,color:"#666"}}>振り込み率</div>
-                    </div>
+                    ))}
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {dealInScenes.length === 0 ? (
                 <div style={{textAlign:"center",padding:40,color:"#555"}}>
