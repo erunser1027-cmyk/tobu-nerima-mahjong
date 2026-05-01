@@ -115,6 +115,9 @@ export default function App() {
   const [chipActive, setChipActive] = useState(null);
   const [histOpen, setHistOpen] = useState({});
   const [bashiroTotal, setBashiroTotal] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [editSession, setEditSession] = useState(null);
+  const [memberDeleteStep, setMemberDeleteStep] = useState({}); // {id: 1 or 2}
   const [dashSub, setDashSub] = useState("summary");
   const [sortKey, setSortKey] = useState("sc");
   const [sortAsc, setSortAsc] = useState(false);
@@ -294,10 +297,29 @@ export default function App() {
       chips,
       bashiro,
     };
-    await supabase.from("sessions").insert(newSess);
+    const { data } = await supabase.from("sessions").insert(newSess).select().single();
+    if (data) setSessions(p => [...p, data]);
     setLr({...addRules, uma:addRules.uma.map(Number)});
     setBashiroTotal("");
     setAddStep(0); setTab("history");
+  }
+
+  async function deleteSession(id) {
+    await supabase.from("sessions").delete().eq("id", id);
+    setSessions(p => p.filter(s => s.id !== id));
+    setDeleteConfirm(null);
+    setHistOpen(prev => { const n={...prev}; delete n[id]; return n; });
+  }
+
+  async function saveEditSession() {
+    const updated = { ...editSession };
+    await supabase.from("sessions").update({
+      rounds: updated.rounds,
+      chips: updated.chips,
+      bashiro: updated.bashiro,
+    }).eq("id", updated.id);
+    setSessions(p => p.map(s => s.id === updated.id ? updated : s));
+    setEditSession(null);
   }
 
   function resetAdd() {
@@ -388,6 +410,88 @@ export default function App() {
     <div style={{ width:"100%", maxWidth:480, margin:"0 auto", minHeight:"100vh", background:"#0f0f1a", color:"#fff", fontFamily:"sans-serif", boxSizing:"border-box" }}>
       <input type="file" accept="image/*" ref={fileRef} style={{display:"none"}} onChange={onFile}/>
       {lb && <div onClick={()=>setLb(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.93)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,cursor:"pointer"}}><img src={lb} alt="" style={{maxWidth:"90%",maxHeight:"80vh",borderRadius:8}}/></div>}
+
+      {/* 編集モーダル */}
+      {editSession && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:999,overflowY:"auto",padding:"16px 12px"}}>
+          <div style={{maxWidth:480,margin:"0 auto",background:"#1a1a2e",borderRadius:12,padding:14}}>
+            <div style={{fontSize:14,fontWeight:600,color:"#fff",marginBottom:12}}>✏️ 対戦記録を編集</div>
+            <div style={{fontSize:11,color:"#888",marginBottom:10}}>📅 {editSession.date}</div>
+
+            {/* 半荘ごとのスコア編集 */}
+            {editSession.rounds.map((r, ri) => {
+              const sortedPl = [...r.players].sort((a,b) => N(r.scores[b]) - N(r.scores[a]));
+              return (
+                <div key={ri} style={{background:"rgba(255,255,255,0.05)",borderRadius:8,padding:9,marginBottom:8}}>
+                  <div style={{fontSize:11,color:"#ccc",marginBottom:7}}>第{ri+1}半荘</div>
+                  {sortedPl.map(pid => {
+                    const m = gm(pid); if (!m) return null;
+                    return (
+                      <div key={pid} style={{display:"flex",alignItems:"center",gap:7,marginBottom:6}}>
+                        <Av m={m} sz={22}/>
+                        <div style={{fontSize:12,flex:1}}>{m.name}</div>
+                        <input type="text" inputMode="decimal" value={r.scores[pid]}
+                          onChange={e => {
+                            setEditSession(prev => {
+                              const newRounds = prev.rounds.map((rr, i) => i !== ri ? rr : {
+                                ...rr, scores: { ...rr.scores, [pid]: e.target.value }
+                              });
+                              return { ...prev, rounds: newRounds };
+                            });
+                          }}
+                          style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",color:N(r.scores[pid])>=0?"#2ecc71":"#e74c3c",borderRadius:6,padding:"5px 8px",fontSize:13,width:80,textAlign:"center",outline:"none"}}/>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+
+            {/* チップ編集 */}
+            <div style={{background:"rgba(255,255,255,0.05)",borderRadius:8,padding:9,marginBottom:8}}>
+              <div style={{fontSize:11,color:"#ccc",marginBottom:7}}>🎰 チップ枚数</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6}}>
+                {editSession.members.map(id => {
+                  const m = gm(id); if (!m) return null;
+                  return (
+                    <div key={id} style={{display:"flex",alignItems:"center",gap:6}}>
+                      <Av m={m} sz={20}/>
+                      <div style={{fontSize:11,flex:1}}>{m.name}</div>
+                      <input type="text" inputMode="decimal" value={editSession.chips[id]||0}
+                        onChange={e => setEditSession(prev => ({...prev, chips:{...prev.chips,[id]:N(e.target.value)}}))}
+                        style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",color:"#fff",borderRadius:6,padding:"4px 6px",fontSize:12,width:60,textAlign:"center",outline:"none"}}/>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 場代編集 */}
+            <div style={{background:"rgba(255,255,255,0.05)",borderRadius:8,padding:9,marginBottom:12}}>
+              <div style={{fontSize:11,color:"#ccc",marginBottom:7}}>🏠 場代（円）</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6}}>
+                {editSession.members.map(id => {
+                  const m = gm(id); if (!m) return null;
+                  return (
+                    <div key={id} style={{display:"flex",alignItems:"center",gap:6}}>
+                      <Av m={m} sz={20}/>
+                      <div style={{fontSize:11,flex:1}}>{m.name}</div>
+                      <input type="text" inputMode="decimal" value={editSession.bashiro[id]||0}
+                        onChange={e => setEditSession(prev => ({...prev, bashiro:{...prev.bashiro,[id]:N(e.target.value)}}))}
+                        style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",color:"#fff",borderRadius:6,padding:"4px 6px",fontSize:12,width:60,textAlign:"center",outline:"none"}}/>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={saveEditSession} style={S.br({flex:1})}>💾 保存する</button>
+              <button onClick={()=>setEditSession(null)} style={S.bg()}>キャンセル</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ヘッダー */}
       <div style={{background:"rgba(255,255,255,0.06)",borderBottom:"1px solid rgba(255,255,255,0.12)",padding:"8px 10px",display:"flex",alignItems:"center",gap:7,position:"sticky",top:0,zIndex:50}}>
@@ -688,12 +792,25 @@ export default function App() {
                 const sortedMems=[...mems].sort((a,b)=>(tot[b.id]?.sc||0)-(tot[a.id]?.sc||0));
                 return (
                   <div key={s.id} style={S.card()}>
-                    <div onClick={()=>setHistOpen(prev=>({...prev,[s.id]:!isOpen}))}
-                      style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:isOpen?10:0,cursor:"pointer"}}>
-                      <span style={{fontWeight:500,fontSize:12,color:"#ccc"}}>📅 {s.date}（{s.rounds.length}半荘）</span>
-                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    {/* 削除確認 */}
+                    {deleteConfirm === s.id && (
+                      <div style={{background:"rgba(231,76,60,0.15)",border:"1px solid rgba(231,76,60,0.4)",borderRadius:8,padding:10,marginBottom:8,textAlign:"center"}}>
+                        <div style={{fontSize:12,color:"#fff",marginBottom:8}}>⚠️ この対戦記録を削除しますか？</div>
+                        <div style={{display:"flex",gap:6,justifyContent:"center"}}>
+                          <button style={S.br({fontSize:12,padding:"6px 14px"})} onClick={()=>deleteSession(s.id)}>削除する</button>
+                          <button style={S.bg({fontSize:12})} onClick={()=>setDeleteConfirm(null)}>キャンセル</button>
+                        </div>
+                      </div>
+                    )}
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:isOpen?10:0}}>
+                      <div onClick={()=>setHistOpen(prev=>({...prev,[s.id]:!isOpen}))} style={{cursor:"pointer",flex:1,display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{fontWeight:500,fontSize:12,color:"#ccc"}}>📅 {s.date}（{s.rounds.length}半荘）</span>
                         <span style={{fontSize:10,color:"#555"}}>{rL}</span>
-                        <span style={{fontSize:14,color:"#888"}}>{isOpen?"▲":"▼"}</span>
+                        <span style={{fontSize:14,color:"#888",marginLeft:"auto"}}>{isOpen?"▲":"▼"}</span>
+                      </div>
+                      <div style={{display:"flex",gap:4,marginLeft:8}}>
+                        <button onClick={e=>{e.stopPropagation();setEditSession(JSON.parse(JSON.stringify(s)));}} style={S.bs({fontSize:11,color:"#7fb9e0"})}>✏️ 編集</button>
+                        <button onClick={e=>{e.stopPropagation();setDeleteConfirm(s.id);}} style={S.bs({fontSize:11,color:"#e74c3c"})}>🗑️</button>
                       </div>
                     </div>
                     {!isOpen && (
@@ -1131,10 +1248,27 @@ export default function App() {
                 <Av m={m} sz={38}/>
                 <div style={{flex:1,fontSize:13,fontWeight:500}}>{m.name}</div>
                 <button style={S.bs()} onClick={()=>{ setPhotoTgt({t:"p",id:m.id}); fileRef.current.value=""; fileRef.current.click(); }}>📷</button>
-                <button style={S.bs({color:"#e74c3c"})} onClick={async()=>{
-                  await supabase.from("members").delete().eq("id", m.id);
-                  setMembers(ms=>ms.filter(x=>x.id!==m.id));
-                }}>削除</button>
+                {!memberDeleteStep[m.id] && (
+                  <button style={S.bs({color:"#e74c3c"})} onClick={()=>setMemberDeleteStep(p=>({...p,[m.id]:1}))}>削除</button>
+                )}
+                {memberDeleteStep[m.id]===1 && (
+                  <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                    <span style={{fontSize:10,color:"#e74c3c"}}>削除してよいですか？</span>
+                    <button style={S.bs({color:"#e74c3c",fontSize:11})} onClick={()=>setMemberDeleteStep(p=>({...p,[m.id]:2}))}>はい</button>
+                    <button style={S.bs({fontSize:11})} onClick={()=>setMemberDeleteStep(p=>({...p,[m.id]:0}))}>いいえ</button>
+                  </div>
+                )}
+                {memberDeleteStep[m.id]===2 && (
+                  <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                    <span style={{fontSize:10,color:"#e74c3c"}}>本当に良いですか？</span>
+                    <button style={S.bs({color:"#e74c3c",fontSize:11})} onClick={async()=>{
+                      await supabase.from("members").delete().eq("id", m.id);
+                      setMembers(ms=>ms.filter(x=>x.id!==m.id));
+                      setMemberDeleteStep(p=>({...p,[m.id]:0}));
+                    }}>削除する</button>
+                    <button style={S.bs({fontSize:11})} onClick={()=>setMemberDeleteStep(p=>({...p,[m.id]:0}))}>いいえ</button>
+                  </div>
+                )}
               </div>
             ))}
           </>
