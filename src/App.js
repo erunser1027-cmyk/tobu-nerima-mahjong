@@ -20,12 +20,16 @@ const mc = m => AC[(m.id - 1) % AC.length];
 function calcTotals(sess) {
   const res = {};
   sess.members.forEach(id => {
+    const sid = String(id);
     let sc = 0;
-    sess.rounds.forEach(r => { if (r.scores[id] != null) sc += N(r.scores[id]); });
-    const ch = N(sess.chips[id]);
+    sess.rounds.forEach(r => {
+      const v = r.scores[sid] ?? r.scores[id];
+      if (v != null) sc += N(v);
+    });
+    const ch = N(sess.chips[sid] ?? sess.chips[id]);
     const scY = sc * N(sess.rules.scoreRate);
     const chY = ch * N(sess.rules.chipRate);
-    const ba = N(sess.bashiro?.[id]);
+    const ba = N(sess.bashiro?.[sid] ?? sess.bashiro?.[id]);
     const seisan = scY + chY;
     res[id] = { sc, chip:ch, scY, chY, seisan, ba, kati:seisan - ba };
   });
@@ -122,6 +126,8 @@ export default function App() {
   const [dashSub, setDashSub] = useState("summary");
   const [sortKey, setSortKey] = useState("sc");
   const [sortAsc, setSortAsc] = useState(false);
+  const [h2hA, setH2hA] = useState(null); // 対人成績 選手A
+  const [h2hB, setH2hB] = useState(null); // 対人成績 選手B
 
   const fileRef = useRef(null);
   const [photoTgt, setPhotoTgt] = useState(null);
@@ -167,25 +173,27 @@ export default function App() {
       return true;
     });
     return members.map(m => {
+      const sid = String(m.id);
       let sc=0, scY=0, chY=0, ba=0, games=0, wins=0;
       const monthly = {};
       fil.forEach(s => {
-        if (!s.members.includes(m.id)) return;
+        if (!s.members.map(Number).includes(m.id)) return;
         const mo = s.date.slice(0,7);
         if (!monthly[mo]) monthly[mo] = {sc:0};
         let ss = 0;
         s.rounds.forEach(r => {
-          if (r.scores[m.id] == null) return;
+          const v = r.scores[sid] ?? r.scores[m.id];
+          if (v == null) return;
           games++;
-          const sc2 = N(r.scores[m.id]);
+          const sc2 = N(v);
           sc += sc2; ss += sc2;
-          const maxSc = Math.max(...r.players.map(pid => N(r.scores[pid])));
+          const maxSc = Math.max(...r.players.map(pid => N(r.scores[String(pid)] ?? r.scores[pid])));
           if (sc2 === maxSc) wins++;
           monthly[mo].sc += sc2;
         });
         scY += ss * N(s.rules.scoreRate);
-        chY += N(s.chips[m.id]) * N(s.rules.chipRate);
-        ba += N(s.bashiro?.[m.id]);
+        chY += N(s.chips[sid] ?? s.chips[m.id]) * N(s.rules.chipRate);
+        ba += N(s.bashiro?.[sid] ?? s.bashiro?.[m.id]);
       });
       const seisan = scY + chY, kati = seisan - ba;
       return { ...m, sc:Math.round(sc), scY, chY, seisan, ba, kati, games, wins, wr:games?Math.round(wins/games*100):0, monthly };
@@ -607,23 +615,25 @@ export default function App() {
         {/* ===== DASHBOARD ===== */}
         {tab==="dashboard" && (() => {
           const lifetimeStats = members.map(m=>{
+            const sid = String(m.id);
             let sc=0,scY=0,chY=0,ba=0,games=0,r1=0,r2=0,r3=0,r4=0,yakuman=0;
             sessions.forEach(s=>{
-              if(!s.members.includes(m.id)) return;
+              if(!s.members.map(Number).includes(m.id)) return;
               let ss=0;
               s.rounds.forEach(r=>{
-                if(r.scores[m.id]==null) return;
+                const v = r.scores[sid] ?? r.scores[m.id];
+                if(v==null) return;
                 games++;
-                const sc2=N(r.scores[m.id]);
+                const sc2=N(v);
                 sc+=sc2; ss+=sc2;
-                const sorted=[...r.players].sort((a,b)=>N(r.scores[b])-N(r.scores[a]));
-                const rank=sorted.indexOf(m.id)+1;
+                const sorted=[...r.players].sort((a,b)=>N(r.scores[String(b)]??r.scores[b])-N(r.scores[String(a)]??r.scores[a]));
+                const rank=sorted.map(Number).indexOf(m.id)+1;
                 if(rank===1)r1++; else if(rank===2)r2++; else if(rank===3)r3++; else if(rank===4)r4++;
-                if(r.yakuman&&r.yakuman.includes(m.id)) yakuman++;
+                if(r.yakuman&&r.yakuman.map(Number).includes(m.id)) yakuman++;
               });
               scY+=ss*N(s.rules.scoreRate);
-              chY+=N(s.chips[m.id])*N(s.rules.chipRate);
-              ba+=N(s.bashiro?.[m.id]);
+              chY+=N(s.chips[sid]??s.chips[m.id])*N(s.rules.chipRate);
+              ba+=N(s.bashiro?.[sid]??s.bashiro?.[m.id]);
             });
             const seisan=scY+chY, kati=seisan-ba;
             const avgRank=games?(r1*1+r2*2+r3*3+r4*4)/games:0;
@@ -651,7 +661,7 @@ export default function App() {
           return (
             <>
               <div style={{display:"flex",gap:4,marginBottom:10}}>
-                {[["summary","📊 概要"],["lifetime","🏆 生涯成績"]].map(([v,l])=>(
+                {[["summary","📊 概要"],["lifetime","🏆 生涯成績"],["h2h","⚔️ 対人成績"]].map(([v,l])=>(
                   <button key={v} onClick={()=>setDashSub(v)} style={{padding:"5px 12px",borderRadius:16,border:"none",cursor:"pointer",fontSize:12,fontWeight:500,background:dashSub===v?"#e74c3c":"rgba(255,255,255,0.1)",color:"#fff"}}>{l}</button>
                 ))}
               </div>
@@ -797,6 +807,193 @@ export default function App() {
                   </div>
                 </>
               )}
+              {dashSub==="h2h" && (() => {
+                // 2人選択UI
+                const selectRow = (label, val, setter, exclude) => (
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:10,color:"#888",marginBottom:5}}>{label}</div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:4}}>
+                      {members.filter(m=>m.id!==exclude).map(m=>{
+                        const on = val===m.id;
+                        return (
+                          <div key={m.id} onClick={()=>setter(on?null:m.id)}
+                            style={{borderRadius:8,padding:"6px 4px",textAlign:"center",cursor:"pointer",
+                              border:on?"2px solid #e74c3c":"1px solid rgba(255,255,255,0.15)",
+                              background:on?"rgba(231,76,60,0.15)":"rgba(255,255,255,0.04)"}}>
+                            <Av m={m} sz={28}/>
+                            <div style={{fontSize:11,marginTop:3,color:on?"#fff":"#aaa"}}>{m.name}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+
+                // 対人成績計算
+                let h2hStats = null;
+                if (h2hA && h2hB) {
+                  const mA = gm(h2hA), mB = gm(h2hB);
+                  const sidA = String(h2hA), sidB = String(h2hB);
+                  let togames=0, aWins=0, bWins=0, aSc=0, bSc=0;
+                  let aR1=0,aR2=0,aR3=0,aR4=0, bR1=0,bR2=0,bR3=0,bR4=0;
+                  const history = [];
+
+                  sessions.forEach(s => {
+                    const sMembers = s.members.map(Number);
+                    if (!sMembers.includes(h2hA) || !sMembers.includes(h2hB)) return;
+                    s.rounds.forEach(r => {
+                      const rPlayers = r.players.map(Number);
+                      if (!rPlayers.includes(h2hA) || !rPlayers.includes(h2hB)) return;
+                      const va = N(r.scores[sidA] ?? r.scores[h2hA]);
+                      const vb = N(r.scores[sidB] ?? r.scores[h2hB]);
+                      togames++;
+                      aSc += va; bSc += vb;
+                      if (va > vb) aWins++; else if (vb > va) bWins++;
+                      // 順位
+                      const sorted = [...rPlayers].sort((x,y)=>N(r.scores[String(y)]??r.scores[y])-N(r.scores[String(x)]??r.scores[x]));
+                      const rankA = sorted.indexOf(h2hA)+1, rankB = sorted.indexOf(h2hB)+1;
+                      if(rankA===1)aR1++; else if(rankA===2)aR2++; else if(rankA===3)aR3++; else aR4++;
+                      if(rankB===1)bR1++; else if(rankB===2)bR2++; else if(rankB===3)bR3++; else bR4++;
+                      history.push({ date:s.date, va, vb, rankA, rankB });
+                    });
+                  });
+
+                  h2hStats = { mA, mB, togames, aWins, bWins, aSc, bSc, aR1,aR2,aR3,aR4, bR1,bR2,bR3,bR4, history };
+                }
+
+                const Bar = ({aVal, bVal, aCol="#e74c3c", bCol="#3498db"}) => {
+                  const total = aVal + bVal || 1;
+                  const aW = Math.round(aVal/total*100);
+                  return (
+                    <div style={{display:"flex",borderRadius:6,overflow:"hidden",height:12}}>
+                      <div style={{width:`${aW}%`,background:aCol,transition:"width 0.3s"}}/>
+                      <div style={{flex:1,background:bCol}}/>
+                    </div>
+                  );
+                };
+
+                return (
+                  <>
+                    <div style={{fontSize:10,color:"#888",marginBottom:8}}>同卓時の対戦成績を比較します</div>
+
+                    {/* 選手選択 */}
+                    <div style={S.card()}>
+                      <div style={{fontSize:11,color:"#ccc",marginBottom:8}}>👥 比較する2人を選択</div>
+                      <div style={{display:"flex",gap:10}}>
+                        {selectRow("選手A", h2hA, setH2hA, h2hB)}
+                        <div style={{display:"flex",alignItems:"center",fontSize:18,color:"#555",paddingTop:20}}>⚔️</div>
+                        {selectRow("選手B", h2hB, setH2hB, h2hA)}
+                      </div>
+                    </div>
+
+                    {/* 結果表示 */}
+                    {h2hStats && h2hStats.togames > 0 && (() => {
+                      const { mA, mB, togames, aWins, bWins, aSc, bSc, aR1,aR2,aR3,aR4, bR1,bR2,bR3,bR4, history } = h2hStats;
+                      const diff = aSc - bSc;
+                      return (
+                        <>
+                          {/* メイン比較カード */}
+                          <div style={S.card({background:"rgba(255,255,255,0.04)"})}>
+                            <div style={{fontSize:11,color:"#888",textAlign:"center",marginBottom:10}}>同卓 {togames}半荘</div>
+
+                            {/* アバター比較 */}
+                            <div style={{display:"flex",alignItems:"center",gap:0,marginBottom:14}}>
+                              <div style={{flex:1,textAlign:"center"}}>
+                                <Av m={mA} sz={48}/>
+                                <div style={{fontSize:13,fontWeight:600,marginTop:5}}>{mA?.name}</div>
+                                <div style={{fontSize:20,fontWeight:"bold",color:aSc>=bSc?"#2ecc71":"#e74c3c",marginTop:3}}>{fw(aSc)}</div>
+                                <div style={{fontSize:11,color:"#888"}}>累計スコア</div>
+                              </div>
+                              <div style={{textAlign:"center",padding:"0 8px"}}>
+                                <div style={{fontSize:11,color:"#666",marginBottom:4}}>スコア差</div>
+                                <div style={{fontSize:16,fontWeight:"bold",color:diff>=0?"#2ecc71":"#e74c3c"}}>{fw(diff)}</div>
+                              </div>
+                              <div style={{flex:1,textAlign:"center"}}>
+                                <Av m={mB} sz={48}/>
+                                <div style={{fontSize:13,fontWeight:600,marginTop:5}}>{mB?.name}</div>
+                                <div style={{fontSize:20,fontWeight:"bold",color:bSc>=aSc?"#2ecc71":"#e74c3c",marginTop:3}}>{fw(bSc)}</div>
+                                <div style={{fontSize:11,color:"#888"}}>累計スコア</div>
+                              </div>
+                            </div>
+
+                            {/* 勝敗バー */}
+                            <div style={{marginBottom:12}}>
+                              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                                <span style={{fontSize:12,fontWeight:"bold",color:"#e74c3c"}}>{aWins}勝</span>
+                                <span style={{fontSize:11,color:"#666"}}>勝敗（スコア上位）</span>
+                                <span style={{fontSize:12,fontWeight:"bold",color:"#3498db"}}>{bWins}勝</span>
+                              </div>
+                              <Bar aVal={aWins} bVal={bWins}/>
+                            </div>
+
+                            {/* 着順比較 */}
+                            <div style={{fontSize:11,color:"#ccc",marginBottom:6}}>📊 着順内訳</div>
+                            {[["1位","#f39c12",aR1,bR1],["2位","#aaa",aR2,bR2],["3位","#888",aR3,bR3],["4位","#e74c3c",aR4,bR4]].map(([label,col,av,bv])=>(
+                              <div key={label} style={{marginBottom:6}}>
+                                <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                                  <span style={{fontSize:11,color:col,fontWeight:"bold"}}>{av}回</span>
+                                  <span style={{fontSize:10,color:"#555"}}>{label}</span>
+                                  <span style={{fontSize:11,color:col,fontWeight:"bold"}}>{bv}回</span>
+                                </div>
+                                <Bar aVal={av} bVal={bv} aCol="#e74c3c" bCol="#3498db"/>
+                              </div>
+                            ))}
+
+                            {/* 率比較 */}
+                            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginTop:10}}>
+                              {[
+                                ["トップ率",togames?Math.round(aR1/togames*100):0,togames?Math.round(bR1/togames*100):0],
+                                ["連対率",togames?Math.round((aR1+aR2)/togames*100):0,togames?Math.round((bR1+bR2)/togames*100):0],
+                                ["ラスト率",togames?Math.round(aR4/togames*100):0,togames?Math.round(bR4/togames*100):0],
+                              ].map(([label,av,bv])=>(
+                                <div key={label} style={{background:"rgba(255,255,255,0.04)",borderRadius:7,padding:"7px 5px",textAlign:"center"}}>
+                                  <div style={{fontSize:9,color:"#666",marginBottom:4}}>{label}</div>
+                                  <div style={{display:"flex",justifyContent:"space-around",alignItems:"center"}}>
+                                    <span style={{fontSize:13,fontWeight:"bold",color:"#e74c3c"}}>{av}%</span>
+                                    <span style={{fontSize:9,color:"#555"}}>vs</span>
+                                    <span style={{fontSize:13,fontWeight:"bold",color:"#3498db"}}>{bv}%</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* 対戦履歴 */}
+                          <div style={S.card()}>
+                            <div style={{fontSize:11,color:"#ccc",marginBottom:7}}>📅 半荘別履歴</div>
+                            {[...history].reverse().map((h,i)=>(
+                              <div key={i} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 0",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+                                <div style={{fontSize:10,color:"#666",width:56}}>{h.date.slice(5)}</div>
+                                <div style={{textAlign:"right",flex:1}}>
+                                  <span style={{fontSize:13,fontWeight:"bold",color:h.va>=h.vb?"#2ecc71":"#e74c3c"}}>{fw(h.va)}</span>
+                                  <span style={{fontSize:9,color:"#555",marginLeft:3}}>{RI[h.rankA-1]}</span>
+                                </div>
+                                <div style={{fontSize:10,color:"#555"}}>vs</div>
+                                <div style={{textAlign:"left",flex:1}}>
+                                  <span style={{fontSize:9,color:"#555",marginRight:3}}>{RI[h.rankB-1]}</span>
+                                  <span style={{fontSize:13,fontWeight:"bold",color:h.vb>=h.va?"#2ecc71":"#e74c3c"}}>{fw(h.vb)}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      );
+                    })()}
+
+                    {h2hStats && h2hStats.togames === 0 && (
+                      <div style={{textAlign:"center",color:"#666",padding:24,fontSize:13}}>
+                        この2人が同卓した記録がありません
+                      </div>
+                    )}
+
+                    {(!h2hA || !h2hB) && (
+                      <div style={{textAlign:"center",color:"#555",padding:24,fontSize:12}}>
+                        2人選択すると対戦成績が表示されます
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </>
           );
         })()}
