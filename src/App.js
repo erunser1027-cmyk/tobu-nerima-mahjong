@@ -104,7 +104,11 @@ export default function App() {
   const [mfPhoto, setMfPhoto] = useState(null);
 
   const [addStep, setAddStep] = useState(0);
-  const [addDate, setAddDate] = useState(new Date().toISOString().slice(0,10));
+  const today = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  };
+  const [addDate, setAddDate] = useState(today());
   const [addRules, setAddRules] = useState({ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:30, chipRate:50 });
   const [addSel, setAddSel] = useState([]);
   const [addRounds, setAddRounds] = useState([]);
@@ -137,6 +141,7 @@ export default function App() {
   const [last10Mode, setLast10Mode] = useState(false);
   const [last10Revealed, setLast10Revealed] = useState({});
   const [last10Seed, setLast10Seed] = useState(0);
+  const [showLivePanel, setShowLivePanel] = useState(false);
 
   const fileRef = useRef(null);
   const [photoTgt, setPhotoTgt] = useState(null);
@@ -351,7 +356,7 @@ export default function App() {
 
   function resetAdd() {
     setAddStep(0); setAddRules({...lr}); setAddSel([]); setAddRounds([]);
-    setAddDate(new Date().toISOString().slice(0,10));
+    setAddDate(today());
     setRpSc({}); setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes({}); setRpOpenRiichi([]); setRpDealIn([]); setAddChips({}); setAddBashiro({});
     setRpActive(null); setChipActive(null); setAddErr(""); setBashiroTotal("");
   }
@@ -639,10 +644,12 @@ export default function App() {
           <div style={{fontSize:12,fontWeight:500,lineHeight:1.2}}>麻雀スコア表</div>
         </div>
         {/* LIVE バッジ */}
-        {sessions.some(s => s.date === new Date().toISOString().slice(0,10)) && (
-          <div style={{display:"flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:12,background:"rgba(231,76,60,0.2)",border:"1px solid rgba(231,76,60,0.5)"}}>
-            <span style={{width:7,height:7,borderRadius:"50%",background:"#e74c3c",display:"inline-block",animation:"pulse 1.2s infinite"}}/>
-            <span style={{fontSize:11,fontWeight:700,color:"#e74c3c",letterSpacing:1}}>LIVE</span>
+        {(addStep === 2 || sessions.some(s => s.date === today())) && (
+          <div style={{display:"flex",alignItems:"center",gap:5,padding:"5px 12px",borderRadius:16,background:"rgba(231,76,60,0.25)",border:"2px solid rgba(231,76,60,0.7)",cursor:addStep===2?"pointer":"default",boxShadow:"0 0 12px rgba(231,76,60,0.4)"}}
+            onClick={()=>{ if(addStep===2) setShowLivePanel(p=>!p); }}>
+            <span style={{width:10,height:10,borderRadius:"50%",background:"#e74c3c",display:"inline-block",animation:"pulse 1s infinite",boxShadow:"0 0 6px #e74c3c"}}/>
+            <span style={{fontSize:15,fontWeight:800,color:"#e74c3c",letterSpacing:2}}>LIVE</span>
+            {addStep===2&&<span style={{fontSize:11,color:"#e74c3c"}}>{showLivePanel?"▲":"▼"}</span>}
           </div>
         )}
         <div style={{marginLeft:"auto",display:"flex",gap:3,flexWrap:"wrap",justifyContent:"flex-end"}}>
@@ -652,8 +659,42 @@ export default function App() {
         </div>
       </div>
 
-      {/* LIVE点滅アニメーション */}
-      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.2} }`}</style>
+      {/* LIVE途中経過パネル */}
+      {addStep===2 && showLivePanel && (
+        <div style={{background:"linear-gradient(135deg,rgba(231,76,60,0.2),rgba(192,57,43,0.15))",border:"2px solid rgba(231,76,60,0.6)",borderBottom:"3px solid #e74c3c",padding:"14px 14px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{width:10,height:10,borderRadius:"50%",background:"#e74c3c",display:"inline-block",animation:"pulse 1s infinite",boxShadow:"0 0 6px #e74c3c"}}/>
+              <div style={{fontSize:15,fontWeight:800,color:"#e74c3c",letterSpacing:2}}>LIVE 途中経過</div>
+            </div>
+            <div style={{fontSize:12,color:"#aaa",background:"rgba(0,0,0,0.3)",padding:"2px 10px",borderRadius:10}}>{addRounds.length}半荘終了</div>
+          </div>
+          {(() => {
+            const totals = {};
+            addSel.forEach(id => { totals[id] = 0; });
+            addRounds.forEach(r => {
+              Object.entries(r.scores).forEach(([pid, sc]) => {
+                if (totals[Number(pid)] !== undefined) totals[Number(pid)] += N(sc);
+              });
+            });
+            const sorted = addSel.map(id => ({ id, m: gm(id), sc: totals[id]||0 }))
+              .sort((a,b) => b.sc - a.sc);
+            return (
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {sorted.map((p,i) => (
+                  <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:i===0?"rgba(231,76,60,0.2)":"rgba(255,255,255,0.06)",borderRadius:10,border:i===0?"1px solid rgba(231,76,60,0.4)":"1px solid rgba(255,255,255,0.08)"}}>
+                    <span style={{fontSize:18,width:26}}>{RI[i]||"—"}</span>
+                    <Av m={p.m} sz={34}/>
+                    <div style={{fontSize:14,fontWeight:600,flex:1}}>{p.m?.name}</div>
+                    <div style={{fontSize:22,fontWeight:"bold",color:cc(p.sc)}}>{fw(p.sc)}</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+          {addRounds.length===0&&<div style={{fontSize:12,color:"#666",textAlign:"center",padding:12}}>まだ半荘の記録がありません</div>}
+        </div>
+      )}
 
       <div style={{padding:10,paddingBottom:28}}>
         {(tab==="dashboard"||tab==="history") && (
@@ -1725,7 +1766,7 @@ export default function App() {
                   })()}
                 </div>
                 {addRounds.length>0&&(
-                  <button style={{...S.br({marginTop:2})}} onClick={()=>{setRpActive(null);setAddStep(3);}}>✅ 対局終了 → 精算へ</button>
+                  <button style={{...S.br({marginTop:2})}} onClick={()=>{setRpActive(null);setShowLivePanel(false);setAddStep(3);}}>✅ 対局終了 → 精算へ</button>
                 )}
               </>
             )}
