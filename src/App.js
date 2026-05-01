@@ -126,8 +126,9 @@ export default function App() {
   const [dashSub, setDashSub] = useState("summary");
   const [sortKey, setSortKey] = useState("sc");
   const [sortAsc, setSortAsc] = useState(false);
-  const [h2hA, setH2hA] = useState(null); // 対人成績 選手A
-  const [h2hB, setH2hB] = useState(null); // 対人成績 選手B
+  const [h2hA, setH2hA] = useState(null);
+  const [h2hB, setH2hB] = useState(null);
+  const [lifeDetail, setLifeDetail] = useState(null);
 
   const fileRef = useRef(null);
   const [photoTgt, setPhotoTgt] = useState(null);
@@ -732,48 +733,10 @@ export default function App() {
 
               {dashSub==="lifetime" && (
                 <>
-                  <div style={{fontSize:10,color:"#888",marginBottom:8}}>※ 全期間の成績。列タップでソート</div>
-                  <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
-                    {liSorted.map((p,i)=>(
-                      <div key={p.id} style={{...S.card({marginBottom:0,background:i===0?"linear-gradient(135deg,rgba(231,76,60,0.15),rgba(192,57,43,0.08))":"rgba(255,255,255,0.04)",border:`1px solid ${i===0?"rgba(231,76,60,0.5)":"rgba(255,255,255,0.1)"}`})}}>
-                        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
-                          <div style={{fontSize:18,width:24}}>{RI[i]||"—"}</div>
-                          <Av m={gm(p.id)} sz={36}/>
-                          <div style={{flex:1}}>
-                            <div style={{fontSize:13,fontWeight:600}}>{p.name}</div>
-                            <div style={{fontSize:11,color:"#888"}}>{p.games}半荘</div>
-                          </div>
-                          <div style={{textAlign:"right"}}>
-                            <div style={{fontSize:15,fontWeight:"bold",color:cc(p.sc)}}>{fw(p.sc)}</div>
-                            <div style={{fontSize:10,color:"#888"}}>累計スコア</div>
-                          </div>
-                        </div>
-                        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4}}>
-                          {[
-                            ["平均順位", p.avgRank.toFixed(2)+"位", cc(-p.avgRank+3)],
-                            ["トップ率", p.topRate+"%", p.topRate>=25?"#2ecc71":"#aaa"],
-                            ["連対率",   p.renRate+"%",  p.renRate>=50?"#2ecc71":"#aaa"],
-                            ["ラスト率", p.lastRate+"%", p.lastRate<=25?"#2ecc71":"#e74c3c"],
-                          ].map(([label,val,col])=>(
-                            <div key={label} style={{background:"rgba(255,255,255,0.05)",borderRadius:7,padding:"6px 4px",textAlign:"center"}}>
-                              <div style={{fontSize:14,fontWeight:"bold",color:col}}>{val}</div>
-                              <div style={{fontSize:9,color:"#666",marginTop:1}}>{label}</div>
-                            </div>
-                          ))}
-                        </div>
-                        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:3,marginTop:5}}>
-                          {[[p.r1,"1位","#f39c12"],[p.r2,"2位","#aaa"],[p.r3,"3位","#888"],[p.r4,"4位","#e74c3c"],[p.yakuman,"役満","#ffd700"]].map(([cnt,label,col])=>(
-                            <div key={label} style={{background:label==="役満"?"rgba(255,215,0,0.08)":"rgba(255,255,255,0.03)",border:label==="役満"?"1px solid rgba(255,215,0,0.3)":"none",borderRadius:6,padding:"5px 3px",textAlign:"center"}}>
-                              <div style={{fontSize:13,fontWeight:"bold",color:col}}>{cnt}回</div>
-                              <div style={{fontSize:9,color:"#555"}}>{label}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={S.card()}>
-                    <div style={{fontSize:11,color:"#ccc",marginBottom:6}}>📋 比較テーブル</div>
+                  <div style={{fontSize:10,color:"#888",marginBottom:6}}>列タップでソート　行タップで詳細</div>
+
+                  {/* 比較テーブル（上に移動） */}
+                  <div style={S.card({padding:"8px 6px"})}>
                     <div style={{overflowX:"auto"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,whiteSpace:"nowrap"}}>
                         <thead>
@@ -793,28 +756,78 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {liSorted.map(p=>(
-                            <tr key={p.id}>
-                              <td style={{padding:"4px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
-                                <div style={{display:"flex",alignItems:"center",gap:4}}><Av m={gm(p.id)} sz={16}/>{p.name}</div>
+                          {liSorted.map((p,i)=>(
+                            <tr key={p.id} onClick={()=>setLifeDetail(lifeDetail===p.id?null:p.id)}
+                              style={{cursor:"pointer",background:lifeDetail===p.id?"rgba(231,76,60,0.08)":i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
+                              <td style={{padding:"6px 4px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
+                                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                                  <span style={{fontSize:11}}>{RI[i]||"—"}</span>
+                                  <Av m={gm(p.id)} sz={18}/>
+                                  <span style={{fontSize:12,fontWeight:500}}>{p.name}</span>
+                                </div>
                               </td>
-                              <td style={{padding:"4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#aaa"}}>{p.games}</td>
-                              <td style={{padding:"4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:cc(p.sc),fontWeight:"bold"}}>{fw(p.sc)}</td>
-                              <td style={{padding:"4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:p.avgRank<=2.5?"#2ecc71":"#e74c3c"}}>{p.avgRank.toFixed(2)}</td>
-                              <td style={{padding:"4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:p.topRate>=25?"#2ecc71":"#aaa"}}>{p.topRate}%</td>
-                              <td style={{padding:"4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:p.renRate>=50?"#2ecc71":"#aaa"}}>{p.renRate}%</td>
-                              <td style={{padding:"4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:p.lastRate<=25?"#2ecc71":"#e74c3c"}}>{p.lastRate}%</td>
-                              <td style={{padding:"4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#f39c12"}}>{p.r1}</td>
-                              <td style={{padding:"4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#aaa"}}>{p.r2}</td>
-                              <td style={{padding:"4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#888"}}>{p.r3}</td>
-                              <td style={{padding:"4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#e74c3c"}}>{p.r4}</td>
-                              <td style={{padding:"4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#ffd700",fontWeight:p.yakuman>0?"bold":"normal"}}>{p.yakuman}</td>
+                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#aaa"}}>{p.games}</td>
+                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:cc(p.sc),fontWeight:"bold"}}>{fw(p.sc)}</td>
+                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:p.avgRank<=2.5?"#2ecc71":"#e74c3c"}}>{p.avgRank.toFixed(2)}</td>
+                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:p.topRate>=25?"#2ecc71":"#aaa"}}>{p.topRate}%</td>
+                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:p.renRate>=50?"#2ecc71":"#aaa"}}>{p.renRate}%</td>
+                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:p.lastRate<=25?"#2ecc71":"#e74c3c"}}>{p.lastRate}%</td>
+                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#f39c12"}}>{p.r1}</td>
+                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#aaa"}}>{p.r2}</td>
+                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#888"}}>{p.r3}</td>
+                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#e74c3c"}}>{p.r4}</td>
+                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#ffd700",fontWeight:p.yakuman>0?"bold":"normal"}}>{p.yakuman}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
                   </div>
+
+                  {/* 詳細カード（行タップで表示） */}
+                  {lifeDetail && (() => {
+                    const p = liSorted.find(x=>x.id===lifeDetail);
+                    const i = liSorted.indexOf(p);
+                    if (!p) return null;
+                    return (
+                      <div style={{...S.card({background:i===0?"linear-gradient(135deg,rgba(231,76,60,0.15),rgba(192,57,43,0.08))":"rgba(255,255,255,0.05)",border:`1px solid ${i===0?"rgba(231,76,60,0.5)":"rgba(255,255,255,0.15)"}`})}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                          <div style={{fontSize:22}}>{RI[i]||"—"}</div>
+                          <Av m={gm(p.id)} sz={44}/>
+                          <div style={{flex:1}}>
+                            <div style={{fontSize:14,fontWeight:700}}>{p.name}</div>
+                            <div style={{fontSize:11,color:"#888"}}>{p.games}半荘</div>
+                          </div>
+                          <div style={{textAlign:"right"}}>
+                            <div style={{fontSize:18,fontWeight:"bold",color:cc(p.sc)}}>{fw(p.sc)}</div>
+                            <div style={{fontSize:10,color:"#888"}}>累計スコア</div>
+                          </div>
+                          <button onClick={()=>setLifeDetail(null)} style={{padding:"3px 7px",borderRadius:5,border:"none",background:"rgba(255,255,255,0.1)",color:"#aaa",cursor:"pointer",fontSize:12}}>✕</button>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginBottom:6}}>
+                          {[
+                            ["平均順位", p.avgRank.toFixed(2)+"位", cc(-p.avgRank+3)],
+                            ["トップ率", p.topRate+"%", p.topRate>=25?"#2ecc71":"#aaa"],
+                            ["連対率",   p.renRate+"%",  p.renRate>=50?"#2ecc71":"#aaa"],
+                            ["ラスト率", p.lastRate+"%", p.lastRate<=25?"#2ecc71":"#e74c3c"],
+                          ].map(([label,val,col])=>(
+                            <div key={label} style={{background:"rgba(255,255,255,0.05)",borderRadius:7,padding:"7px 4px",textAlign:"center"}}>
+                              <div style={{fontSize:15,fontWeight:"bold",color:col}}>{val}</div>
+                              <div style={{fontSize:9,color:"#666",marginTop:2}}>{label}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:3}}>
+                          {[[p.r1,"1位","#f39c12"],[p.r2,"2位","#aaa"],[p.r3,"3位","#888"],[p.r4,"4位","#e74c3c"],[p.yakuman,"役満","#ffd700"]].map(([cnt,label,col])=>(
+                            <div key={label} style={{background:label==="役満"?"rgba(255,215,0,0.08)":"rgba(255,255,255,0.03)",border:label==="役満"?"1px solid rgba(255,215,0,0.3)":"none",borderRadius:6,padding:"6px 3px",textAlign:"center"}}>
+                              <div style={{fontSize:14,fontWeight:"bold",color:col}}>{cnt}回</div>
+                              <div style={{fontSize:9,color:"#555"}}>{label}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </>
               )}
               {dashSub==="h2h" && (() => {
