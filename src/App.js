@@ -1985,7 +1985,20 @@ export default function App() {
                 </div>
               </div>
             ) : (
-              <button style={{...S.br({marginBottom:9})}} onClick={()=>setMfShow(true)}>＋ メンバーを追加</button>
+              <div style={{display:"flex",gap:6,marginBottom:9}}>
+                <button style={S.br()} onClick={()=>setMfShow(true)}>＋ メンバーを追加</button>
+                <button style={{...S.bg({border:"1px solid rgba(255,255,255,0.3)",color:"#ccc"})}} onClick={async()=>{
+                  // 既存のゲスト番号を確認して次の番号を決める
+                  const guestNums = members
+                    .filter(m=>m.name.startsWith("ゲスト"))
+                    .map(m=>parseInt(m.name.replace("ゲスト",""))||0)
+                    .filter(n=>!isNaN(n));
+                  const nextNum = guestNums.length > 0 ? Math.max(...guestNums) + 1 : 1;
+                  const guestName = `ゲスト${nextNum}`;
+                  const { data } = await supabase.from("members").insert({ name: guestName, photo: null }).select().single();
+                  if (data) setMembers(ms=>[...ms, data]);
+                }}>👤 ゲストを追加</button>
+              </div>
             )}
             {members.map(m=>(
               <div key={m.id} style={S.card({marginBottom:7})}>
@@ -2014,7 +2027,10 @@ export default function App() {
                   /* 通常表示 */
                   <div style={{display:"flex",alignItems:"center",gap:9,padding:"0"}}>
                     <Av m={m} sz={38}/>
-                    <div style={{flex:1,fontSize:13,fontWeight:500}}>{m.name}</div>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontWeight:500}}>{m.name}</div>
+                      {m.name.startsWith("ゲスト")&&<div style={{fontSize:10,color:"#888"}}>ゲスト（一時参加）</div>}
+                    </div>
                     <button style={S.bs()} onClick={()=>{ setPhotoTgt({t:"p",id:m.id}); fileRef.current.value=""; fileRef.current.click(); }}>📷</button>
                     <button style={S.bs({color:"#7fb9e0"})} onClick={()=>{ setMemberEditId(m.id); setMemberEditName(m.name); }}>✏️</button>
                     {!memberDeleteStep[m.id] && (
