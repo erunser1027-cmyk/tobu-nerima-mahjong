@@ -318,9 +318,11 @@ export default function App() {
       rounds: updated.rounds,
       chips: updated.chips,
       bashiro: updated.bashiro,
+      rules: updated.rules,
     }).eq("id", updated.id);
     setSessions(p => p.map(s => s.id === updated.id ? updated : s));
     setEditSession(null);
+    setEditKeypadActive(null);
   }
 
   function resetAdd() {
@@ -476,6 +478,22 @@ export default function App() {
                 </div>
               );
             })}
+
+            {/* レート編集 */}
+            <div style={{background:"rgba(255,255,255,0.05)",borderRadius:8,padding:9,marginBottom:8}}>
+              <div style={{fontSize:11,color:"#ccc",marginBottom:7}}>💴 レート設定</div>
+              <div style={{display:"flex",gap:6}}>
+                {SCORE_RATES.map(r=>(
+                  <div key={r.val} onClick={()=>setEditSession(prev=>({...prev,rules:{...prev.rules,scoreRate:r.val}}))}
+                    style={{flex:1,padding:"8px 6px",borderRadius:7,cursor:"pointer",textAlign:"center",
+                      background:editSession.rules.scoreRate===r.val?"rgba(231,76,60,0.2)":"rgba(255,255,255,0.04)",
+                      border:editSession.rules.scoreRate===r.val?"1px solid #e74c3c":"1px solid rgba(255,255,255,0.15)"}}>
+                    <div style={{fontSize:12,fontWeight:editSession.rules.scoreRate===r.val?600:400,color:editSession.rules.scoreRate===r.val?"#fff":"#aaa"}}>{r.label.split("（")[0]}</div>
+                    <div style={{fontSize:10,color:"#666"}}>{r.label.match(/\((.+)\)/)?.[1]||""}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
 
             {/* チップ編集 */}
             <div style={{background:"rgba(255,255,255,0.05)",borderRadius:8,padding:9,marginBottom:8}}>
