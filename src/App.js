@@ -596,12 +596,22 @@ export default function App() {
           <div style={{fontSize:9,color:"#e74c3c",fontWeight:600,lineHeight:1.2}}>東武練馬Tリーグ</div>
           <div style={{fontSize:12,fontWeight:500,lineHeight:1.2}}>麻雀スコア表</div>
         </div>
+        {/* LIVE バッジ */}
+        {sessions.some(s => s.date === new Date().toISOString().slice(0,10)) && (
+          <div style={{display:"flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:12,background:"rgba(231,76,60,0.2)",border:"1px solid rgba(231,76,60,0.5)"}}>
+            <span style={{width:7,height:7,borderRadius:"50%",background:"#e74c3c",display:"inline-block",animation:"pulse 1.2s infinite"}}/>
+            <span style={{fontSize:11,fontWeight:700,color:"#e74c3c",letterSpacing:1}}>LIVE</span>
+          </div>
+        )}
         <div style={{marginLeft:"auto",display:"flex",gap:3,flexWrap:"wrap",justifyContent:"flex-end"}}>
-          {[["dashboard","📊"],["calendar","🗓"],["history","📅"],["add","➕"],["members","👥"]].map(([t,l])=>(
+          {[["dashboard","📊"],["calendar","🗓"],["history","📅"],["yakuman","🀄"],["add","➕"],["members","👥"]].map(([t,l])=>(
             <button key={t} onClick={()=>setTab(t)} style={S.nav(tab===t)}>{l}</button>
           ))}
         </div>
       </div>
+
+      {/* LIVE点滅アニメーション */}
+      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.2} }`}</style>
 
       <div style={{padding:10,paddingBottom:28}}>
         {(tab==="dashboard"||tab==="history") && (
@@ -652,8 +662,8 @@ export default function App() {
             else { setSortKey(key); setSortAsc(false); }
           };
           const liSorted = [...lifetimeStats].sort((a,b)=> sortAsc ? a[sortKey]-b[sortKey] : b[sortKey]-a[sortKey]);
-          const SortBtn = ({k, label}) => (
-            <th onClick={()=>handleSort(k)} style={{color:sortKey===k?"#e74c3c":"#666",fontWeight:400,padding:"5px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.1)",cursor:"pointer",whiteSpace:"nowrap",userSelect:"none",fontSize:10}}>
+          const sortTh = (k, label) => (
+            <th key={k} onClick={()=>handleSort(k)} style={{color:sortKey===k?"#e74c3c":"#666",fontWeight:400,padding:"5px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.1)",cursor:"pointer",whiteSpace:"nowrap",userSelect:"none",fontSize:10}}>
               {label}{sortKey===k?(sortAsc?"↑":"↓"):""}
             </th>
           );
@@ -769,17 +779,17 @@ export default function App() {
                         <thead>
                           <tr>
                             <th style={{color:"#666",fontWeight:400,padding:"5px 4px",textAlign:"left",borderBottom:"1px solid rgba(255,255,255,0.1)",fontSize:10}}>名前</th>
-                            <SortBtn k="games" label="回数"/>
-                            <SortBtn k="sc" label="スコア"/>
-                            <SortBtn k="avgRank" label="平均順位"/>
-                            <SortBtn k="topRate" label="トップ%"/>
-                            <SortBtn k="renRate" label="連対%"/>
-                            <SortBtn k="lastRate" label="ラスト%"/>
-                            <SortBtn k="r1" label="1位"/>
-                            <SortBtn k="r2" label="2位"/>
-                            <SortBtn k="r3" label="3位"/>
-                            <SortBtn k="r4" label="4位"/>
-                            <SortBtn k="yakuman" label="役満"/>
+                            {sortTh("games","回数")}
+                            {sortTh("sc","スコア")}
+                            {sortTh("avgRank","平均順位")}
+                            {sortTh("topRate","トップ%")}
+                            {sortTh("renRate","連対%")}
+                            {sortTh("lastRate","ラスト%")}
+                            {sortTh("r1","1位")}
+                            {sortTh("r2","2位")}
+                            {sortTh("r3","3位")}
+                            {sortTh("r4","4位")}
+                            {sortTh("yakuman","役満")}
                           </tr>
                         </thead>
                         <tbody>
@@ -1064,6 +1074,82 @@ export default function App() {
             })()}
           </>
         )}
+
+        {/* ===== 役満 ===== */}
+        {tab==="yakuman" && (() => {
+          // 全役満シーンを収集
+          const yakumanScenes = [];
+          [...sessions].reverse().forEach(s => {
+            s.rounds.forEach((r, ri) => {
+              if (!r.yakuman || r.yakuman.length === 0) return;
+              r.yakuman.forEach(pid => {
+                const m = gm(Number(pid) || pid);
+                if (!m) return;
+                const sid = String(pid);
+                const sc = N(r.scores[sid] ?? r.scores[pid]);
+                const photos = (r.photos?.[sid] ?? r.photos?.[pid]) || [];
+                yakumanScenes.push({ date: s.date, ri, m, sc, photos });
+              });
+            });
+          });
+
+          return (
+            <>
+              <div style={{fontSize:13,fontWeight:600,color:"#ffd700",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
+                🀄 役満ギャラリー
+                <span style={{fontSize:11,color:"#888",fontWeight:400}}>({yakumanScenes.length}件)</span>
+              </div>
+
+              {yakumanScenes.length === 0 ? (
+                <div style={{textAlign:"center",padding:48,color:"#555"}}>
+                  <div style={{fontSize:40,marginBottom:12}}>🀄</div>
+                  <div style={{fontSize:14,marginBottom:6}}>まだ役満の記録がありません</div>
+                  <div style={{fontSize:11,color:"#444"}}>対局入力時に役満チェックを入れると表示されます</div>
+                </div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {yakumanScenes.map((scene, i) => (
+                    <div key={i} style={{background:"linear-gradient(135deg,rgba(255,215,0,0.1),rgba(255,165,0,0.05))",border:"1px solid rgba(255,215,0,0.35)",borderRadius:12,overflow:"hidden"}}>
+                      {/* 写真エリア */}
+                      {scene.photos.length > 0 ? (
+                        <div style={{position:"relative"}}>
+                          <div style={{display:"flex",gap:2}}>
+                            {scene.photos.map((p, pi) => (
+                              <img key={pi} src={p} alt="" onClick={()=>setLb(p)}
+                                style={{flex:1,height:scene.photos.length===1?200:130,objectFit:"cover",cursor:"pointer"}}/>
+                            ))}
+                          </div>
+                          {/* 日付バッジ */}
+                          <div style={{position:"absolute",top:8,left:8,background:"rgba(0,0,0,0.7)",borderRadius:6,padding:"3px 8px"}}>
+                            <span style={{fontSize:11,color:"#ffd700",fontWeight:600}}>{scene.date}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{background:"rgba(255,215,0,0.06)",height:72,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          <span style={{fontSize:36}}>🀄</span>
+                        </div>
+                      )}
+
+                      {/* 情報エリア */}
+                      <div style={{padding:"10px 12px",display:"flex",alignItems:"center",gap:10}}>
+                        <Av m={scene.m} sz={40}/>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>{scene.m?.name}</div>
+                          <div style={{fontSize:11,color:"#ffd700",marginTop:1}}>🀄 役満達成！</div>
+                          <div style={{fontSize:10,color:"#888",marginTop:1}}>{scene.date}　第{scene.ri+1}半荘</div>
+                        </div>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontSize:20,fontWeight:"bold",color:"#ffd700"}}>{fw(scene.sc)}</div>
+                          <div style={{fontSize:10,color:"#888"}}>順位点</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          );
+        })()}
 
         {/* ===== HISTORY ===== */}
         {tab==="history" && (
