@@ -136,7 +136,14 @@ function Keypad({ value, onChange }) {
 }
 
 export default function App() {
-  const [authed, setAuthed] = useState(false);
+  const [authed, setAuthed] = useState(()=>{
+    try {
+      const saved = localStorage.getItem("tleague_auth");
+      if (!saved) return false;
+      const { expire } = JSON.parse(saved);
+      return Date.now() < expire;
+    } catch { return false; }
+  });
   const [ci, setCi] = useState(""); const [ce, setCe] = useState(false);
   const [tab, setTab] = useState("dashboard");
   const [period, setPeriod] = useState("all");
@@ -441,11 +448,16 @@ export default function App() {
         <div style={{ color:"#fff", fontSize:15, fontWeight:600, marginBottom:2 }}>東武練馬Tリーグ</div>
         <div style={{ color:"#e74c3c", fontSize:12, marginBottom:14, fontWeight:500 }}>麻雀スコア表</div>
         <input value={ci} onChange={e=>{setCi(e.target.value);setCe(false);}}
-          onKeyDown={e=>e.key==="Enter"&&(ci===INVITE?setAuthed(true):setCe(true))}
+          onKeyDown={e=>{if(e.key==="Enter"){if(ci===INVITE){localStorage.setItem("tleague_auth",JSON.stringify({expire:Date.now()+30*24*60*60*1000}));setAuthed(true);}else setCe(true);}}}
           placeholder="招待コードを入力"
           style={{...S.inp({textAlign:"center",letterSpacing:2,fontSize:14,borderColor:ce?"#e74c3c":"rgba(255,255,255,0.2)"})}} />
         {ce && <div style={{color:"#e74c3c",fontSize:11,marginTop:4}}>コードが違います</div>}
-        <button onClick={()=>ci===INVITE?setAuthed(true):setCe(true)} style={{...S.br({marginTop:10,width:"100%",fontSize:14})}}>入室する</button>
+        <button onClick={()=>{
+          if(ci===INVITE){
+            localStorage.setItem("tleague_auth", JSON.stringify({expire: Date.now()+30*24*60*60*1000}));
+            setAuthed(true);
+          } else { setCe(true); }
+        }} style={{...S.br({marginTop:10,width:"100%",fontSize:14})}}>入室する</button>
       </div>
     </div>
   );
