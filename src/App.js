@@ -247,6 +247,14 @@ export default function App() {
           setMfPhoto(d);
         } else if (photoTgt?.t==="r") {
           setRpPhotos(prev=>{ const a=[...(prev[photoTgt.id]||[])]; if(a.length<3)a.push(d); return{...prev,[photoTgt.id]:a}; });
+        } else if (photoTgt?.t==="edit") {
+          const { ri, pid } = photoTgt;
+          setEditSession(prev=>{
+            const newRounds = prev.rounds.map((rr,i)=>i!==ri?rr:{
+              ...rr, photos:{...rr.photos,[pid]:[...(rr.photos?.[pid]||[]),d].slice(0,3)}
+            });
+            return{...prev,rounds:newRounds};
+          });
         }
       }; img.src=ev.target.result;
     }; reader.readAsDataURL(f);
@@ -472,6 +480,38 @@ export default function App() {
                             });
                           }}/>
                         )}
+                        {/* 写真追加 */}
+                        {(() => {
+                          const ph = (r.photos?.[pid]) || [];
+                          return (
+                            <div style={{marginTop:6}}>
+                              {ph.length > 0 && (
+                                <div style={{display:"flex",gap:3,flexWrap:"wrap",marginBottom:4}}>
+                                  {ph.map((p,i)=>(
+                                    <span key={i} style={{position:"relative",display:"inline-block"}}>
+                                      <img src={p} alt="" style={{width:46,height:46,borderRadius:5,objectFit:"cover",cursor:"pointer",border:"1px solid rgba(255,255,255,0.2)"}} onClick={()=>setLb(p)}/>
+                                      <span onClick={()=>setEditSession(prev=>{
+                                        const newRounds=prev.rounds.map((rr,idx)=>idx!==ri?rr:{
+                                          ...rr,photos:{...rr.photos,[pid]:(rr.photos?.[pid]||[]).filter((_,pi)=>pi!==i)}
+                                        });
+                                        return{...prev,rounds:newRounds};
+                                      })} style={{position:"absolute",top:-3,right:-3,width:14,height:14,borderRadius:"50%",background:"#e74c3c",color:"#fff",fontSize:8,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {ph.length < 3 && (
+                                <button onClick={()=>{
+                                  setPhotoTgt({t:"edit",ri,pid});
+                                  fileRef.current.value="";
+                                  fileRef.current.click();
+                                }} style={{width:"100%",padding:"5px 0",borderRadius:6,border:"1px dashed rgba(255,255,255,0.2)",background:"rgba(255,255,255,0.03)",color:"#888",cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+                                  📷 <span>写真を追加（{ph.length}/3）</span>
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     );
                   })}
@@ -490,22 +530,6 @@ export default function App() {
                       border:editSession.rules.scoreRate===r.val?"1px solid #e74c3c":"1px solid rgba(255,255,255,0.15)"}}>
                     <div style={{fontSize:12,fontWeight:editSession.rules.scoreRate===r.val?600:400,color:editSession.rules.scoreRate===r.val?"#fff":"#aaa"}}>{r.label.split("（")[0]}</div>
                     <div style={{fontSize:10,color:"#666"}}>{r.label.match(/\((.+)\)/)?.[1]||""}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* レート編集 */}
-            <div style={{background:"rgba(255,255,255,0.05)",borderRadius:8,padding:9,marginBottom:8}}>
-              <div style={{fontSize:11,color:"#ccc",marginBottom:7}}>💴 レート設定</div>
-              <div style={{display:"flex",gap:6}}>
-                {SCORE_RATES.map(r=>(
-                  <div key={r.val} onClick={()=>setEditSession(prev=>({...prev,rules:{...prev.rules,scoreRate:r.val}}))}
-                    style={{flex:1,padding:"8px 6px",borderRadius:7,cursor:"pointer",textAlign:"center",
-                      background:editSession.rules.scoreRate===r.val?"rgba(231,76,60,0.2)":"rgba(255,255,255,0.04)",
-                      border:editSession.rules.scoreRate===r.val?"1px solid #e74c3c":"1px solid rgba(255,255,255,0.15)"}}>
-                    <div style={{fontSize:12,fontWeight:editSession.rules.scoreRate===r.val?600:400,color:editSession.rules.scoreRate===r.val?"#fff":"#aaa"}}>{r.label.split("（")[0]}</div>
-                    <div style={{fontSize:10,color:"#666"}}>{r.label.replace(/.*（(.+)）/,"$1")}</div>
                   </div>
                 ))}
               </div>
