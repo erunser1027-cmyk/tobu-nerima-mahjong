@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { supabase } from "./supabase";
 
 const INVITE = "とうねり";
 const AC = ["#e74c3c","#3498db","#2ecc71","#f39c12","#9b59b6","#e67e22","#1abc9c","#e91e63"];
@@ -10,51 +11,12 @@ const SCORE_RATES = [
   { label:"0.3レート（1000点=30円）", val:30 },
 ];
 
-const INIT_MEMBERS = [
-  { id:1, name:"田中", photo:null },
-  { id:2, name:"鈴木", photo:null },
-  { id:3, name:"佐藤", photo:null },
-  { id:4, name:"山田", photo:null },
-];
-
-// 順位点を直接格納（scores）
-// 計算式: (持ち点-返し点)÷1000 + ウマ + オカ(1位のみ)
-// オカ = (返し点-配給原点)×3÷1000 = (30000-25000)×3÷1000 = +15
-const INIT_SESSIONS = [
-  { id:1, date:"2025-01-10",
-    rules:{ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:50, chipRate:100 },
-    members:[1,2,3,4],
-    rounds:[
-      { players:[1,2,3,4], scores:{1:47, 2:8,  3:-22, 4:-38}, photos:{} },
-      { players:[1,2,3,4], scores:{1:-22, 2:15, 3:-42, 4:44}, photos:{} },
-    ],
-    chips:{1:3,2:1,3:-1,4:-3}, bashiro:{1:500,2:500,3:500,4:500} },
-  { id:2, date:"2025-02-14",
-    rules:{ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:50, chipRate:100 },
-    members:[1,2,3,4],
-    rounds:[
-      { players:[1,2,3,4], scores:{1:9,  2:43, 3:-19, 4:-38}, photos:{} },
-      { players:[1,2,3,4], scores:{1:-39,2:-18,3:45,  4:7},   photos:{} },
-      { players:[1,2,3,4], scores:{1:46, 2:-42,3:11,  4:-20}, photos:{} },
-    ],
-    chips:{1:1,2:-1,3:3,4:-3}, bashiro:{1:600,2:600,3:600,4:600} },
-  { id:3, date:"2025-03-05",
-    rules:{ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:50, chipRate:100 },
-    members:[1,2,3,4],
-    rounds:[
-      { players:[1,2,3,4], scores:{1:-21, 2:10, 3:43, 4:-37}, photos:{} },
-    ],
-    chips:{1:-1,2:1,3:2,4:-2}, bashiro:{1:400,2:400,3:400,4:400} },
-];
-
-// ---- ヘルパー ----
 const N = v => { const n = Number(v); return isNaN(n) ? 0 : n; };
 const fw = n => (n >= 0 ? "+" : "") + Math.round(n).toLocaleString();
 const fwy = n => fw(n) + "円";
 const cc = n => n >= 0 ? "#2ecc71" : "#e74c3c";
 const mc = m => AC[(m.id - 1) % AC.length];
 
-// セッション合計（scoresを直接合算）
 function calcTotals(sess) {
   const res = {};
   sess.members.forEach(id => {
@@ -70,12 +32,11 @@ function calcTotals(sess) {
   return res;
 }
 
-// ---- Avatar ----
 function Av({ m, sz }) {
   if (!m) return <div style={{ width:sz, height:sz, borderRadius:"50%", background:"#333", margin:"0 auto" }} />;
   if (m.photo) return (
     <div style={{ width:sz, height:sz, borderRadius:"50%", overflow:"hidden", margin:"0 auto" }}>
-      <img src={m.photo} style={{ width:"100%", height:"100%", objectFit:"cover" }} />
+      <img src={m.photo} alt={m.name} style={{ width:"100%", height:"100%", objectFit:"cover" }} />
     </div>
   );
   const c = mc(m);
@@ -88,7 +49,6 @@ function Av({ m, sz }) {
   );
 }
 
-// ---- テンキー（マイナスキー付き）----
 function Keypad({ value, onChange }) {
   function press(k) {
     if (k === "⌫") { onChange(value.length > 1 ? value.slice(0,-1) : ""); return; }
@@ -97,7 +57,7 @@ function Keypad({ value, onChange }) {
       onChange(value.startsWith("-") ? value.slice(1) : "-" + value);
       return;
     }
-    if (value.replace("-","").length >= 4) return; // 最大4桁
+    if (value.replace("-","").length >= 4) return;
     if (k === "0" && (value === "0" || value === "-0")) return;
     if (!value || value === "0") { onChange(k); return; }
     if (value === "-0") { onChange("-" + k); return; }
@@ -127,10 +87,10 @@ export default function App() {
   const [ci, setCi] = useState(""); const [ce, setCe] = useState(false);
   const [tab, setTab] = useState("dashboard");
   const [period, setPeriod] = useState("all");
-  const [members, setMembers] = useState(INIT_MEMBERS);
-  const [sessions, setSessions] = useState(INIT_SESSIONS);
+  const [members, setMembers] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [lr, setLr] = useState({ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:50, chipRate:100 });
-  const [nid, setNid] = useState(5);
   const [lb, setLb] = useState(null);
   const [calY, setCalY] = useState(new Date().getFullYear());
   const [calM, setCalM] = useState(new Date().getMonth());
@@ -139,7 +99,6 @@ export default function App() {
   const [mfName, setMfName] = useState("");
   const [mfPhoto, setMfPhoto] = useState(null);
 
-  // 対局入力
   const [addStep, setAddStep] = useState(0);
   const [addDate, setAddDate] = useState(new Date().toISOString().slice(0,10));
   const [addRules, setAddRules] = useState({ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:50, chipRate:100 });
@@ -148,7 +107,7 @@ export default function App() {
   const [rpSc, setRpSc] = useState({});
   const [rpAutoId, setRpAutoId] = useState(null);
   const [rpPhotos, setRpPhotos] = useState({});
-  const [rpYakuman, setRpYakuman] = useState([]); // 役満者のIDリスト
+  const [rpYakuman, setRpYakuman] = useState([]);
   const [rpActive, setRpActive] = useState(null);
   const [addErr, setAddErr] = useState("");
   const [addChips, setAddChips] = useState({});
@@ -167,8 +126,32 @@ export default function App() {
   const gm = id => members.find(m => m.id === Number(id));
   const is5 = addSel.length > 4;
 
-  // オカ計算 (4人対局時)
-  const oka4 = r => Math.round((N(r.kaeshi) - N(r.starting)) / 1000);
+  // ---- Supabase: データ取得 ----
+  useEffect(() => {
+    async function fetchData() {
+      setLoading(true);
+      const [{ data: mData }, { data: sData }] = await Promise.all([
+        supabase.from("members").select("*").order("id"),
+        supabase.from("sessions").select("*").order("created_at"),
+      ]);
+      if (mData) setMembers(mData);
+      if (sData) setSessions(sData);
+      setLoading(false);
+    }
+    fetchData();
+
+    // リアルタイム購読
+    const channel = supabase.channel("db-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "members" }, () => {
+        supabase.from("members").select("*").order("id").then(({ data }) => { if (data) setMembers(data); });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => {
+        supabase.from("sessions").select("*").order("created_at").then(({ data }) => { if (data) setSessions(data); });
+      })
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, []);
 
   // ---- 統計 ----
   function getStats() {
@@ -192,7 +175,6 @@ export default function App() {
           games++;
           const sc2 = N(r.scores[m.id]);
           sc += sc2; ss += sc2;
-          // 1位判定: このラウンドで最高スコア
           const maxSc = Math.max(...r.players.map(pid => N(r.scores[pid])));
           if (sc2 === maxSc) wins++;
           monthly[mo].sc += sc2;
@@ -254,9 +236,14 @@ export default function App() {
         const ctx=c.getContext("2d"), s=Math.min(img.width,img.height), sx=(img.width-s)/2, sy=(img.height-s)/2;
         ctx.drawImage(img,sx,sy,s,s,0,0,sz,sz);
         const d = c.toDataURL("image/jpeg",0.8);
-        if (photoTgt?.t==="p") setMembers(ms=>ms.map(m=>m.id===photoTgt.id?{...m,photo:d}:m));
-        else if (photoTgt?.t==="np") setMfPhoto(d);
-        else if (photoTgt?.t==="r") setRpPhotos(prev=>{ const a=[...(prev[photoTgt.id]||[])]; if(a.length<3)a.push(d); return{...prev,[photoTgt.id]:a}; });
+        if (photoTgt?.t==="p") {
+          supabase.from("members").update({ photo: d }).eq("id", photoTgt.id).then(() => {});
+          setMembers(ms=>ms.map(m=>m.id===photoTgt.id?{...m,photo:d}:m));
+        } else if (photoTgt?.t==="np") {
+          setMfPhoto(d);
+        } else if (photoTgt?.t==="r") {
+          setRpPhotos(prev=>{ const a=[...(prev[photoTgt.id]||[])]; if(a.length<3)a.push(d); return{...prev,[photoTgt.id]:a}; });
+        }
       }; img.src=ev.target.result;
     }; reader.readAsDataURL(f);
   }
@@ -264,12 +251,10 @@ export default function App() {
   // ---- 順位点入力 ----
   function handleScore(id, val) {
     const newSc = { ...rpSc, [id]: val };
-    // 自動計算フラグをリセット（手入力されたら解除）
     if (rpAutoId === id) setRpAutoId(null);
     setRpSc(newSc);
   }
 
-  // ---- 自動計算ボタン押下 ----
   function autoCalc(targetId) {
     const others = addSel.filter(id => id !== targetId);
     const filled = others.filter(id => String(rpSc[id]||"").trim() !== "");
@@ -281,7 +266,6 @@ export default function App() {
     setAddErr("");
   }
 
-  // ---- 半荘確定 ----
   function confirmRound() {
     const playing = addSel.filter(id => String(rpSc[id]||"").trim() !== "");
     if (playing.length !== 4) { setAddErr("4人分の点数を入力してください"); return; }
@@ -299,11 +283,18 @@ export default function App() {
     setAddRounds([]); setAddChips({}); setAddBashiro({}); setAddErr("");
   }
 
-
-  function saveSession() {
+  async function saveSession() {
     const chips={}, bashiro={};
     addSel.forEach(id => { chips[id]=N(addChips[id]); bashiro[id]=N(addBashiro[id]); });
-    setSessions(p => [...p, { id:Date.now(), date:addDate, rules:{...addRules,uma:addRules.uma.map(Number)}, members:[...addSel], rounds:addRounds, chips, bashiro }]);
+    const newSess = {
+      date: addDate,
+      rules: {...addRules, uma: addRules.uma.map(Number)},
+      members: [...addSel],
+      rounds: addRounds,
+      chips,
+      bashiro,
+    };
+    await supabase.from("sessions").insert(newSess);
     setLr({...addRules, uma:addRules.uma.map(Number)});
     setBashiroTotal("");
     setAddStep(0); setTab("history");
@@ -330,7 +321,7 @@ export default function App() {
 
   // ---- ログイン画面 ----
   if (!authed) return (
-    <div style={{ minHeight:640, background:"linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)", display:"flex", alignItems:"center", justifyContent:"center", borderRadius:12, fontFamily:"sans-serif" }}>
+    <div style={{ minHeight:"100vh", background:"linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"sans-serif" }}>
       <div style={{ background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.12)", borderRadius:14, padding:"28px 22px", width:260, textAlign:"center" }}>
         <div style={{ fontSize:38, marginBottom:6 }}>🀄</div>
         <div style={{ color:"#fff", fontSize:15, fontWeight:600, marginBottom:2 }}>東武練馬Tリーグ</div>
@@ -341,7 +332,16 @@ export default function App() {
           style={{...S.inp({textAlign:"center",letterSpacing:2,fontSize:14,borderColor:ce?"#e74c3c":"rgba(255,255,255,0.2)"})}} />
         {ce && <div style={{color:"#e74c3c",fontSize:11,marginTop:4}}>コードが違います</div>}
         <button onClick={()=>ci===INVITE?setAuthed(true):setCe(true)} style={{...S.br({marginTop:10,width:"100%",fontSize:14})}}>入室する</button>
-        <div style={{color:"#444",fontSize:10,marginTop:10}}>デモ: とうねり</div>
+      </div>
+    </div>
+  );
+
+  // ---- ローディング ----
+  if (loading) return (
+    <div style={{ minHeight:"100vh", background:"#0f0f1a", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"sans-serif" }}>
+      <div style={{ textAlign:"center", color:"#fff" }}>
+        <div style={{ fontSize:36, marginBottom:12 }}>🀄</div>
+        <div style={{ fontSize:14, color:"#888" }}>データを読み込み中...</div>
       </div>
     </div>
   );
@@ -349,7 +349,6 @@ export default function App() {
   const stats = getStats();
   const sortedStats = [...stats].sort((a,b)=>b.sc-a.sc);
 
-  // ---- 確定済み半荘カード ----
   function ConfirmedRound({ r, ri, sessMembers }) {
     const allM = sessMembers.map(id=>gm(id)).filter(Boolean);
     const sortedPlayers = [...r.players].sort((a,b)=>N(r.scores[b])-N(r.scores[a]));
@@ -374,7 +373,7 @@ export default function App() {
                 <div style={{fontSize:13,fontWeight:"bold",color:cc(sc2)}}>{fw(sc2)}</div>
                 {ph.length>0 && (
                   <div style={{display:"flex",gap:2,justifyContent:"center",marginTop:3,flexWrap:"wrap"}}>
-                    {ph.map((p,i)=><img key={i} src={p} onClick={()=>setLb(p)} style={{width:36,height:36,borderRadius:5,objectFit:"cover",cursor:"pointer",border:"1px solid rgba(255,255,255,0.2)"}}/>)}
+                    {ph.map((p,i)=><img key={i} src={p} alt="" onClick={()=>setLb(p)} style={{width:36,height:36,borderRadius:5,objectFit:"cover",cursor:"pointer",border:"1px solid rgba(255,255,255,0.2)"}}/>)}
                   </div>
                 )}
               </div>
@@ -386,9 +385,9 @@ export default function App() {
   }
 
   return (
-    <div style={{ width:"100%", maxWidth:480, margin:"0 auto", minHeight:640, background:"#0f0f1a", color:"#fff", borderRadius:12, overflow:"hidden", fontFamily:"sans-serif", boxSizing:"border-box" }}>
+    <div style={{ width:"100%", maxWidth:480, margin:"0 auto", minHeight:"100vh", background:"#0f0f1a", color:"#fff", fontFamily:"sans-serif", boxSizing:"border-box" }}>
       <input type="file" accept="image/*" ref={fileRef} style={{display:"none"}} onChange={onFile}/>
-      {lb && <div onClick={()=>setLb(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.93)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,cursor:"pointer"}}><img src={lb} style={{maxWidth:"90%",maxHeight:"80vh",borderRadius:8}}/></div>}
+      {lb && <div onClick={()=>setLb(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.93)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,cursor:"pointer"}}><img src={lb} alt="" style={{maxWidth:"90%",maxHeight:"80vh",borderRadius:8}}/></div>}
 
       {/* ヘッダー */}
       <div style={{background:"rgba(255,255,255,0.06)",borderBottom:"1px solid rgba(255,255,255,0.12)",padding:"8px 10px",display:"flex",alignItems:"center",gap:7,position:"sticky",top:0,zIndex:50}}>
@@ -415,9 +414,6 @@ export default function App() {
 
         {/* ===== DASHBOARD ===== */}
         {tab==="dashboard" && (() => {
-          const actM = members.filter(m=>sessions.some(s=>s.members.includes(m.id)));
-
-          // 生涯成績計算（全期間固定）
           const lifetimeStats = members.map(m=>{
             let sc=0,scY=0,chY=0,ba=0,games=0,r1=0,r2=0,r3=0,r4=0,yakuman=0;
             sessions.forEach(s=>{
@@ -453,12 +449,7 @@ export default function App() {
             if(sortKey===key) setSortAsc(a=>!a);
             else { setSortKey(key); setSortAsc(false); }
           };
-
-          const liSorted = [...lifetimeStats].sort((a,b)=>{
-            const v = sortAsc ? a[sortKey]-b[sortKey] : b[sortKey]-a[sortKey];
-            return v;
-          });
-
+          const liSorted = [...lifetimeStats].sort((a,b)=> sortAsc ? a[sortKey]-b[sortKey] : b[sortKey]-a[sortKey]);
           const SortBtn = ({k, label}) => (
             <th onClick={()=>handleSort(k)} style={{color:sortKey===k?"#e74c3c":"#666",fontWeight:400,padding:"5px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.1)",cursor:"pointer",whiteSpace:"nowrap",userSelect:"none",fontSize:10}}>
               {label}{sortKey===k?(sortAsc?"↑":"↓"):""}
@@ -467,65 +458,69 @@ export default function App() {
 
           return (
             <>
-              {/* サブタブ */}
               <div style={{display:"flex",gap:4,marginBottom:10}}>
                 {[["summary","📊 概要"],["lifetime","🏆 生涯成績"]].map(([v,l])=>(
                   <button key={v} onClick={()=>setDashSub(v)} style={{padding:"5px 12px",borderRadius:16,border:"none",cursor:"pointer",fontSize:12,fontWeight:500,background:dashSub===v?"#e74c3c":"rgba(255,255,255,0.1)",color:"#fff"}}>{l}</button>
                 ))}
               </div>
 
-              {/* 概要タブ */}
               {dashSub==="summary" && (
                 <>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:7,marginBottom:10}}>
-                    {sortedStats.filter(p=>p.games>0).map((p,i)=>(
-                      <div key={p.id} style={S.card({background:i===0?"linear-gradient(135deg,rgba(231,76,60,0.2),rgba(192,57,43,0.12))":"rgba(255,255,255,0.05)",border:`1px solid ${i===0?"#e74c3c":"rgba(255,255,255,0.1)"}`,textAlign:"center",padding:10})}>
-                        <Av m={gm(p.id)} sz={36}/>
-                        <div style={{fontSize:12,fontWeight:500,marginTop:4}}>{p.name}</div>
-                        <div style={{fontSize:18,fontWeight:"bold",color:cc(p.sc),marginTop:2}}>{fw(p.sc)}</div>
-                        <div style={{fontSize:10,color:cc(p.seisan)}}>清算 {fwy(p.seisan)}</div>
-                        <div style={{fontSize:10,color:cc(p.kati),fontWeight:500}}>勝ち分 {fwy(p.kati)}</div>
-                        <div style={{fontSize:10,color:"#666",marginTop:2}}>{p.games}半荘 {p.wr}%</div>
+                  {members.length === 0 ? (
+                    <div style={{textAlign:"center",color:"#666",padding:40}}>
+                      <div style={{fontSize:32,marginBottom:8}}>👥</div>
+                      <div>まずメンバーを登録してください</div>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:7,marginBottom:10}}>
+                        {sortedStats.filter(p=>p.games>0).map((p,i)=>(
+                          <div key={p.id} style={S.card({background:i===0?"linear-gradient(135deg,rgba(231,76,60,0.2),rgba(192,57,43,0.12))":"rgba(255,255,255,0.05)",border:`1px solid ${i===0?"#e74c3c":"rgba(255,255,255,0.1)"}`,textAlign:"center",padding:10})}>
+                            <Av m={gm(p.id)} sz={36}/>
+                            <div style={{fontSize:12,fontWeight:500,marginTop:4}}>{p.name}</div>
+                            <div style={{fontSize:18,fontWeight:"bold",color:cc(p.sc),marginTop:2}}>{fw(p.sc)}</div>
+                            <div style={{fontSize:10,color:cc(p.seisan)}}>清算 {fwy(p.seisan)}</div>
+                            <div style={{fontSize:10,color:cc(p.kati),fontWeight:500}}>勝ち分 {fwy(p.kati)}</div>
+                            <div style={{fontSize:10,color:"#666",marginTop:2}}>{p.games}半荘 {p.wr}%</div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                  <div style={S.card()}>
-                    <div style={{fontSize:11,color:"#ccc",marginBottom:8}}>💰 収支内訳</div>
-                    {sortedStats.filter(p=>p.games>0).map(p=>(
-                      <div key={p.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
-                        <Av m={gm(p.id)} sz={28}/>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:12,fontWeight:500}}>{p.name}</div>
-                          <div style={{fontSize:10,color:"#666"}}>{p.games}半荘</div>
-                        </div>
-                        <div style={{textAlign:"right",minWidth:60}}>
-                          <div style={{fontSize:13,fontWeight:"bold",color:cc(p.sc)}}>{fw(p.sc)}</div>
-                          <div style={{fontSize:9,color:"#666"}}>スコア</div>
-                        </div>
-                        <div style={{textAlign:"right",minWidth:72}}>
-                          <div style={{fontSize:13,fontWeight:"bold",color:cc(p.seisan)}}>{fwy(p.seisan)}</div>
-                          <div style={{fontSize:9,color:"#666"}}>清算</div>
-                        </div>
-                        <div style={{textAlign:"right",minWidth:72}}>
-                          <div style={{fontSize:13,fontWeight:"bold",color:cc(p.kati)}}>{fwy(p.kati)}</div>
-                          <div style={{fontSize:9,color:"#666"}}>勝ち分</div>
-                        </div>
+                      <div style={S.card()}>
+                        <div style={{fontSize:11,color:"#ccc",marginBottom:8}}>💰 収支内訳</div>
+                        {sortedStats.filter(p=>p.games>0).map(p=>(
+                          <div key={p.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+                            <Av m={gm(p.id)} sz={28}/>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:12,fontWeight:500}}>{p.name}</div>
+                              <div style={{fontSize:10,color:"#666"}}>{p.games}半荘</div>
+                            </div>
+                            <div style={{textAlign:"right",minWidth:60}}>
+                              <div style={{fontSize:13,fontWeight:"bold",color:cc(p.sc)}}>{fw(p.sc)}</div>
+                              <div style={{fontSize:9,color:"#666"}}>スコア</div>
+                            </div>
+                            <div style={{textAlign:"right",minWidth:72}}>
+                              <div style={{fontSize:13,fontWeight:"bold",color:cc(p.seisan)}}>{fwy(p.seisan)}</div>
+                              <div style={{fontSize:9,color:"#666"}}>清算</div>
+                            </div>
+                            <div style={{textAlign:"right",minWidth:72}}>
+                              <div style={{fontSize:13,fontWeight:"bold",color:cc(p.kati)}}>{fwy(p.kati)}</div>
+                              <div style={{fontSize:9,color:"#666"}}>勝ち分</div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                  <div style={S.card()}>
-                    <div style={{fontSize:11,color:"#ccc",marginBottom:5}}>📈 月別スコア推移</div>
-                    <canvas ref={cvRef} style={{width:"100%"}}/>
-                  </div>
+                      <div style={S.card()}>
+                        <div style={{fontSize:11,color:"#ccc",marginBottom:5}}>📈 月別スコア推移</div>
+                        <canvas ref={cvRef} style={{width:"100%"}}/>
+                      </div>
+                    </>
+                  )}
                 </>
               )}
 
-              {/* 生涯成績タブ */}
               {dashSub==="lifetime" && (
                 <>
-                  <div style={{fontSize:10,color:"#888",marginBottom:8}}>※ 全期間の成績です。列タップでソート</div>
-
-                  {/* カードビュー（上位ハイライト） */}
+                  <div style={{fontSize:10,color:"#888",marginBottom:8}}>※ 全期間の成績。列タップでソート</div>
                   <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
                     {liSorted.map((p,i)=>(
                       <div key={p.id} style={{...S.card({marginBottom:0,background:i===0?"linear-gradient(135deg,rgba(231,76,60,0.15),rgba(192,57,43,0.08))":"rgba(255,255,255,0.04)",border:`1px solid ${i===0?"rgba(231,76,60,0.5)":"rgba(255,255,255,0.1)"}`})}}>
@@ -541,7 +536,6 @@ export default function App() {
                             <div style={{fontSize:10,color:"#888"}}>累計スコア</div>
                           </div>
                         </div>
-                        {/* 統計グリッド */}
                         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4}}>
                           {[
                             ["平均順位", p.avgRank.toFixed(2)+"位", cc(-p.avgRank+3)],
@@ -555,7 +549,6 @@ export default function App() {
                             </div>
                           ))}
                         </div>
-                        {/* 順位内訳 + 役満 */}
                         <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:3,marginTop:5}}>
                           {[[p.r1,"1位","#f39c12"],[p.r2,"2位","#aaa"],[p.r3,"3位","#888"],[p.r4,"4位","#e74c3c"],[p.yakuman,"役満","#ffd700"]].map(([cnt,label,col])=>(
                             <div key={label} style={{background:label==="役満"?"rgba(255,215,0,0.08)":"rgba(255,255,255,0.03)",border:label==="役満"?"1px solid rgba(255,215,0,0.3)":"none",borderRadius:6,padding:"5px 3px",textAlign:"center"}}>
@@ -567,8 +560,6 @@ export default function App() {
                       </div>
                     ))}
                   </div>
-
-                  {/* ソート可能テーブル */}
                   <div style={S.card()}>
                     <div style={{fontSize:11,color:"#ccc",marginBottom:6}}>📋 比較テーブル</div>
                     <div style={{overflowX:"auto"}}>
@@ -654,7 +645,7 @@ export default function App() {
                   );
                 })}
               </div>
-              <div style={{fontSize:9,color:"#555",marginTop:6}}>🔴対局あり　タップで詳細</div>
+              <div style={{fontSize:9,color:"#555",marginTop:6}}>🔴対局あり　🟡役満　タップで詳細</div>
             </div>
             {calSel && (() => {
               const ss = sessions.filter(s=>s.date===calSel);
@@ -694,11 +685,9 @@ export default function App() {
                 const tot=calcTotals(s), mems=s.members.map(id=>gm(id)).filter(Boolean);
                 const rL=SCORE_RATES.find(r=>r.val===s.rules.scoreRate)?.label.split("（")[0]||"";
                 const isOpen=histOpen[s.id];
-                // 合計順でソート
                 const sortedMems=[...mems].sort((a,b)=>(tot[b.id]?.sc||0)-(tot[a.id]?.sc||0));
                 return (
                   <div key={s.id} style={S.card()}>
-                    {/* ヘッダー：タップで展開/折りたたみ */}
                     <div onClick={()=>setHistOpen(prev=>({...prev,[s.id]:!isOpen}))}
                       style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:isOpen?10:0,cursor:"pointer"}}>
                       <span style={{fontWeight:500,fontSize:12,color:"#ccc"}}>📅 {s.date}（{s.rounds.length}半荘）</span>
@@ -707,8 +696,6 @@ export default function App() {
                         <span style={{fontSize:14,color:"#888"}}>{isOpen?"▲":"▼"}</span>
                       </div>
                     </div>
-
-                    {/* 折りたたみ時：合計スコアだけ表示 */}
                     {!isOpen && (
                       <div style={{display:"flex",flexDirection:"column",gap:2,marginTop:6}}>
                         {sortedMems.map((m,i)=>(
@@ -723,8 +710,6 @@ export default function App() {
                         ))}
                       </div>
                     )}
-
-                    {/* 展開時：半荘別明細フル表示 */}
                     {isOpen && (
                       <>
                         {s.rounds.map((r,ri)=>{
@@ -737,21 +722,23 @@ export default function App() {
                                   const m=gm(pid); if(!m) return null;
                                   const sc2=N(r.scores[pid]);
                                   const ph=(r.photos?.[pid])||[];
+                                  const isYakuman=r.yakuman&&r.yakuman.includes(pid);
                                   return (
                                     <div key={pid} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 8px",background:rank===0?"rgba(231,76,60,0.1)":"rgba(255,255,255,0.03)",borderRadius:6}}>
                                       <span style={{fontSize:14,width:22,textAlign:"center"}}>{RI[rank]||"—"}</span>
                                       <Av m={m} sz={24}/>
-                                      <div style={{fontSize:12,fontWeight:500,flex:1}}>{m.name}</div>
+                                      <div style={{fontSize:12,fontWeight:500,flex:1}}>
+                                        {m.name}{isYakuman&&<span style={{fontSize:10,color:"#ffd700",marginLeft:4}}>役満🀄</span>}
+                                      </div>
                                       <div style={{fontSize:15,fontWeight:"bold",color:cc(sc2)}}>{fw(sc2)}</div>
                                       {ph.length>0&&(
                                         <div style={{display:"flex",gap:2}}>
-                                          {ph.map((p,i)=><img key={i} src={p} onClick={e=>{e.stopPropagation();setLb(p);}} style={{width:40,height:40,borderRadius:5,objectFit:"cover",cursor:"pointer",border:"1px solid rgba(255,255,255,0.2)"}}/>)}
+                                          {ph.map((p,i)=><img key={i} src={p} alt="" onClick={e=>{e.stopPropagation();setLb(p);}} style={{width:40,height:40,borderRadius:5,objectFit:"cover",cursor:"pointer",border:"1px solid rgba(255,255,255,0.2)"}}/>)}
                                         </div>
                                       )}
                                     </div>
                                   );
                                 })}
-                                {/* その半荘で休憩した人 */}
                                 {mems.filter(m=>!r.players.includes(m.id)).map(m=>(
                                   <div key={m.id} style={{display:"flex",alignItems:"center",gap:7,padding:"4px 8px",opacity:0.35}}>
                                     <span style={{fontSize:14,width:22,textAlign:"center"}}>💤</span>
@@ -763,8 +750,6 @@ export default function App() {
                             </div>
                           );
                         })}
-
-                        {/* 合計 */}
                         <div style={{fontSize:10,color:"#888",margin:"8px 0 4px"}}>📊 この日の合計</div>
                         <div style={{display:"flex",flexDirection:"column",gap:3}}>
                           {sortedMems.map((m,i)=>(
@@ -793,7 +778,6 @@ export default function App() {
         {/* ===== ADD ===== */}
         {tab==="add" && (
           <>
-            {/* STEP 0: ルール */}
             {addStep===0 && (
               <div style={S.card()}>
                 <div style={{fontSize:13,fontWeight:500,color:"#ccc",marginBottom:10}}>⚙️ ルール設定</div>
@@ -842,7 +826,6 @@ export default function App() {
               </div>
             )}
 
-            {/* STEP 1: メンバー選択 */}
             {addStep===1 && (
               <div style={S.card()}>
                 <div style={{fontSize:13,fontWeight:500,color:"#ccc",marginBottom:8}}>👥 本日の参加メンバー（{addSel.length}人）</div>
@@ -868,31 +851,22 @@ export default function App() {
               </div>
             )}
 
-            {/* STEP 2: 半荘入力 */}
             {addStep===2 && (
               <>
                 <div style={{fontSize:10,color:"#888",marginBottom:7,background:"rgba(255,255,255,0.04)",borderRadius:7,padding:7}}>
                   📅 {addDate}　ウマ: {addRules.uma.join("/")}　{SCORE_RATES.find(r=>r.val===addRules.scoreRate)?.label.split("（")[0]}
                 </div>
-
-                {/* 確定済み半荘 */}
                 {addRounds.map((r,ri)=><ConfirmedRound key={ri} r={r} ri={ri} sessMembers={addSel}/>)}
-
-                {/* 現在の半荘 */}
                 <div style={S.card({borderColor:"rgba(231,76,60,0.4)"})}>
                   <div style={{fontSize:12,color:"#ccc",marginBottom:8}}>第{addRounds.length+1}半荘</div>
-
-                  {/* 順位点入力 - 全員表示、空欄=抜け番 */}
                   {(() => {
                     const filledCount = addSel.filter(id=>String(rpSc[id]||"").trim()!=="").length;
-                    const emptyCount = addSel.length - filledCount;
                     return (
                       <>
                         <div style={{fontSize:10,color:"#7fb9e0",marginBottom:8,background:"rgba(52,152,219,0.08)",borderRadius:6,padding:6}}>
                           📌 対局した4人の順位点を入力（空欄=抜け番）<br/>
                           <span style={{fontSize:9,color:"#666"}}>3人入力で残り1人を自動計算（空欄が1人のとき）</span>
                         </div>
-
                         <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:8}}>
                           {addSel.map(id=>{
                             const m=gm(id); if(!m) return null;
@@ -901,7 +875,6 @@ export default function App() {
                             const hasV=v.trim()!=="";
                             const isActive=rpActive===id;
                             const ph=rpPhotos[id]||[];
-                            // 自動計算ボタンを表示する条件: 空欄 かつ 他の3人が埋まっている
                             const othersFilled = addSel.filter(oid => oid !== id && String(rpSc[oid]||"").trim() !== "").length === 3;
                             const showAutoBtn = !hasV && othersFilled;
                             return (
@@ -914,8 +887,6 @@ export default function App() {
                                     {!hasV&&<div style={{fontSize:9,color:"#555"}}>未入力</div>}
                                   </div>
                                 </div>
-
-                                {/* スコア表示 or 自動計算ボタン */}
                                 {showAutoBtn ? (
                                   <button onClick={()=>autoCalc(id)} style={{width:"100%",padding:"10px 6px",borderRadius:7,border:"none",background:"rgba(52,152,219,0.25)",color:"#7fb9e0",cursor:"pointer",fontWeight:"bold",fontSize:13,marginBottom:4}}>
                                     🔄 自動計算
@@ -931,24 +902,19 @@ export default function App() {
                                     </div>
                                   </div>
                                 )}
-
                                 {isActive&&<Keypad value={v} onChange={val=>handleScore(id,val)}/>}
-
-                                {/* 役満チェック */}
                                 <div onClick={()=>setRpYakuman(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id])}
                                   style={{display:"flex",alignItems:"center",gap:5,marginTop:6,padding:"5px 8px",borderRadius:6,cursor:"pointer",background:rpYakuman.includes(id)?"rgba(255,215,0,0.15)":"rgba(255,255,255,0.03)",border:rpYakuman.includes(id)?"1px solid rgba(255,215,0,0.5)":"1px solid rgba(255,255,255,0.08)"}}>
                                   <span style={{fontSize:14}}>{rpYakuman.includes(id)?"☑️":"⬜"}</span>
                                   <span style={{fontSize:11,color:rpYakuman.includes(id)?"#ffd700":"#666",fontWeight:rpYakuman.includes(id)?600:400}}>役満</span>
                                   {rpYakuman.includes(id)&&<span style={{fontSize:10,color:"#ffd700"}}>🀄</span>}
                                 </div>
-
-                                {/* 写真エリア - 常に表示 */}
                                 <div style={{marginTop:6}}>
                                   {ph.length > 0 && (
                                     <div style={{display:"flex",gap:4,justifyContent:"center",flexWrap:"wrap",marginBottom:4}}>
                                       {ph.map((p,i)=>(
                                         <span key={i} style={{position:"relative",display:"inline-block"}}>
-                                          <img src={p} style={{width:52,height:52,borderRadius:6,objectFit:"cover",cursor:"pointer",border:"1px solid rgba(255,255,255,0.2)"}} onClick={()=>setLb(p)}/>
+                                          <img src={p} alt="" style={{width:52,height:52,borderRadius:6,objectFit:"cover",cursor:"pointer",border:"1px solid rgba(255,255,255,0.2)"}} onClick={()=>setLb(p)}/>
                                           <span onClick={()=>setRpPhotos(prev=>{const a=[...(prev[id]||[])];a.splice(i,1);return{...prev,[id]:a};})}
                                             style={{position:"absolute",top:-4,right:-4,width:16,height:16,borderRadius:"50%",background:"#e74c3c",color:"#fff",fontSize:9,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:"bold"}}>✕</span>
                                         </span>
@@ -958,7 +924,7 @@ export default function App() {
                                   {ph.length < 3 && (
                                     <button onClick={()=>{setPhotoTgt({t:"r",id});fileRef.current.value="";fileRef.current.click();}}
                                       style={{width:"100%",padding:"7px 0",borderRadius:6,border:"1px dashed rgba(255,255,255,0.25)",background:"rgba(255,255,255,0.03)",color:"#888",cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
-                                      📷 <span>思い出写真を追加（{ph.length}/3）</span>
+                                      📷 <span>写真を追加（{ph.length}/3）</span>
                                     </button>
                                   )}
                                 </div>
@@ -966,30 +932,22 @@ export default function App() {
                             );
                           })}
                         </div>
-
                         {addErr&&<div style={{color:"#e74c3c",fontSize:11,marginBottom:7}}>{addErr}</div>}
-                        <button
-                          style={{...S.bb({opacity:filledCount===4?1:0.4})}}
-                          disabled={filledCount!==4}
-                          onClick={confirmRound}>✔ この半荘を確定</button>
+                        <button style={{...S.bb({opacity:filledCount===4?1:0.4})}} disabled={filledCount!==4} onClick={confirmRound}>✔ この半荘を確定</button>
                       </>
                     );
                   })()}
                 </div>
-
                 {addRounds.length>0&&(
                   <button style={{...S.br({marginTop:2})}} onClick={()=>{setRpActive(null);setAddStep(3);}}>✅ 対局終了 → 精算へ</button>
                 )}
               </>
             )}
 
-            {/* STEP 3: 精算 */}
             {addStep===3 && (
               <div style={S.card()}>
                 <div style={{fontSize:13,fontWeight:500,color:"#ccc",marginBottom:4}}>💴 精算入力（チップ＋場代）</div>
                 <div style={{fontSize:10,color:"#888",marginBottom:10}}>チップ合計はゼロサム。3人入力で最後の1人を自動計算できます。</div>
-
-                {/* 場代：合計入力 → 自動割り勘 */}
                 <div style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:8,padding:10,marginBottom:12}}>
                   <div style={{fontSize:11,color:"#ccc",fontWeight:500,marginBottom:6}}>🏠 場代（割り勘）</div>
                   <div style={{display:"flex",gap:8,alignItems:"center"}}>
@@ -1018,10 +976,9 @@ export default function App() {
                       </div>
                     </div>
                   </div>
-                  {/* 個別調整 */}
                   {bashiroTotal&&N(bashiroTotal)>0&&(
                     <div style={{marginTop:8}}>
-                      <div style={{fontSize:10,color:"#888",marginBottom:4}}>個別調整（貸し出し等）</div>
+                      <div style={{fontSize:10,color:"#888",marginBottom:4}}>個別調整</div>
                       <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6}}>
                         {addSel.map(id=>{
                           const m=gm(id); if(!m) return null;
@@ -1041,8 +998,6 @@ export default function App() {
                     </div>
                   )}
                 </div>
-
-                {/* チップ */}
                 <div style={{fontSize:11,color:"#ccc",fontWeight:500,marginBottom:6}}>🎰 チップ枚数</div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,marginBottom:10}}>
                   {addSel.map(id=>{
@@ -1081,8 +1036,6 @@ export default function App() {
                     );
                   })}
                 </div>
-
-                {/* チップ合計チェック */}
                 {(()=>{
                   const filled=addSel.filter(id=>String(addChips[id]||"").trim()!=="");
                   if(!filled.length) return null;
@@ -1097,7 +1050,6 @@ export default function App() {
                     </div>
                   );
                 })()}
-
                 <div style={{display:"flex",gap:6}}>
                   <button style={S.bg()} onClick={()=>setAddStep(2)}>← 戻る</button>
                   <button style={S.br()} onClick={()=>setAddStep(4)}>📊 集計して結果を見る</button>
@@ -1105,7 +1057,6 @@ export default function App() {
               </div>
             )}
 
-            {/* STEP 4: 最終結果 */}
             {addStep===4 && (() => {
               const results=addSel.map(id=>{
                 const m=gm(id); let sc=0;
@@ -1159,11 +1110,16 @@ export default function App() {
                 <div style={{marginBottom:10}}>
                   <div style={{fontSize:10,color:"#888",marginBottom:3}}>写真（任意）</div>
                   {mfPhoto
-                    ? <div style={{display:"flex",alignItems:"center",gap:7}}><div style={{width:38,height:38,borderRadius:"50%",overflow:"hidden"}}><img src={mfPhoto} style={{width:"100%",height:"100%",objectFit:"cover"}}/></div><button style={S.bs()} onClick={()=>setMfPhoto(null)}>削除</button></div>
+                    ? <div style={{display:"flex",alignItems:"center",gap:7}}><div style={{width:38,height:38,borderRadius:"50%",overflow:"hidden"}}><img src={mfPhoto} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/></div><button style={S.bs()} onClick={()=>setMfPhoto(null)}>削除</button></div>
                     : <button style={S.bs()} onClick={()=>{setPhotoTgt({t:"np"});fileRef.current.value="";fileRef.current.click();}}>📷 選択</button>}
                 </div>
                 <div style={{display:"flex",gap:6}}>
-                  <button style={S.br()} onClick={()=>{ if(!mfName.trim())return; setMembers(ms=>[...ms,{id:nid,name:mfName.trim(),photo:mfPhoto}]); setNid(n=>n+1); setMfName(""); setMfPhoto(null); setMfShow(false); }}>追加</button>
+                  <button style={S.br()} onClick={async()=>{
+                    if(!mfName.trim()) return;
+                    const { data } = await supabase.from("members").insert({ name: mfName.trim(), photo: mfPhoto }).select().single();
+                    if (data) setMembers(ms=>[...ms, data]);
+                    setMfName(""); setMfPhoto(null); setMfShow(false);
+                  }}>追加</button>
                   <button style={S.bg()} onClick={()=>{ setMfShow(false); setMfName(""); setMfPhoto(null); }}>キャンセル</button>
                 </div>
               </div>
@@ -1175,7 +1131,10 @@ export default function App() {
                 <Av m={m} sz={38}/>
                 <div style={{flex:1,fontSize:13,fontWeight:500}}>{m.name}</div>
                 <button style={S.bs()} onClick={()=>{ setPhotoTgt({t:"p",id:m.id}); fileRef.current.value=""; fileRef.current.click(); }}>📷</button>
-                <button style={S.bs({color:"#e74c3c"})} onClick={()=>setMembers(ms=>ms.filter(x=>x.id!==m.id))}>削除</button>
+                <button style={S.bs({color:"#e74c3c"})} onClick={async()=>{
+                  await supabase.from("members").delete().eq("id", m.id);
+                  setMembers(ms=>ms.filter(x=>x.id!==m.id));
+                }}>削除</button>
               </div>
             ))}
           </>
