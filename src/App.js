@@ -142,6 +142,7 @@ export default function App() {
   const [last10Revealed, setLast10Revealed] = useState({});
   const [last10Seed, setLast10Seed] = useState(0);
   const [showLivePanel, setShowLivePanel] = useState(false);
+  const [yakumanCelebration, setYakumanCelebration] = useState(null); // {name, type}
 
   const fileRef = useRef(null);
   const [photoTgt, setPhotoTgt] = useState(null);
@@ -306,6 +307,14 @@ export default function App() {
     const scores = {};
     playing.forEach(id => { scores[id] = N(rpSc[id]); });
     setAddRounds(prev => [...prev, { players: playing, scores, photos:{...rpPhotos}, yakuman:[...rpYakuman], yakumanTypes:{...rpYakumanTypes}, openRiichi:[...rpOpenRiichi], dealIn:[...rpDealIn] }]);
+
+    // 役満演出
+    if (rpYakuman.length > 0) {
+      const pid = rpYakuman[0];
+      const m = gm(pid);
+      setYakumanCelebration({ name: m?.name||"", type: rpYakumanTypes[pid]||"" });
+      setTimeout(() => setYakumanCelebration(null), 4000);
+    }
     setRpSc(Object.fromEntries(addSel.map(id=>[id,""])));
     setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes({}); setRpOpenRiichi([]); setRpDealIn([]); setRpAutoId(null); setRpActive(null); setAddErr("");
   }
@@ -695,6 +704,31 @@ export default function App() {
           {addRounds.length===0&&<div style={{fontSize:12,color:"#666",textAlign:"center",padding:12}}>まだ半荘の記録がありません</div>}
         </div>
       )}
+
+      {/* 役満演出オーバーレイ */}
+      {yakumanCelebration && (
+        <div style={{position:"fixed",inset:0,zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
+          <div style={{background:"linear-gradient(135deg,rgba(0,0,0,0.92),rgba(20,0,0,0.95))",border:"3px solid #ffd700",borderRadius:20,padding:"32px 28px",textAlign:"center",boxShadow:"0 0 60px rgba(255,215,0,0.6),0 0 120px rgba(255,215,0,0.3)",animation:"yakumanPop 0.4s ease-out",maxWidth:300,width:"85%"}}>
+            <div style={{fontSize:52,marginBottom:8}}>🀄</div>
+            <div style={{fontSize:28,fontWeight:900,color:"#ffd700",letterSpacing:3,marginBottom:6,textShadow:"0 0 20px rgba(255,215,0,0.8)"}}>役満達成！</div>
+            {yakumanCelebration.type&&(
+              <div style={{fontSize:20,fontWeight:700,color:"#fff",marginBottom:8}}>【{yakumanCelebration.type}】</div>
+            )}
+            <div style={{fontSize:18,color:"#ffd700",fontWeight:600}}>{yakumanCelebration.name}</div>
+            <div style={{marginTop:16,display:"flex",justifyContent:"center",gap:6}}>
+              {["🎊","✨","🎉","✨","🎊"].map((e,i)=>(
+                <span key={i} style={{fontSize:20,animation:`yakumanFloat ${0.5+i*0.1}s ease-in-out infinite alternate`}}>{e}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.2} }
+        @keyframes yakumanPop { 0%{transform:scale(0.3);opacity:0} 70%{transform:scale(1.1)} 100%{transform:scale(1);opacity:1} }
+        @keyframes yakumanFloat { 0%{transform:translateY(0)} 100%{transform:translateY(-8px)} }
+      `}</style>
 
       <div style={{padding:10,paddingBottom:28}}>
         {(tab==="dashboard"||tab==="history") && (
