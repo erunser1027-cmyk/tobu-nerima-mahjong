@@ -94,7 +94,7 @@ export default function App() {
   const [members, setMembers] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [lr, setLr] = useState({ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:50, chipRate:100 });
+  const [lr, setLr] = useState({ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:30, chipRate:50 });
   const [lb, setLb] = useState(null);
   const [calY, setCalY] = useState(new Date().getFullYear());
   const [calM, setCalM] = useState(new Date().getMonth());
@@ -125,6 +125,8 @@ export default function App() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [editSession, setEditSession] = useState(null);
   const [memberDeleteStep, setMemberDeleteStep] = useState({});
+  const [memberEditId, setMemberEditId] = useState(null);
+  const [memberEditName, setMemberEditName] = useState("");
   const [editKeypadActive, setEditKeypadActive] = useState(null); // "ri-pid"
   const [dashSub, setDashSub] = useState("summary");
   const [sortKey, setSortKey] = useState("sc");
@@ -134,6 +136,7 @@ export default function App() {
   const [lifeDetail, setLifeDetail] = useState(null);
   const [last10Mode, setLast10Mode] = useState(false);
   const [last10Revealed, setLast10Revealed] = useState({});
+  const [last10Seed, setLast10Seed] = useState(0);
 
   const fileRef = useRef(null);
   const [photoTgt, setPhotoTgt] = useState(null);
@@ -847,22 +850,34 @@ export default function App() {
                         </div>
                         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginBottom:6}}>
                           {[
-                            ["平均順位", p.avgRank.toFixed(2)+"位", cc(-p.avgRank+3)],
-                            ["トップ率", p.topRate+"%", p.topRate>=25?"#2ecc71":"#aaa"],
-                            ["連対率",   p.renRate+"%",  p.renRate>=50?"#2ecc71":"#aaa"],
-                            ["ラスト率", p.lastRate+"%", p.lastRate<=25?"#2ecc71":"#e74c3c"],
-                          ].map(([label,val,col])=>(
+                            ["平均順位", p.avgRank.toFixed(2)+"位", cc(-p.avgRank+3), [...liSorted].sort((a,b)=>a.avgRank-b.avgRank).findIndex(x=>x.id===p.id)+1],
+                            ["トップ率", p.topRate+"%", p.topRate>=25?"#2ecc71":"#aaa", [...liSorted].sort((a,b)=>b.topRate-a.topRate).findIndex(x=>x.id===p.id)+1],
+                            ["連対率",   p.renRate+"%",  p.renRate>=50?"#2ecc71":"#aaa", [...liSorted].sort((a,b)=>b.renRate-a.renRate).findIndex(x=>x.id===p.id)+1],
+                            ["ラスト率", p.lastRate+"%", p.lastRate<=25?"#2ecc71":"#e74c3c", [...liSorted].sort((a,b)=>a.lastRate-b.lastRate).findIndex(x=>x.id===p.id)+1],
+                          ].map(([label,val,col,rank])=>(
                             <div key={label} style={{background:"rgba(255,255,255,0.05)",borderRadius:7,padding:"7px 4px",textAlign:"center"}}>
                               <div style={{fontSize:15,fontWeight:"bold",color:col}}>{val}</div>
                               <div style={{fontSize:9,color:"#666",marginTop:2}}>{label}</div>
+                              <div style={{fontSize:9,color:rank===1?"#ffd700":"#555",marginTop:2,fontWeight:rank===1?700:400}}>
+                                {rank===1?"👑":""}{rank}位 / {liSorted.length}人
+                              </div>
                             </div>
                           ))}
                         </div>
                         <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:3}}>
-                          {[[p.r1,"1位","#f39c12"],[p.r2,"2位","#aaa"],[p.r3,"3位","#888"],[p.r4,"4位","#e74c3c"],[p.yakuman,"役満","#ffd700"]].map(([cnt,label,col])=>(
+                          {[
+                            [p.r1,"1位","#f39c12",[...liSorted].sort((a,b)=>b.r1-a.r1).findIndex(x=>x.id===p.id)+1],
+                            [p.r2,"2位","#aaa",[...liSorted].sort((a,b)=>b.r2-a.r2).findIndex(x=>x.id===p.id)+1],
+                            [p.r3,"3位","#888",[...liSorted].sort((a,b)=>b.r3-a.r3).findIndex(x=>x.id===p.id)+1],
+                            [p.r4,"4位","#e74c3c",[...liSorted].sort((a,b)=>b.r4-a.r4).findIndex(x=>x.id===p.id)+1],
+                            [p.yakuman,"役満","#ffd700",[...liSorted].sort((a,b)=>b.yakuman-a.yakuman).findIndex(x=>x.id===p.id)+1],
+                          ].map(([cnt,label,col,rank])=>(
                             <div key={label} style={{background:label==="役満"?"rgba(255,215,0,0.08)":"rgba(255,255,255,0.03)",border:label==="役満"?"1px solid rgba(255,215,0,0.3)":"none",borderRadius:6,padding:"6px 3px",textAlign:"center"}}>
                               <div style={{fontSize:14,fontWeight:"bold",color:col}}>{cnt}回</div>
                               <div style={{fontSize:9,color:"#555"}}>{label}</div>
+                              <div style={{fontSize:9,color:rank===1?"#ffd700":"#555",marginTop:1,fontWeight:rank===1?700:400}}>
+                                {rank===1?"👑":""}{rank}位
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -1052,7 +1067,10 @@ export default function App() {
 
                           {/* 過去10戦ゲームモード */}
                           {history.length > 0 && (() => {
-                            const last10 = [...history].slice(-10).reverse();
+                            const allHistory = [...history];
+                            // ランダムに10戦選ぶ
+                            const shuffled = allHistory.sort(()=>Math.random()-0.5);
+                            const last10 = shuffled.slice(0, Math.min(10, shuffled.length));
                             const isPlaying = last10Mode;
                             const revealed = last10Revealed;
                             const allRevealed = last10.every((_,i)=>revealed[i]);
@@ -1062,12 +1080,12 @@ export default function App() {
                               <div style={{...S.card({background:"linear-gradient(135deg,rgba(231,76,60,0.08),rgba(52,152,219,0.08))",border:"1px solid rgba(255,255,255,0.15)"})}}>
                                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:isPlaying?12:0}}>
                                   <div>
-                                    <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>⚔️ 過去{Math.min(10,last10.length)}戦で勝負する</div>
+                                    <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>🎲 ランダム{Math.min(10,last10.length)}戦で勝負する</div>
                                     {isPlaying&&<div style={{fontSize:10,color:"#888",marginTop:2}}>タップで結果をめくる</div>}
                                   </div>
                                   <button onClick={()=>{
                                     if(isPlaying){ setLast10Mode(false); setLast10Revealed({}); }
-                                    else { setLast10Mode(true); setLast10Revealed({}); }
+                                    else { setLast10Mode(true); setLast10Revealed({}); setLast10Seed(Date.now()); }
                                   }} style={{padding:"7px 14px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:"bold",fontSize:12,
                                     background:isPlaying?"rgba(255,255,255,0.1)":"linear-gradient(135deg,#e74c3c,#3498db)",color:"#fff"}}>
                                     {isPlaying?"やめる":"START ▶"}
@@ -1411,7 +1429,7 @@ export default function App() {
           <>
             {!sessions.length
               ? <div style={{color:"#888",textAlign:"center",padding:30}}>まだ記録がありません</div>
-              : [...sessions].reverse().map(s => {
+              : [...sessions].sort((a,b)=>b.date.localeCompare(a.date)).map(s => {
                 const tot=calcTotals(s), mems=s.members.map(id=>gm(id)).filter(Boolean);
                 const rL=SCORE_RATES.find(r=>r.val===s.rules.scoreRate)?.label.split("（")[0]||"";
                 const isOpen=histOpen[s.id];
@@ -1895,29 +1913,56 @@ export default function App() {
               <button style={{...S.br({marginBottom:9})}} onClick={()=>setMfShow(true)}>＋ メンバーを追加</button>
             )}
             {members.map(m=>(
-              <div key={m.id} style={{...S.card({display:"flex",alignItems:"center",gap:9,padding:"9px 11px",marginBottom:7})}}>
-                <Av m={m} sz={38}/>
-                <div style={{flex:1,fontSize:13,fontWeight:500}}>{m.name}</div>
-                <button style={S.bs()} onClick={()=>{ setPhotoTgt({t:"p",id:m.id}); fileRef.current.value=""; fileRef.current.click(); }}>📷</button>
-                {!memberDeleteStep[m.id] && (
-                  <button style={S.bs({color:"#e74c3c"})} onClick={()=>setMemberDeleteStep(p=>({...p,[m.id]:1}))}>削除</button>
-                )}
-                {memberDeleteStep[m.id]===1 && (
-                  <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                    <span style={{fontSize:10,color:"#e74c3c"}}>削除してよいですか？</span>
-                    <button style={S.bs({color:"#e74c3c",fontSize:11})} onClick={()=>setMemberDeleteStep(p=>({...p,[m.id]:2}))}>はい</button>
-                    <button style={S.bs({fontSize:11})} onClick={()=>setMemberDeleteStep(p=>({...p,[m.id]:0}))}>いいえ</button>
+              <div key={m.id} style={S.card({marginBottom:7})}>
+                {memberEditId === m.id ? (
+                  /* 編集モード */
+                  <div style={{display:"flex",alignItems:"center",gap:7}}>
+                    <Av m={m} sz={38}/>
+                    <input type="text" value={memberEditName} onChange={e=>setMemberEditName(e.target.value)}
+                      onKeyDown={async e=>{
+                        if(e.key==="Enter"&&memberEditName.trim()){
+                          await supabase.from("members").update({name:memberEditName.trim()}).eq("id",m.id);
+                          setMembers(ms=>ms.map(x=>x.id===m.id?{...x,name:memberEditName.trim()}:x));
+                          setMemberEditId(null);
+                        }
+                      }}
+                      style={{...S.inp({flex:1,fontSize:14})}} autoFocus/>
+                    <button style={S.br({fontSize:12,padding:"6px 12px"})} onClick={async()=>{
+                      if(!memberEditName.trim()) return;
+                      await supabase.from("members").update({name:memberEditName.trim()}).eq("id",m.id);
+                      setMembers(ms=>ms.map(x=>x.id===m.id?{...x,name:memberEditName.trim()}:x));
+                      setMemberEditId(null);
+                    }}>保存</button>
+                    <button style={S.bg({fontSize:12})} onClick={()=>setMemberEditId(null)}>✕</button>
                   </div>
-                )}
-                {memberDeleteStep[m.id]===2 && (
-                  <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                    <span style={{fontSize:10,color:"#e74c3c"}}>本当に良いですか？</span>
-                    <button style={S.bs({color:"#e74c3c",fontSize:11})} onClick={async()=>{
-                      await supabase.from("members").delete().eq("id", m.id);
-                      setMembers(ms=>ms.filter(x=>x.id!==m.id));
-                      setMemberDeleteStep(p=>({...p,[m.id]:0}));
-                    }}>削除する</button>
-                    <button style={S.bs({fontSize:11})} onClick={()=>setMemberDeleteStep(p=>({...p,[m.id]:0}))}>いいえ</button>
+                ) : (
+                  /* 通常表示 */
+                  <div style={{display:"flex",alignItems:"center",gap:9,padding:"0"}}>
+                    <Av m={m} sz={38}/>
+                    <div style={{flex:1,fontSize:13,fontWeight:500}}>{m.name}</div>
+                    <button style={S.bs()} onClick={()=>{ setPhotoTgt({t:"p",id:m.id}); fileRef.current.value=""; fileRef.current.click(); }}>📷</button>
+                    <button style={S.bs({color:"#7fb9e0"})} onClick={()=>{ setMemberEditId(m.id); setMemberEditName(m.name); }}>✏️</button>
+                    {!memberDeleteStep[m.id] && (
+                      <button style={S.bs({color:"#e74c3c"})} onClick={()=>setMemberDeleteStep(p=>({...p,[m.id]:1}))}>削除</button>
+                    )}
+                    {memberDeleteStep[m.id]===1 && (
+                      <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                        <span style={{fontSize:10,color:"#e74c3c"}}>削除してよいですか？</span>
+                        <button style={S.bs({color:"#e74c3c",fontSize:11})} onClick={()=>setMemberDeleteStep(p=>({...p,[m.id]:2}))}>はい</button>
+                        <button style={S.bs({fontSize:11})} onClick={()=>setMemberDeleteStep(p=>({...p,[m.id]:0}))}>いいえ</button>
+                      </div>
+                    )}
+                    {memberDeleteStep[m.id]===2 && (
+                      <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                        <span style={{fontSize:10,color:"#e74c3c"}}>本当に良いですか？</span>
+                        <button style={S.bs({color:"#e74c3c",fontSize:11})} onClick={async()=>{
+                          await supabase.from("members").delete().eq("id", m.id);
+                          setMembers(ms=>ms.filter(x=>x.id!==m.id));
+                          setMemberDeleteStep(p=>({...p,[m.id]:0}));
+                        }}>削除する</button>
+                        <button style={S.bs({fontSize:11})} onClick={()=>setMemberDeleteStep(p=>({...p,[m.id]:0}))}>いいえ</button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
