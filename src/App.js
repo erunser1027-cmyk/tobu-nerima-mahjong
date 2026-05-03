@@ -159,25 +159,16 @@ export default function App() {
   const [mfName, setMfName] = useState("");
   const [mfPhoto, setMfPhoto] = useState(null);
 
-  const [addStep, setAddStep] = useState(()=>{
-    try { return JSON.parse(localStorage.getItem("tleague_draft"))?.addStep||0; } catch { return 0; }
-  });
+  const [addStep, setAddStep] = useState(0);
   const today = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   };
-  const [addDate, setAddDate] = useState(()=>{
-    try { return JSON.parse(localStorage.getItem("tleague_draft"))?.addDate||today(); } catch { return today(); }
-  });
-  const [addRules, setAddRules] = useState(()=>{
-    try { return JSON.parse(localStorage.getItem("tleague_draft"))?.addRules||{ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:30, chipRate:50 }; } catch { return { kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:30, chipRate:50 }; }
-  });
-  const [addSel, setAddSel] = useState(()=>{
-    try { return JSON.parse(localStorage.getItem("tleague_draft"))?.addSel||[]; } catch { return []; }
-  });
-  const [addRounds, setAddRounds] = useState(()=>{
-    try { return JSON.parse(localStorage.getItem("tleague_draft"))?.addRounds||[]; } catch { return []; }
-  });
+  const [addDate, setAddDate] = useState(today());
+  const [addRules, setAddRules] = useState({ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:30, chipRate:50 });
+  const [addSel, setAddSel] = useState([]);
+  const [addRounds, setAddRounds] = useState([]);
+  const [draftId, setDraftId] = useState(null); // Supabaseのdraft ID
   const [rpSc, setRpSc] = useState({});
   const [rpAutoId, setRpAutoId] = useState(null);
   const [rpPhotos, setRpPhotos] = useState({});
@@ -218,13 +209,39 @@ export default function App() {
   const gm = id => members.find(m => m.id === Number(id));
   const is5 = addSel.length > 4;
 
-  // 入力中データを自動保存
+  // 起動時にSupabaseから下書き復元
   useEffect(()=>{
-    if(addStep===0){ localStorage.removeItem("tleague_draft"); return; }
-    try {
-      localStorage.setItem("tleague_draft", JSON.stringify({ addStep, addDate, addRules, addSel, addRounds }));
-    } catch {}
-  }, [addStep, addDate, addRules, addSel, addRounds]);
+    async function loadDraft(){
+      const { data } = await supabase.from("drafts").select("*").order("updated_at",{ascending:false}).limit(1).single();
+      if(data){
+        setDraftId(data.id);
+        setAddDate(data.date);
+        setAddRules(data.rules);
+        setAddSel(data.members);
+        setAddRounds(data.rounds);
+        setAddStep(data.rounds.length>0?2:0);
+      }
+    }
+    loadDraft();
+  },[]);
+
+  // 半荘確定のたびにSupabaseに下書き保存
+  async function saveDraft(date, rules, sel, rounds){
+    if(rounds.length===0) return;
+    const payload = { date, rules, members:sel, rounds, updated_at: new Date().toISOString() };
+    if(draftId){
+      await supabase.from("drafts").update(payload).eq("id",draftId);
+    } else {
+      const { data } = await supabase.from("drafts").insert(payload).select().single();
+      if(data) setDraftId(data.id);
+    }
+  }
+
+  // 下書き削除
+  async function deleteDraft(){
+    if(draftId){ await supabase.from("drafts").delete().eq("id",draftId); setDraftId(null); }
+    localStorage.removeItem("tleague_draft");
+  }
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
@@ -379,7 +396,9 @@ export default function App() {
     if (playing.length !== 4) { setAddErr("4人分の点数を入力してください"); return; }
     const scores = {};
     playing.forEach(id => { scores[id] = N(rpSc[id]); });
-    setAddRounds(prev => [...prev, { players: playing, scores, photos:{...rpPhotos}, yakuman:[...rpYakuman], yakumanTypes:{...rpYakumanTypes}, openRiichi:[...rpOpenRiichi], dealIn:[...rpDealIn] }]);
+    const newRounds = [...addRounds, { players: playing, scores, photos:{...rpPhotos}, yakuman:[...rpYakuman], yakumanTypes:{...rpYakumanTypes}, openRiichi:[...rpOpenRiichi], dealIn:[...rpDealIn] }];
+    setAddRounds(newRounds);
+    saveDraft(addDate, addRules, addSel, newRounds);
 
     // 役満演出
     if (rpYakuman.length > 0) {
@@ -414,7 +433,7 @@ export default function App() {
     if (data) setSessions(p => [...p, data]);
     setLr({...addRules, uma:addRules.uma.map(Number)});
     setBashiroTotal("");
-    localStorage.removeItem("tleague_draft");
+    await deleteDraft();
     setAddStep(0); setTab("history");
   }
 
@@ -438,7 +457,7 @@ export default function App() {
   }
 
   function resetAdd() {
-    localStorage.removeItem("tleague_draft");
+    deleteDraft();
     setAddStep(0); setAddRules({...lr}); setAddSel([]); setAddRounds([]);
     setAddDate(today());
     setRpSc({}); setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes({}); setRpOpenRiichi([]); setRpDealIn([]); setAddChips({}); setAddBashiro({});
@@ -1738,7 +1757,7 @@ export default function App() {
           <>
             {addStep>0 && addRounds.length>0 && (
               <div style={{background:"rgba(52,152,219,0.1)",border:"1px solid rgba(52,152,219,0.3)",borderRadius:8,padding:"8px 12px",marginBottom:8,fontSize:11,color:"#7fb9e0",display:"flex",alignItems:"center",gap:6}}>
-                💾 入力中のデータが復元されました（{addRounds.length}半荘入力済み）
+                💾 入力中のデータが復元されました（{addRounds.length}半荘入力済み）全員のスマホで共有中
               </div>
             )}
             {addStep===0 && (
