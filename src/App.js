@@ -13,6 +13,7 @@ const SCORE_RATES = [
 
 const CHANGELOG = [
   { date:"2026-05-04", features:[
+    "確定済み半荘の編集機能追加（写真・役満・開放立直の追加が可能）",
     "入力中データをSupabaseに自動保存（アプリを閉じても消えない・全員で共有）",
     "招待コード30日間スキップ機能追加",
     "更新履歴タブ追加（📋ボタン）",
@@ -202,7 +203,8 @@ export default function App() {
   const [last10Seed, setLast10Seed] = useState(0);
   const [showLivePanel, setShowLivePanel] = useState(false);
   const [yakumanCelebration, setYakumanCelebration] = useState(null);
-  const [showChangelog, setShowChangelog] = useState(false); // {name, type}
+  const [showChangelog, setShowChangelog] = useState(false);
+  const [editRoundIndex, setEditRoundIndex] = useState(null); // 確定済み半荘の編集用 // {name, type}
 
   const fileRef = useRef(null);
   const [photoTgt, setPhotoTgt] = useState(null);
@@ -370,6 +372,14 @@ export default function App() {
             });
             return{...prev,rounds:newRounds};
           });
+        } else if (photoTgt?.t==="cr") {
+          const { ri, id } = photoTgt;
+          setAddRounds(prev=>prev.map((rr,idx)=>idx!==ri?rr:{
+            ...rr, photos:{...rr.photos,[id]:[...(rr.photos?.[id]||[]),d].slice(0,3)}
+          }));
+          saveDraft(addDate, addRules, addSel, addRounds.map((rr,idx)=>idx!==ri?rr:{
+            ...rr, photos:{...rr.photos,[id]:[...(rr.photos?.[id]||[]),d].slice(0,3)}
+          }));
         }
       }; img.src=ev.target.result;
     }; reader.readAsDataURL(f);
@@ -517,34 +527,143 @@ export default function App() {
   function ConfirmedRound({ r, ri, sessMembers }) {
     const allM = sessMembers.map(id=>gm(id)).filter(Boolean);
     const sortedPlayers = [...r.players].sort((a,b)=>N(r.scores[b])-N(r.scores[a]));
+    const isEditing = editRoundIndex === ri;
+    
     return (
       <div style={{ background:"rgba(0,0,0,0.2)", borderRadius:7, padding:7, marginBottom:6 }}>
-        <div style={{ fontSize:10, color:"#888", marginBottom:4 }}>第{ri+1}半荘 <span style={{color:"#555"}}>確定済</span></div>
-        <div style={{ display:"grid", gridTemplateColumns:`repeat(${allM.length},1fr)`, gap:3 }}>
-          {allM.map(m => {
-            const isPlaying = r.players.includes(m.id);
-            if (!isPlaying) return (
-              <div key={m.id} style={{ textAlign:"center", padding:4, opacity:0.3 }}>
-                <Av m={m} sz={18}/><div style={{fontSize:9,color:"#555",marginTop:1}}>休憩</div>
-              </div>
-            );
-            const sc2 = N(r.scores[m.id]);
-            const rank = sortedPlayers.indexOf(m.id) + 1;
-            const ph = (r.photos?.[m.id])||[];
-            return (
-              <div key={m.id} style={{ textAlign:"center", padding:4, background:rank===1?"rgba(231,76,60,0.1)":"rgba(255,255,255,0.03)", borderRadius:5 }}>
-                <Av m={m} sz={18}/>
-                <div style={{fontSize:9,marginTop:1}}>{m.name}</div>
-                <div style={{fontSize:13,fontWeight:"bold",color:cc(sc2)}}>{fw(sc2)}</div>
-                {ph.length>0 && (
-                  <div style={{display:"flex",gap:2,justifyContent:"center",marginTop:3,flexWrap:"wrap"}}>
-                    {ph.map((p,i)=><img key={i} src={p} alt="" onClick={()=>setLb(p)} style={{width:36,height:36,borderRadius:5,objectFit:"cover",cursor:"pointer",border:"1px solid rgba(255,255,255,0.2)"}}/>)}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+          <div style={{ fontSize:10, color:"#888" }}>第{ri+1}半荘 <span style={{color:"#555"}}>確定済</span></div>
+          <button onClick={()=>setEditRoundIndex(isEditing?null:ri)} style={S.bs({fontSize:11,color:isEditing?"#e74c3c":"#7fb9e0"})}>
+            {isEditing?"✕ 閉じる":"✏️ 編集"}
+          </button>
         </div>
+
+        {!isEditing && (
+          <div style={{ display:"grid", gridTemplateColumns:`repeat(${allM.length},1fr)`, gap:3 }}>
+            {allM.map(m => {
+              const isPlaying = r.players.includes(m.id);
+              if (!isPlaying) return (
+                <div key={m.id} style={{ textAlign:"center", padding:4, opacity:0.3 }}>
+                  <Av m={m} sz={18}/><div style={{fontSize:9,color:"#555",marginTop:1}}>休憩</div>
+                </div>
+              );
+              const sc2 = N(r.scores[m.id]);
+              const rank = sortedPlayers.indexOf(m.id) + 1;
+              const ph = (r.photos?.[m.id])||[];
+              const hasYakuman = r.yakuman && r.yakuman.includes(m.id);
+              const hasOpenRiichi = r.openRiichi && r.openRiichi.includes(m.id);
+              return (
+                <div key={m.id} style={{ textAlign:"center", padding:4, background:rank===1?"rgba(231,76,60,0.1)":"rgba(255,255,255,0.03)", borderRadius:5 }}>
+                  <Av m={m} sz={18}/>
+                  <div style={{fontSize:9,marginTop:1}}>{m.name}</div>
+                  <div style={{fontSize:13,fontWeight:"bold",color:cc(sc2)}}>{fw(sc2)}</div>
+                  {hasYakuman&&<div style={{fontSize:9,color:"#ffd700"}}>🀄 役満</div>}
+                  {hasOpenRiichi&&<div style={{fontSize:9,color:"#3498db"}}>開放立直</div>}
+                  {ph.length>0 && (
+                    <div style={{display:"flex",gap:2,justifyContent:"center",marginTop:3,flexWrap:"wrap"}}>
+                      {ph.map((p,i)=><img key={i} src={p} alt="" onClick={()=>setLb(p)} style={{width:36,height:36,borderRadius:5,objectFit:"cover",cursor:"pointer",border:"1px solid rgba(255,255,255,0.2)"}}/>)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {isEditing && (
+          <div style={{background:"rgba(52,152,219,0.06)",borderRadius:7,padding:8,marginTop:6}}>
+            <div style={{fontSize:10,color:"#7fb9e0",marginBottom:8}}>📷 写真・🀄 役満・開放立直の追加のみ可能（スコアは変更不可）</div>
+            {r.players.map(pid => {
+              const m = gm(pid); if (!m) return null;
+              const ph = (r.photos?.[pid])||[];
+              const hasYakuman = r.yakuman && r.yakuman.includes(pid);
+              const yakumanType = r.yakumanTypes?.[pid]||"";
+              const hasOpenRiichi = r.openRiichi && r.openRiichi.includes(pid);
+              const hasDealIn = r.dealIn && r.dealIn.includes(pid);
+              
+              return (
+                <div key={pid} style={{background:"rgba(255,255,255,0.04)",borderRadius:6,padding:7,marginBottom:6}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+                    <Av m={m} sz={24}/>
+                    <div style={{fontSize:12,fontWeight:500}}>{m.name}</div>
+                  </div>
+
+                  {/* 写真追加 */}
+                  <button onClick={()=>{ setPhotoTgt({t:"cr",ri,id:pid}); fileRef.current.value=""; fileRef.current.click(); }}
+                    style={{...S.bs({fontSize:11,marginBottom:6,width:"100%",background:"rgba(52,152,219,0.1)",border:"1px solid rgba(52,152,219,0.3)"})}}> 📷 写真を追加</button>
+                  {ph.length>0 && (
+                    <div style={{display:"flex",gap:3,marginBottom:6,flexWrap:"wrap"}}>
+                      {ph.map((p,i)=>(
+                        <div key={i} style={{position:"relative"}}>
+                          <img src={p} alt="" onClick={()=>setLb(p)} style={{width:50,height:50,borderRadius:5,objectFit:"cover",cursor:"pointer"}}/>
+                          <button onClick={()=>{
+                            setAddRounds(prev=>prev.map((rr,idx)=>idx!==ri?rr:{
+                              ...rr, photos:{...rr.photos, [pid]:(rr.photos?.[pid]||[]).filter((_,ii)=>ii!==i)}
+                            }));
+                          }} style={{position:"absolute",top:-6,right:-6,background:"#e74c3c",border:"none",borderRadius:"50%",width:18,height:18,fontSize:10,cursor:"pointer",color:"#fff"}}>✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 役満チェック */}
+                  <div onClick={()=>{
+                    setAddRounds(prev=>prev.map((rr,idx)=>idx!==ri?rr:{
+                      ...rr, yakuman: hasYakuman
+                        ? (rr.yakuman||[]).filter(x=>x!==pid)
+                        : [...(rr.yakuman||[]),pid]
+                    }));
+                  }} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 8px",borderRadius:6,cursor:"pointer",marginBottom:4,background:hasYakuman?"rgba(255,215,0,0.15)":"rgba(255,255,255,0.03)",border:hasYakuman?"1px solid rgba(255,215,0,0.5)":"1px solid rgba(255,255,255,0.08)"}}>
+                    <span style={{fontSize:12}}>{hasYakuman?"☑️":"⬜"}</span>
+                    <span style={{fontSize:11,color:hasYakuman?"#ffd700":"#666"}}>役満</span>
+                  </div>
+                  {hasYakuman && (
+                    <input type="text" placeholder="種類（例: 四暗刻）"
+                      value={yakumanType}
+                      onChange={e=>{
+                        const val=e.target.value;
+                        setAddRounds(prev=>prev.map((rr,idx)=>idx!==ri?rr:{
+                          ...rr,yakumanTypes:{...(rr.yakumanTypes||{}),[pid]:val}
+                        }));
+                      }}
+                      onClick={e=>e.stopPropagation()}
+                      style={{marginBottom:4,background:"rgba(255,215,0,0.08)",border:"1px solid rgba(255,215,0,0.3)",color:"#ffd700",borderRadius:6,padding:"4px 8px",fontSize:12,width:"100%",outline:"none"}}/>
+                  )}
+
+                  {/* 開放立直チェック */}
+                  <div onClick={()=>{
+                    setAddRounds(prev=>prev.map((rr,idx)=>idx!==ri?rr:{
+                      ...rr, openRiichi: hasOpenRiichi
+                        ? (rr.openRiichi||[]).filter(x=>x!==pid)
+                        : [...(rr.openRiichi||[]),pid]
+                    }));
+                  }} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 8px",borderRadius:6,cursor:"pointer",marginBottom:4,background:hasOpenRiichi?"rgba(52,152,219,0.15)":"rgba(255,255,255,0.03)",border:hasOpenRiichi?"1px solid rgba(52,152,219,0.5)":"1px solid rgba(255,255,255,0.08)"}}>
+                    <span style={{fontSize:12}}>{hasOpenRiichi?"☑️":"⬜"}</span>
+                    <span style={{fontSize:11,color:hasOpenRiichi?"#3498db":"#666"}}>開放立直</span>
+                  </div>
+
+                  {/* 振り込みチェック */}
+                  {hasOpenRiichi && (
+                    <div onClick={()=>{
+                      setAddRounds(prev=>prev.map((rr,idx)=>idx!==ri?rr:{
+                        ...rr, dealIn: hasDealIn
+                          ? (rr.dealIn||[]).filter(x=>x!==pid)
+                          : [...(rr.dealIn||[]),pid]
+                      }));
+                    }} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 8px",borderRadius:6,cursor:"pointer",background:hasDealIn?"rgba(231,76,60,0.15)":"rgba(255,255,255,0.03)",border:hasDealIn?"1px solid rgba(231,76,60,0.5)":"1px solid rgba(255,255,255,0.08)"}}>
+                      <span style={{fontSize:12}}>{hasDealIn?"☑️":"⬜"}</span>
+                      <span style={{fontSize:11,color:hasDealIn?"#e74c3c":"#666"}}>💀 振り込み</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <button onClick={()=>{
+              setEditRoundIndex(null);
+              saveDraft(addDate, addRules, addSel, addRounds);
+            }} style={{...S.br({width:"100%",marginTop:6,fontSize:12})}}>✅ 保存して閉じる</button>
+          </div>
+        )}
       </div>
     );
   }
