@@ -13,9 +13,11 @@ const SCORE_RATES = [
 
 const CHANGELOG = [
   { date:"2026-05-08", features:[
+    "設定タブ追加（更新履歴・アプリにする方法を統合）",
+    "生涯成績の色分け基準を折りたたみ式に変更",
+    "色分け基準の説明を「※全国およびMリーグ基準に基づく」に更新",
     "最高点ランキング機能追加（70以上でトップ時に持ち点を記録）",
     "確定済み半荘の編集機能追加（写真・役満・開放立直の追加が可能）",
-    "生涯成績の色分け凡例に具体的な数値を明記（黄色=最高（2.32以下）など）",
   ]},
   { date:"2026-05-04", features:[
     "入力中データをSupabaseに自動保存（アプリを閉じても消えない・全員で共有）",
@@ -207,7 +209,10 @@ export default function App() {
   const [last10Seed, setLast10Seed] = useState(0);
   const [showLivePanel, setShowLivePanel] = useState(false);
   const [yakumanCelebration, setYakumanCelebration] = useState(null);
-  const [showChangelog, setShowChangelog] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showChangelogSection, setShowChangelogSection] = useState(false);
+  const [showAppGuideSection, setShowAppGuideSection] = useState(false);
+  const [showColorLegend, setShowColorLegend] = useState(false);
   const [editRoundIndex, setEditRoundIndex] = useState(null);
   const [highScoreModal, setHighScoreModal] = useState(null); // {roundIndex, playerId, score}
   const [highScoreInput, setHighScoreInput] = useState(""); // {name, type}
@@ -1005,33 +1010,80 @@ export default function App() {
             {[["all","全期間"],["year","今年"],["month","今月"]].map(([v,l])=>(
               <button key={v} onClick={()=>setPeriod(v)} style={S.pd(period===v)}>{l}</button>
             ))}
-            <button onClick={()=>setShowChangelog(p=>!p)} style={{marginLeft:"auto",padding:"4px 10px",borderRadius:13,cursor:"pointer",fontSize:11,background:"transparent",border:showChangelog?"1px solid #7fb9e0":"1px solid rgba(255,255,255,0.18)",color:showChangelog?"#7fb9e0":"#888"}}>
-              📋 更新履歴
+            <button onClick={()=>setShowSettings(p=>!p)} style={{marginLeft:"auto",padding:"4px 10px",borderRadius:13,cursor:"pointer",fontSize:11,background:"transparent",border:showSettings?"1px solid #7fb9e0":"1px solid rgba(255,255,255,0.18)",color:showSettings?"#7fb9e0":"#888"}}>
+              ⚙️ 設定
             </button>
           </div>
         )}
 
-        {/* 更新履歴モーダル */}
-        {showChangelog && (
+        {/* 設定モーダル */}
+        {showSettings && (
           <div style={{...S.card({background:"rgba(52,152,219,0.06)",border:"1px solid rgba(52,152,219,0.25)",marginBottom:10})}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-              <div style={{fontSize:13,fontWeight:600,color:"#7fb9e0"}}>📋 更新履歴</div>
-              <button onClick={()=>setShowChangelog(false)} style={S.bs()}>✕</button>
+              <div style={{fontSize:13,fontWeight:600,color:"#7fb9e0"}}>⚙️ 設定</div>
+              <button onClick={()=>setShowSettings(false)} style={S.bs()}>✕</button>
             </div>
-            <div style={{display:"flex",flexDirection:"column",gap:0}}>
-              {CHANGELOG.map((item,i)=>(
-                <div key={i} style={{display:"flex",gap:10,padding:"8px 0",borderBottom:i<CHANGELOG.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
-                  <div style={{fontSize:10,color:"#555",whiteSpace:"nowrap",minWidth:70,paddingTop:2}}>{item.date}</div>
-                  <div style={{flex:1}}>
-                    {item.features.map((f,j)=>(
-                      <div key={j} style={{fontSize:11,color:"#ccc",marginBottom:2,display:"flex",gap:5,alignItems:"flex-start"}}>
-                        <span style={{color:"#3498db",fontSize:10,marginTop:1}}>✦</span>
-                        <span>{f}</span>
+
+            {/* 更新履歴セクション */}
+            <div style={{marginBottom:12}}>
+              <div onClick={()=>setShowChangelogSection(p=>!p)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",padding:"8px 10px",background:"rgba(255,255,255,0.04)",borderRadius:8,marginBottom:showChangelogSection?8:0}}>
+                <div style={{fontSize:12,fontWeight:500,color:"#ccc"}}>📋 更新履歴</div>
+                <span style={{fontSize:14,color:"#888"}}>{showChangelogSection?"▲":"▼"}</span>
+              </div>
+              {showChangelogSection && (
+                <div style={{display:"flex",flexDirection:"column",gap:0}}>
+                  {CHANGELOG.map((item,i)=>(
+                    <div key={i} style={{display:"flex",gap:10,padding:"8px 0",borderBottom:i<CHANGELOG.length-1?"1px solid rgba(255,255,255,0.06)":"none"}}>
+                      <div style={{fontSize:10,color:"#555",whiteSpace:"nowrap",minWidth:70,paddingTop:2}}>{item.date}</div>
+                      <div style={{flex:1}}>
+                        {item.features.map((f,j)=>(
+                          <div key={j} style={{fontSize:11,color:"#ccc",marginBottom:2,display:"flex",gap:5,alignItems:"flex-start"}}>
+                            <span style={{color:"#3498db",fontSize:10,marginTop:1}}>✦</span>
+                            <span>{f}</span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* アプリにする方法セクション */}
+            <div>
+              <div onClick={()=>setShowAppGuideSection(p=>!p)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",padding:"8px 10px",background:"rgba(255,255,255,0.04)",borderRadius:8,marginBottom:showAppGuideSection?8:0}}>
+                <div style={{fontSize:12,fontWeight:500,color:"#ccc"}}>📱 アプリにする方法</div>
+                <span style={{fontSize:14,color:"#888"}}>{showAppGuideSection?"▲":"▼"}</span>
+              </div>
+              {showAppGuideSection && (
+                <div style={{fontSize:11,color:"#ccc",lineHeight:1.6}}>
+                  <div style={{marginBottom:12}}>
+                    <div style={{fontSize:12,fontWeight:600,color:"#7fb9e0",marginBottom:6}}>📱 iPhone（Safari）</div>
+                    <div style={{fontSize:10,color:"#aaa",marginBottom:4}}>
+                      1. Safariでこのページを開く<br/>
+                      2. 画面下部の <span style={{color:"#3498db",fontWeight:"bold"}}>共有ボタン □↑</span> をタップ<br/>
+                      3. 「<span style={{color:"#3498db",fontWeight:"bold"}}>ホーム画面に追加</span>」を選択<br/>
+                      4. 右上の「<span style={{color:"#3498db",fontWeight:"bold"}}>追加</span>」をタップ
+                    </div>
+                    <div style={{fontSize:9,color:"#666",marginTop:4}}>
+                      ※ ホーム画面にアイコンが追加され、アプリのように使えます
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{fontSize:12,fontWeight:600,color:"#7fb9e0",marginBottom:6}}>🤖 Android（Chrome）</div>
+                    <div style={{fontSize:10,color:"#aaa",marginBottom:4}}>
+                      1. Chromeでこのページを開く<br/>
+                      2. 画面右上の <span style={{color:"#3498db",fontWeight:"bold"}}>メニュー ⋮</span> をタップ<br/>
+                      3. 「<span style={{color:"#3498db",fontWeight:"bold"}}>ホーム画面に追加</span>」を選択<br/>
+                      4. 「<span style={{color:"#3498db",fontWeight:"bold"}}>追加</span>」をタップ
+                    </div>
+                    <div style={{fontSize:9,color:"#666",marginTop:4}}>
+                      ※ ホーム画面にアイコンが追加され、アプリのように使えます
+                    </div>
                   </div>
                 </div>
-              ))}
+              )}
             </div>
           </div>
         )}
@@ -1156,42 +1208,48 @@ export default function App() {
                 <>
                   <div style={{fontSize:10,color:"#888",marginBottom:6}}>列タップでソート　行タップで詳細</div>
                   {/* 色凡例 */}
+                  {/* 色凡例（折りたたみ式） */}
                   <div style={{marginBottom:8,background:"rgba(255,255,255,0.04)",borderRadius:8,padding:8}}>
-                    <div style={{fontSize:10,color:"#888",marginBottom:6}}>📊 基準値（色分け）</div>
-                    <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6}}>
-                      <div>
-                        <div style={{fontSize:9,color:"#666",marginBottom:3}}>平均順位</div>
-                        <div style={{fontSize:8,display:"flex",flexDirection:"column",gap:1}}>
-                          <div><span style={{color:"#ffd700"}}>🟡</span> 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>2.32以下</span>）</div>
-                          <div><span style={{color:"#f39c12"}}>🟠</span> 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>2.37以下</span>）</div>
-                          <div><span style={{color:"#9b59b6"}}>🟣</span> 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>2.5以下</span>）</div>
-                        </div>
-                      </div>
-                      <div>
-                        <div style={{fontSize:9,color:"#666",marginBottom:3}}>トップ率</div>
-                        <div style={{fontSize:8,display:"flex",flexDirection:"column",gap:1}}>
-                          <div><span style={{color:"#ffd700"}}>🟡</span> 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>30%以上</span>）</div>
-                          <div><span style={{color:"#f39c12"}}>🟠</span> 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>28%以上</span>）</div>
-                          <div><span style={{color:"#9b59b6"}}>🟣</span> 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>25%以上</span>）</div>
-                        </div>
-                      </div>
-                      <div>
-                        <div style={{fontSize:9,color:"#666",marginBottom:3}}>連対率</div>
-                        <div style={{fontSize:8,display:"flex",flexDirection:"column",gap:1}}>
-                          <div><span style={{color:"#ffd700"}}>🟡</span> 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>60%以上</span>）</div>
-                          <div><span style={{color:"#f39c12"}}>🟠</span> 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>55%以上</span>）</div>
-                          <div><span style={{color:"#9b59b6"}}>🟣</span> 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>50%以上</span>）</div>
-                        </div>
-                      </div>
-                      <div>
-                        <div style={{fontSize:9,color:"#666",marginBottom:3}}>ラスト率</div>
-                        <div style={{fontSize:8,display:"flex",flexDirection:"column",gap:1}}>
-                          <div><span style={{color:"#ffd700"}}>🟡</span> 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>16%以下</span>）</div>
-                          <div><span style={{color:"#f39c12"}}>🟠</span> 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>20%以下</span>）</div>
-                          <div><span style={{color:"#9b59b6"}}>🟣</span> 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>23%以下</span>）</div>
-                        </div>
-                      </div>
+                    <div onClick={()=>setShowColorLegend(p=>!p)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
+                      <div style={{fontSize:10,color:"#888"}}>📊 基準値（色分け）※全国およびMリーグ基準に基づく</div>
+                      <span style={{fontSize:12,color:"#888"}}>{showColorLegend?"▲":"▼"}</span>
                     </div>
+                    {showColorLegend && (
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6,marginTop:8}}>
+                        <div>
+                          <div style={{fontSize:9,color:"#666",marginBottom:3}}>平均順位</div>
+                          <div style={{fontSize:8,display:"flex",flexDirection:"column",gap:1}}>
+                            <div><span style={{color:"#ffd700"}}>🟡</span> 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>2.32以下</span>）</div>
+                            <div><span style={{color:"#f39c12"}}>🟠</span> 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>2.37以下</span>）</div>
+                            <div><span style={{color:"#9b59b6"}}>🟣</span> 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>2.5以下</span>）</div>
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{fontSize:9,color:"#666",marginBottom:3}}>トップ率</div>
+                          <div style={{fontSize:8,display:"flex",flexDirection:"column",gap:1}}>
+                            <div><span style={{color:"#ffd700"}}>🟡</span> 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>30%以上</span>）</div>
+                            <div><span style={{color:"#f39c12"}}>🟠</span> 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>28%以上</span>）</div>
+                            <div><span style={{color:"#9b59b6"}}>🟣</span> 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>25%以上</span>）</div>
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{fontSize:9,color:"#666",marginBottom:3}}>連対率</div>
+                          <div style={{fontSize:8,display:"flex",flexDirection:"column",gap:1}}>
+                            <div><span style={{color:"#ffd700"}}>🟡</span> 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>60%以上</span>）</div>
+                            <div><span style={{color:"#f39c12"}}>🟠</span> 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>55%以上</span>）</div>
+                            <div><span style={{color:"#9b59b6"}}>🟣</span> 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>50%以上</span>）</div>
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{fontSize:9,color:"#666",marginBottom:3}}>ラスト率</div>
+                          <div style={{fontSize:8,display:"flex",flexDirection:"column",gap:1}}>
+                            <div><span style={{color:"#ffd700"}}>🟡</span> 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>16%以下</span>）</div>
+                            <div><span style={{color:"#f39c12"}}>🟠</span> 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>20%以下</span>）</div>
+                            <div><span style={{color:"#9b59b6"}}>🟣</span> 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>23%以下</span>）</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* 比較テーブル（上に移動） */}
