@@ -13,6 +13,7 @@ const SCORE_RATES = [
 
 const CHANGELOG = [
   { date:"2026-05-04", features:[
+    "最高点ランキング機能追加（70以上でトップ時に持ち点を記録）",
     "確定済み半荘の編集機能追加（写真・役満・開放立直の追加が可能）",
     "入力中データをSupabaseに自動保存（アプリを閉じても消えない・全員で共有）",
     "招待コード30日間スキップ機能追加",
@@ -204,7 +205,9 @@ export default function App() {
   const [showLivePanel, setShowLivePanel] = useState(false);
   const [yakumanCelebration, setYakumanCelebration] = useState(null);
   const [showChangelog, setShowChangelog] = useState(false);
-  const [editRoundIndex, setEditRoundIndex] = useState(null); // 確定済み半荘の編集用 // {name, type}
+  const [editRoundIndex, setEditRoundIndex] = useState(null);
+  const [highScoreModal, setHighScoreModal] = useState(null); // {roundIndex, playerId, score}
+  const [highScoreInput, setHighScoreInput] = useState(""); // {name, type}
 
   const fileRef = useRef(null);
   const [photoTgt, setPhotoTgt] = useState(null);
@@ -410,6 +413,16 @@ export default function App() {
     playing.forEach(id => { scores[id] = N(rpSc[id]); });
     const newRounds = [...addRounds, { players: playing, scores, photos:{...rpPhotos}, yakuman:[...rpYakuman], yakumanTypes:{...rpYakumanTypes}, openRiichi:[...rpOpenRiichi], dealIn:[...rpDealIn] }];
     setAddRounds(newRounds);
+    
+    // 70以上でトップを取った人を検出
+    const sorted = playing.map(pid=>({pid, sc:N(scores[pid])})).sort((a,b)=>b.sc-a.sc);
+    const topPlayer = sorted[0];
+    if (topPlayer.sc >= 70) {
+      setHighScoreModal({ roundIndex: newRounds.length-1, playerId: topPlayer.pid, score: topPlayer.sc });
+      setHighScoreInput("");
+      return; // 持ち点入力待ち
+    }
+    
     saveDraft(addDate, addRules, addSel, newRounds);
 
     // 役満演出
@@ -672,6 +685,39 @@ export default function App() {
     <div style={{ width:"100%", maxWidth:480, margin:"0 auto", minHeight:"100vh", background:"#0f0f1a", color:"#fff", fontFamily:"sans-serif", boxSizing:"border-box" }}>
       <input type="file" accept="image/*" ref={fileRef} style={{display:"none"}} onChange={onFile}/>
       {lb && <div onClick={()=>setLb(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.93)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,cursor:"pointer"}}><img src={lb} alt="" style={{maxWidth:"90%",maxHeight:"80vh",borderRadius:8}}/></div>}
+
+      {/* 持ち点入力モーダル */}
+      {highScoreModal && (()=>{
+        const m = gm(highScoreModal.playerId);
+        return (
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.9)",zIndex:1001,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+            <div style={{background:"linear-gradient(135deg,rgba(255,215,0,0.15),rgba(255,165,0,0.1))",border:"2px solid rgba(255,215,0,0.6)",borderRadius:16,padding:20,maxWidth:340,width:"90%"}}>
+              <div style={{fontSize:16,fontWeight:700,color:"#ffd700",marginBottom:8,textAlign:"center"}}>🏆 最高点記録！</div>
+              <div style={{fontSize:13,color:"#ccc",marginBottom:12,textAlign:"center"}}>
+                {m?.name}さんが <span style={{color:"#ffd700",fontWeight:"bold",fontSize:15}}>{fw(highScoreModal.score)}</span> でトップ！
+              </div>
+              <div style={{fontSize:12,color:"#aaa",marginBottom:8}}>持ち点を入力してください（例: 85000）</div>
+              <input type="number" value={highScoreInput} onChange={e=>setHighScoreInput(e.target.value)}
+                placeholder="持ち点を入力"
+                style={{...S.inp({width:"100%",fontSize:16,textAlign:"center",marginBottom:12})}}
+                autoFocus/>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>{
+                  if(!highScoreInput||highScoreInput<25000){alert("正しい持ち点を入力してください");return;}
+                  const updated = addRounds.map((r,i)=>i===highScoreModal.roundIndex?{...r,highScore:{playerId:highScoreModal.playerId,rawScore:parseInt(highScoreInput)}}:r);
+                  setAddRounds(updated);
+                  saveDraft(addDate,addRules,addSel,updated);
+                  setHighScoreModal(null);
+                }} style={{...S.br({flex:1,fontSize:13})}}>✅ 記録する</button>
+                <button onClick={()=>{
+                  saveDraft(addDate,addRules,addSel,addRounds);
+                  setHighScoreModal(null);
+                }} style={{...S.bg({flex:1,fontSize:13})}}>スキップ</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 編集モーダル */}
       {editSession && (
@@ -1044,7 +1090,7 @@ export default function App() {
           return (
             <>
               <div style={{display:"flex",gap:4,marginBottom:10,flexWrap:"wrap"}}>
-                {[["summary","📊 概要"],["lifetime","🏆 生涯成績"],["h2h","⚔️ 対人成績"],["yakuman","🀄 役満"]].map(([v,l])=>(
+                {[["summary","📊 概要"],["lifetime","🏆 生涯成績"],["h2h","⚔️ 対人成績"],["yakuman","🀄 役満"],["highscore","👑 最高点"]].map(([v,l])=>(
                   <button key={v} onClick={()=>setDashSub(v)} style={{padding:"5px 12px",borderRadius:16,border:"none",cursor:"pointer",fontSize:12,fontWeight:500,background:dashSub===v?"#e74c3c":"rgba(255,255,255,0.1)",color:"#fff"}}>{l}</button>
                 ))}
               </div>
@@ -1585,6 +1631,71 @@ export default function App() {
                               <div style={{textAlign:"right"}}>
                                 <div style={{fontSize:20,fontWeight:"bold",color:"#ffd700"}}>{fw(scene.sc)}</div>
                                 <div style={{fontSize:10,color:"#888"}}>順位点</div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+
+              {/* 最高点ランキング サブタブ */}
+              {dashSub==="highscore" && (() => {
+                const records = [];
+                sessions.forEach(s => {
+                  s.rounds.forEach((r, ri) => {
+                    if (!r.highScore) return;
+                    const m = gm(r.highScore.playerId);
+                    if (!m) return;
+                    const sid = String(r.highScore.playerId);
+                    const rankScore = N(r.scores[sid]??r.scores[r.highScore.playerId]);
+                    records.push({
+                      date: s.date,
+                      ri,
+                      m,
+                      rankScore,
+                      rawScore: r.highScore.rawScore,
+                      photos: (r.photos?.[sid]??r.photos?.[r.highScore.playerId])||[]
+                    });
+                  });
+                });
+                records.sort((a,b)=>b.rawScore-a.rawScore);
+                
+                return (
+                  <>
+                    <div style={{fontSize:13,fontWeight:600,color:"#ffd700",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
+                      👑 最高点ランキング <span style={{fontSize:11,color:"#888",fontWeight:400}}>({records.length}件)</span>
+                    </div>
+                    {records.length === 0 ? (
+                      <div style={{textAlign:"center",padding:40,color:"#555"}}>
+                        <div style={{fontSize:36,marginBottom:10}}>👑</div>
+                        <div style={{fontSize:13}}>まだ最高点の記録がありません</div>
+                        <div style={{fontSize:11,color:"#666",marginTop:4}}>70以上でトップを取ると記録されます</div>
+                      </div>
+                    ) : (
+                      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                        {records.map((rec,i)=>(
+                          <div key={i} style={{background:i<3?`linear-gradient(135deg,${i===0?"rgba(255,215,0,0.12)":i===1?"rgba(192,192,192,0.12)":"rgba(205,127,50,0.12)"},rgba(0,0,0,0.05))`:"rgba(255,255,255,0.04)",border:`1px solid ${i===0?"rgba(255,215,0,0.4)":i===1?"rgba(192,192,192,0.4)":i===2?"rgba(205,127,50,0.4)":"rgba(255,255,255,0.08)"}`,borderRadius:12,overflow:"hidden"}}>
+                            {rec.photos.length>0 && (
+                              <div style={{display:"flex",gap:2}}>
+                                {rec.photos.map((p,pi)=><img key={pi} src={p} alt="" onClick={()=>setLb(p)} style={{flex:1,height:rec.photos.length===1?140:100,objectFit:"cover",cursor:"pointer"}}/>)}
+                              </div>
+                            )}
+                            <div style={{padding:"10px 12px",display:"flex",alignItems:"center",gap:10}}>
+                              <div style={{fontSize:20,fontWeight:"bold",color:i===0?"#ffd700":i===1?"#c0c0c0":i===2?"#cd7f32":"#888",minWidth:30,textAlign:"center"}}>
+                                {i===0?"🥇":i===1?"🥈":i===2?"🥉":`${i+1}位`}
+                              </div>
+                              <Av m={rec.m} sz={40}/>
+                              <div style={{flex:1}}>
+                                <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>{rec.m?.name}</div>
+                                <div style={{fontSize:10,color:"#888",marginTop:1}}>{rec.date}　第{rec.ri+1}半荘</div>
+                                <div style={{fontSize:11,color:"#aaa",marginTop:1}}>順位点: {fw(rec.rankScore)}</div>
+                              </div>
+                              <div style={{textAlign:"right"}}>
+                                <div style={{fontSize:24,fontWeight:"bold",color:"#ffd700"}}>{rec.rawScore.toLocaleString()}</div>
+                                <div style={{fontSize:10,color:"#888"}}>持ち点</div>
                               </div>
                             </div>
                           </div>
