@@ -12,19 +12,22 @@ const SCORE_RATES = [
 ];
 
 const CHANGELOG = [
-  { date:"2026-05-04", features:[
+  { date:"2026-05-08", features:[
     "最高点ランキング機能追加（70以上でトップ時に持ち点を記録）",
     "確定済み半荘の編集機能追加（写真・役満・開放立直の追加が可能）",
+    "生涯成績の色分け凡例に具体的な数値を明記（黄色=最高（2.32以下）など）",
+  ]},
+  { date:"2026-05-04", features:[
     "入力中データをSupabaseに自動保存（アプリを閉じても消えない・全員で共有）",
     "招待コード30日間スキップ機能追加",
     "更新履歴タブ追加（📋ボタン）",
+  ]},
+  { date:"2026-05-02", features:[
     "生涯成績の色分け基準を設定（黄・オレンジ・紫・青）",
     "ゲスト追加機能（ゲスト1・2…と自動採番）",
     "役満達成時に演出アニメーション追加",
     "LIVE途中経過パネル追加（LIVEバッジタップで表示）",
     "対局開始ボタン押下でLIVEバッジ点滅開始",
-  ]},
-  { date:"2026-05-02", features:[
     "対人成績をランダム選出に変更（🎲）",
     "生涯成績詳細に各項目の順位表示追加（👑）",
     "履歴を日付順に変更",
@@ -1153,13 +1156,42 @@ export default function App() {
                 <>
                   <div style={{fontSize:10,color:"#888",marginBottom:6}}>列タップでソート　行タップで詳細</div>
                   {/* 色凡例 */}
-                  <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
-                    {[["#ffd700","最高"],["#f39c12","良"],["#9b59b6","平均"],["#3498db","要改善"]].map(([col,label])=>(
-                      <div key={label} style={{display:"flex",alignItems:"center",gap:3}}>
-                        <span style={{width:10,height:10,borderRadius:"50%",background:col,display:"inline-block"}}/>
-                        <span style={{fontSize:9,color:"#666"}}>{label}</span>
+                  <div style={{marginBottom:8,background:"rgba(255,255,255,0.04)",borderRadius:8,padding:8}}>
+                    <div style={{fontSize:10,color:"#888",marginBottom:6}}>📊 基準値（色分け）</div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6}}>
+                      <div>
+                        <div style={{fontSize:9,color:"#666",marginBottom:3}}>平均順位</div>
+                        <div style={{fontSize:8,display:"flex",flexDirection:"column",gap:1}}>
+                          <div><span style={{color:"#ffd700"}}>🟡 黄色</span> = 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>2.32以下</span>）</div>
+                          <div><span style={{color:"#f39c12"}}>🟠 オレンジ</span> = 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>2.37以下</span>）</div>
+                          <div><span style={{color:"#9b59b6"}}>🟣 紫</span> = 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>2.5以下</span>）</div>
+                        </div>
                       </div>
-                    ))}
+                      <div>
+                        <div style={{fontSize:9,color:"#666",marginBottom:3}}>トップ率</div>
+                        <div style={{fontSize:8,display:"flex",flexDirection:"column",gap:1}}>
+                          <div><span style={{color:"#ffd700"}}>🟡 黄色</span> = 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>30%以上</span>）</div>
+                          <div><span style={{color:"#f39c12"}}>🟠 オレンジ</span> = 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>28%以上</span>）</div>
+                          <div><span style={{color:"#9b59b6"}}>🟣 紫</span> = 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>25%以上</span>）</div>
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{fontSize:9,color:"#666",marginBottom:3}}>連対率</div>
+                        <div style={{fontSize:8,display:"flex",flexDirection:"column",gap:1}}>
+                          <div><span style={{color:"#ffd700"}}>🟡 黄色</span> = 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>60%以上</span>）</div>
+                          <div><span style={{color:"#f39c12"}}>🟠 オレンジ</span> = 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>55%以上</span>）</div>
+                          <div><span style={{color:"#9b59b6"}}>🟣 紫</span> = 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>50%以上</span>）</div>
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{fontSize:9,color:"#666",marginBottom:3}}>ラスト率</div>
+                        <div style={{fontSize:8,display:"flex",flexDirection:"column",gap:1}}>
+                          <div><span style={{color:"#ffd700"}}>🟡 黄色</span> = 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>16%以下</span>）</div>
+                          <div><span style={{color:"#f39c12"}}>🟠 オレンジ</span> = 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>20%以下</span>）</div>
+                          <div><span style={{color:"#9b59b6"}}>🟣 紫</span> = 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>23%以下</span>）</div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   {/* 比較テーブル（上に移動） */}
