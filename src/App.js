@@ -1162,33 +1162,33 @@ export default function App() {
                       <div>
                         <div style={{fontSize:9,color:"#666",marginBottom:3}}>平均順位</div>
                         <div style={{fontSize:8,display:"flex",flexDirection:"column",gap:1}}>
-                          <div><span style={{color:"#ffd700"}}>🟡 黄色</span> = 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>2.32以下</span>）</div>
-                          <div><span style={{color:"#f39c12"}}>🟠 オレンジ</span> = 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>2.37以下</span>）</div>
-                          <div><span style={{color:"#9b59b6"}}>🟣 紫</span> = 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>2.5以下</span>）</div>
+                          <div><span style={{color:"#ffd700"}}>🟡</span> 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>2.32以下</span>）</div>
+                          <div><span style={{color:"#f39c12"}}>🟠</span> 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>2.37以下</span>）</div>
+                          <div><span style={{color:"#9b59b6"}}>🟣</span> 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>2.5以下</span>）</div>
                         </div>
                       </div>
                       <div>
                         <div style={{fontSize:9,color:"#666",marginBottom:3}}>トップ率</div>
                         <div style={{fontSize:8,display:"flex",flexDirection:"column",gap:1}}>
-                          <div><span style={{color:"#ffd700"}}>🟡 黄色</span> = 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>30%以上</span>）</div>
-                          <div><span style={{color:"#f39c12"}}>🟠 オレンジ</span> = 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>28%以上</span>）</div>
-                          <div><span style={{color:"#9b59b6"}}>🟣 紫</span> = 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>25%以上</span>）</div>
+                          <div><span style={{color:"#ffd700"}}>🟡</span> 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>30%以上</span>）</div>
+                          <div><span style={{color:"#f39c12"}}>🟠</span> 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>28%以上</span>）</div>
+                          <div><span style={{color:"#9b59b6"}}>🟣</span> 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>25%以上</span>）</div>
                         </div>
                       </div>
                       <div>
                         <div style={{fontSize:9,color:"#666",marginBottom:3}}>連対率</div>
                         <div style={{fontSize:8,display:"flex",flexDirection:"column",gap:1}}>
-                          <div><span style={{color:"#ffd700"}}>🟡 黄色</span> = 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>60%以上</span>）</div>
-                          <div><span style={{color:"#f39c12"}}>🟠 オレンジ</span> = 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>55%以上</span>）</div>
-                          <div><span style={{color:"#9b59b6"}}>🟣 紫</span> = 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>50%以上</span>）</div>
+                          <div><span style={{color:"#ffd700"}}>🟡</span> 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>60%以上</span>）</div>
+                          <div><span style={{color:"#f39c12"}}>🟠</span> 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>55%以上</span>）</div>
+                          <div><span style={{color:"#9b59b6"}}>🟣</span> 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>50%以上</span>）</div>
                         </div>
                       </div>
                       <div>
                         <div style={{fontSize:9,color:"#666",marginBottom:3}}>ラスト率</div>
                         <div style={{fontSize:8,display:"flex",flexDirection:"column",gap:1}}>
-                          <div><span style={{color:"#ffd700"}}>🟡 黄色</span> = 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>16%以下</span>）</div>
-                          <div><span style={{color:"#f39c12"}}>🟠 オレンジ</span> = 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>20%以下</span>）</div>
-                          <div><span style={{color:"#9b59b6"}}>🟣 紫</span> = 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>23%以下</span>）</div>
+                          <div><span style={{color:"#ffd700"}}>🟡</span> 最高（<span style={{color:"#ffd700",fontWeight:"bold"}}>16%以下</span>）</div>
+                          <div><span style={{color:"#f39c12"}}>🟠</span> 良（<span style={{color:"#f39c12",fontWeight:"bold"}}>20%以下</span>）</div>
+                          <div><span style={{color:"#9b59b6"}}>🟣</span> 可（<span style={{color:"#9b59b6",fontWeight:"bold"}}>23%以下</span>）</div>
                         </div>
                       </div>
                     </div>
