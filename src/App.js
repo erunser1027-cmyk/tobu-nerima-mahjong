@@ -13,6 +13,7 @@ const SCORE_RATES = [
 
 const CHANGELOG = [
   { date:"2026-05-08", features:[
+    "メインメニューに💰チップ王タブを追加",
     "チップ王ランキング機能追加（生涯成績にチップ収支を表示）",
     "設定タブ追加（更新履歴・アプリにする方法を統合）",
     "生涯成績の色分け基準を折りたたみ式に変更",
@@ -937,7 +938,7 @@ export default function App() {
           </div>
         )}
         <div style={{marginLeft:"auto",display:"flex",gap:3,flexWrap:"wrap",justifyContent:"flex-end"}}>
-          {[["dashboard","📊"],["calendar","🗓"],["history","📅"],["skull","💀"],["add","➕"],["members","👥"]].map(([t,l])=>(
+          {[["dashboard","📊"],["calendar","🗓"],["history","📅"],["skull","💀"],["chip","💰"],["add","➕"],["members","👥"]].map(([t,l])=>(
             <button key={t} onClick={()=>setTab(t)} style={S.nav(tab===t)}>{l}</button>
           ))}
         </div>
@@ -1907,6 +1908,87 @@ export default function App() {
                           <div style={{fontSize:20,fontWeight:"bold",color:cc(scene.sc)}}>{fw(scene.sc)}</div>
                           <div style={{fontSize:10,color:"#888"}}>順位点</div>
                         </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          );
+        })()}
+
+        {/* ===== CHIP KING ===== */}
+        {tab==="chip" && (() => {
+          // 期間フィルター
+          const now = new Date();
+          const thisYear = now.getFullYear();
+          const thisMonth = `${thisYear}-${String(now.getMonth()+1).padStart(2,"0")}`;
+          const filteredSessions = period==="year" ? sessions.filter(s=>s.date.startsWith(String(thisYear)))
+            : period==="month" ? sessions.filter(s=>s.date.startsWith(thisMonth))
+            : sessions;
+
+          // チップ収支計算
+          const chipStats = members.map(m => {
+            const sid = String(m.id);
+            let chY = 0, games = 0;
+            filteredSessions.forEach(s => {
+              if (!s.members.map(Number).includes(m.id)) return;
+              s.rounds.forEach(r => {
+                const v = r.scores[sid] ?? r.scores[m.id];
+                if (v == null) return;
+                games++;
+              });
+              chY += N(s.chips[sid]??s.chips[m.id]) * N(s.rules.chipRate);
+            });
+            return { ...m, chY, games };
+          }).filter(p => p.games > 0).sort((a, b) => b.chY - a.chY);
+
+          return (
+            <>
+              <div style={{fontSize:13,fontWeight:600,color:"#3498db",marginBottom:4,display:"flex",alignItems:"center",gap:6}}>
+                💰 チップ王ランキング
+              </div>
+              <div style={{fontSize:10,color:"#888",marginBottom:10}}>
+                {period==="all"?"全期間":period==="year"?"今年":period==="month"?"今月":""} のチップ収支
+              </div>
+
+              {chipStats.length === 0 ? (
+                <div style={{textAlign:"center",padding:40,color:"#555"}}>
+                  <div style={{fontSize:36,marginBottom:10}}>💰</div>
+                  <div style={{fontSize:13}}>データがありません</div>
+                </div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {chipStats.map((p, i) => (
+                    <div key={p.id} style={{
+                      background: i < 3 ? `linear-gradient(135deg,${i===0?"rgba(52,152,219,0.2)":i===1?"rgba(52,152,219,0.15)":"rgba(52,152,219,0.1)"},rgba(0,0,0,0.05))` : p.chY >= 0 ? "rgba(52,152,219,0.05)" : "rgba(231,76,60,0.05)",
+                      border: `1px solid ${i===0?"rgba(52,152,219,0.5)":i===1?"rgba(52,152,219,0.4)":i===2?"rgba(52,152,219,0.3)":p.chY>=0?"rgba(52,152,219,0.2)":"rgba(231,76,60,0.2)"}`,
+                      borderRadius: 12,
+                      padding: "12px 14px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12
+                    }}>
+                      <div style={{fontSize: 20, fontWeight: "bold", color: i===0?"#3498db":i===1?"#5dade2":i===2?"#85c1e9":"#888", minWidth: 36, textAlign: "center"}}>
+                        {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i+1}位`}
+                      </div>
+                      <Av m={p} sz={44} />
+                      <div style={{flex: 1}}>
+                        <div style={{fontSize: 14, fontWeight: 700, color: "#fff"}}>{p.name}</div>
+                        <div style={{fontSize: 11, color: "#888", marginTop: 2}}>
+                          {p.games}半荘
+                          {p.games > 0 && (
+                            <span style={{marginLeft: 6}}>
+                              平均 {p.chY >= 0 ? "+" : ""}{Math.round(p.chY / p.games).toLocaleString()}円/半荘
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div style={{textAlign: "right"}}>
+                        <div style={{fontSize: 24, fontWeight: "bold", color: p.chY >= 0 ? "#3498db" : "#e74c3c"}}>
+                          {p.chY >= 0 ? "+" : ""}{p.chY.toLocaleString()}
+                        </div>
+                        <div style={{fontSize: 10, color: "#888"}}>円</div>
                       </div>
                     </div>
                   ))}
