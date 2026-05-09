@@ -13,6 +13,7 @@ const SCORE_RATES = [
 
 const CHANGELOG = [
   { date:"2026-05-08", features:[
+    "チップ王ランキング機能追加（生涯成績にチップ収支を表示）",
     "設定タブ追加（更新履歴・アプリにする方法を統合）",
     "生涯成績の色分け基準を折りたたみ式に変更",
     "色分け基準の説明を「※全国およびMリーグ基準に基づく」に更新",
@@ -1090,10 +1091,18 @@ export default function App() {
 
         {/* ===== DASHBOARD ===== */}
         {tab==="dashboard" && (() => {
+          // 期間フィルター
+          const now = new Date();
+          const thisYear = now.getFullYear();
+          const thisMonth = `${thisYear}-${String(now.getMonth()+1).padStart(2,"0")}`;
+          const filteredSessions = period==="year" ? sessions.filter(s=>s.date.startsWith(String(thisYear)))
+            : period==="month" ? sessions.filter(s=>s.date.startsWith(thisMonth))
+            : sessions;
+
           const lifetimeStats = members.map(m=>{
             const sid = String(m.id);
             let sc=0,scY=0,chY=0,ba=0,games=0,r1=0,r2=0,r3=0,r4=0,yakuman=0,openRiichiCount=0,dealInCount=0;
-            sessions.forEach(s=>{
+            filteredSessions.forEach(s=>{
               if(!s.members.map(Number).includes(m.id)) return;
               let ss=0;
               s.rounds.forEach(r=>{
@@ -1116,7 +1125,7 @@ export default function App() {
             const seisan=scY+chY, kati=seisan-ba;
             const avgRank=games?(r1*1+r2*2+r3*3+r4*4)/games:0;
             return{
-              ...m, sc:Math.round(sc), seisan, ba, kati, games,
+              ...m, sc:Math.round(sc), seisan, ba, kati, games, chY,
               r1,r2,r3,r4,yakuman,openRiichiCount,dealInCount,
               dealInRate: games?Math.round(dealInCount/games*1000)/10:0,
               topRate:  games?Math.round(r1/games*1000)/10:0,
@@ -1270,6 +1279,7 @@ export default function App() {
                             {sortTh("r3","3位")}
                             {sortTh("r4","4位")}
                             {sortTh("yakuman","役満")}
+                            {sortTh("chY","チップ")}
                           </tr>
                         </thead>
                         <tbody>
@@ -1294,6 +1304,7 @@ export default function App() {
                               <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#888"}}>{p.r3}</td>
                               <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#e74c3c"}}>{p.r4}</td>
                               <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#ffd700",fontWeight:p.yakuman>0?"bold":"normal"}}>{p.yakuman}</td>
+                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:p.chY>=0?"#3498db":"#e74c3c",fontWeight:"bold"}}>{p.chY>=0?"+":""}{p.chY.toLocaleString()}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1353,6 +1364,16 @@ export default function App() {
                               </div>
                             </div>
                           ))}
+                        </div>
+                        {/* チップ王ランキング */}
+                        <div style={{marginTop:6,background:"rgba(52,152,219,0.1)",border:"1px solid rgba(52,152,219,0.5)",borderRadius:7,padding:"8px 12px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                          <div style={{fontSize:11,color:"#3498db",fontWeight:600}}>💰 チップ王</div>
+                          <div style={{fontSize:13,fontWeight:"bold",color:p.chY>=0?"#3498db":"#e74c3c"}}>
+                            {p.chY>=0?"+":""}{p.chY.toLocaleString()}円
+                            <span style={{fontSize:11,color:"#aaa",marginLeft:6}}>
+                              {[...liSorted].sort((a,b)=>b.chY-a.chY).findIndex(x=>x.id===p.id)+1}位 / {liSorted.length}人
+                            </span>
+                          </div>
                         </div>
                         {p.dealInCount > 0 && (
                           <div style={{marginTop:6,background:"rgba(231,76,60,0.1)",border:"1px solid rgba(231,76,60,0.5)",borderRadius:7,padding:"8px 12px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
