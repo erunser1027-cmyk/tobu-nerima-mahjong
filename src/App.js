@@ -13,6 +13,9 @@ const SCORE_RATES = [
 
 const CHANGELOG = [
   { date:"2026-05-08", features:[
+    "最高点入力モーダルのバグ修正（保存・スキップが正常に動作するように）",
+    "確定済み半荘の削除機能追加（🗑️ボタン）",
+    "対局中のメンバー途中参加機能追加（➕ボタン）",
     "メインメニューに💰チップ王タブを追加",
     "チップ王ランキング機能追加（生涯成績にチップ収支を表示）",
     "設定タブ追加（更新履歴・アプリにする方法を統合）",
@@ -218,6 +221,7 @@ export default function App() {
   const [editRoundIndex, setEditRoundIndex] = useState(null);
   const [highScoreModal, setHighScoreModal] = useState(null); // {roundIndex, playerId, score}
   const [highScoreInput, setHighScoreInput] = useState(""); // {name, type}
+  const [showMemberAdd, setShowMemberAdd] = useState(false);
 
   const fileRef = useRef(null);
   const [photoTgt, setPhotoTgt] = useState(null);
@@ -556,9 +560,20 @@ export default function App() {
       <div style={{ background:"rgba(0,0,0,0.2)", borderRadius:7, padding:7, marginBottom:6 }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
           <div style={{ fontSize:10, color:"#888" }}>第{ri+1}半荘 <span style={{color:"#555"}}>確定済</span></div>
-          <button onClick={()=>setEditRoundIndex(isEditing?null:ri)} style={S.bs({fontSize:11,color:isEditing?"#e74c3c":"#7fb9e0"})}>
-            {isEditing?"✕ 閉じる":"✏️ 編集"}
-          </button>
+          <div style={{display:"flex",gap:4}}>
+            <button onClick={()=>{
+              if(!window.confirm(`第${ri+1}半荘を削除しますか？\nこの操作は取り消せません。`)) return;
+              const updated = addRounds.filter((_,i)=>i!==ri);
+              setAddRounds(updated);
+              saveDraft(addDate,addRules,addSel,updated);
+              setEditRoundIndex(null);
+            }} style={S.bs({fontSize:11,color:"#e74c3c"})}>
+              🗑️ 削除
+            </button>
+            <button onClick={()=>setEditRoundIndex(isEditing?null:ri)} style={S.bs({fontSize:11,color:isEditing?"#e74c3c":"#7fb9e0"})}>
+              {isEditing?"✕ 閉じる":"✏️ 編集"}
+            </button>
+          </div>
         </div>
 
         {!isEditing && (
@@ -718,10 +733,30 @@ export default function App() {
                   setAddRounds(updated);
                   saveDraft(addDate,addRules,addSel,updated);
                   setHighScoreModal(null);
+                  // フォームをリセット
+                  setRpSc(Object.fromEntries(addSel.map(id=>[id,""])));
+                  setRpPhotos({});
+                  setRpYakuman([]);
+                  setRpYakumanTypes({});
+                  setRpOpenRiichi([]);
+                  setRpDealIn([]);
+                  setRpAutoId(null);
+                  setRpActive(null);
+                  setAddErr("");
                 }} style={{...S.br({flex:1,fontSize:13})}}>✅ 記録する</button>
                 <button onClick={()=>{
                   saveDraft(addDate,addRules,addSel,addRounds);
                   setHighScoreModal(null);
+                  // フォームをリセット
+                  setRpSc(Object.fromEntries(addSel.map(id=>[id,""])));
+                  setRpPhotos({});
+                  setRpYakuman([]);
+                  setRpYakumanTypes({});
+                  setRpOpenRiichi([]);
+                  setRpDealIn([]);
+                  setRpAutoId(null);
+                  setRpActive(null);
+                  setAddErr("");
                 }} style={{...S.bg({flex:1,fontSize:13})}}>スキップ</button>
               </div>
             </div>
@@ -2240,6 +2275,34 @@ export default function App() {
                 <div style={{fontSize:10,color:"#888",marginBottom:7,background:"rgba(255,255,255,0.04)",borderRadius:7,padding:7}}>
                   📅 {addDate}　ウマ: {addRules.uma.join("/")}　{SCORE_RATES.find(r=>r.val===addRules.scoreRate)?.label.split("（")[0]}
                 </div>
+                
+                {/* 対局中のメンバー追加 */}
+                <div style={{marginBottom:8}}>
+                  <button onClick={()=>setShowMemberAdd(p=>!p)} style={{...S.bs({width:"100%",fontSize:11,background:"rgba(52,152,219,0.1)",border:"1px solid rgba(52,152,219,0.3)",color:"#7fb9e0"})}}>
+                    {showMemberAdd?"✕ 閉じる":"➕ メンバー追加（途中参加）"}
+                  </button>
+                  {showMemberAdd && (
+                    <div style={{marginTop:6,background:"rgba(52,152,219,0.06)",borderRadius:7,padding:8}}>
+                      <div style={{fontSize:10,color:"#aaa",marginBottom:6}}>次の半荘から参加するメンバーを追加</div>
+                      <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                        {members.filter(m=>!addSel.includes(m.id)).map(m=>(
+                          <button key={m.id} onClick={()=>{
+                            setAddSel(prev=>[...prev,m.id]);
+                            setRpSc(prev=>({...prev,[m.id]:""}));
+                            setShowMemberAdd(false);
+                          }} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:6,cursor:"pointer",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",color:"#fff",fontSize:12}}>
+                            <Av m={m} sz={24}/>
+                            <span>{m.name}</span>
+                          </button>
+                        ))}
+                        {members.filter(m=>!addSel.includes(m.id)).length===0 && (
+                          <div style={{fontSize:10,color:"#666",textAlign:"center",padding:8}}>全メンバーが参加済みです</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {addRounds.map((r,ri)=><ConfirmedRound key={ri} r={r} ri={ri} sessMembers={addSel}/>)}
                 <div style={S.card({borderColor:"rgba(231,76,60,0.4)"})}>
                   <div style={{fontSize:12,color:"#ccc",marginBottom:8}}>第{addRounds.length+1}半荘</div>
