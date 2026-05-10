@@ -13,6 +13,10 @@ const SCORE_RATES = [
 
 const CHANGELOG = [
   { date:"2026-05-08", features:[
+    "エラーハンドリング強化（Supabase通信エラーへの対応）",
+    "履歴編集で半荘データの削除機能追加（🗑️ボタン・確認ダイアログ付き）",
+    "LIVEバッジのバグ修正（保存後も消えない問題を解消）",
+    "古い下書きの自動削除機能追加（今日以外の下書きは自動削除）",
     "最高点入力モーダルのバグ修正（保存・スキップが正常に動作するように）",
     "確定済み半荘の削除機能追加（🗑️ボタン）",
     "対局中のメンバー途中参加機能追加（➕ボタン）",
@@ -235,12 +239,19 @@ export default function App() {
     async function loadDraft(){
       const { data } = await supabase.from("drafts").select("*").order("updated_at",{ascending:false}).limit(1).single();
       if(data){
-        setDraftId(data.id);
-        setAddDate(data.date);
-        setAddRules(data.rules);
-        setAddSel(data.members);
-        setAddRounds(data.rounds);
-        setAddStep(data.rounds.length>0?2:0);
+        const today = new Date().toISOString().slice(0,10);
+        // 今日の下書きのみ復元
+        if(data.date === today){
+          setDraftId(data.id);
+          setAddDate(data.date);
+          setAddRules(data.rules);
+          setAddSel(data.members);
+          setAddRounds(data.rounds);
+          setAddStep(data.rounds.length>0?2:0);
+        } else {
+          // 古い下書きは削除
+          await supabase.from("drafts").delete().eq("id",data.id);
+        }
       }
     }
     loadDraft();
@@ -249,19 +260,30 @@ export default function App() {
   // 半荘確定のたびにSupabaseに下書き保存
   async function saveDraft(date, rules, sel, rounds){
     if(rounds.length===0) return;
-    const payload = { date, rules, members:sel, rounds, updated_at: new Date().toISOString() };
-    if(draftId){
-      await supabase.from("drafts").update(payload).eq("id",draftId);
-    } else {
-      const { data } = await supabase.from("drafts").insert(payload).select().single();
-      if(data) setDraftId(data.id);
+    try {
+      const payload = { date, rules, members:sel, rounds, updated_at: new Date().toISOString() };
+      if(draftId){
+        await supabase.from("drafts").update(payload).eq("id",draftId);
+      } else {
+        const { data } = await supabase.from("drafts").insert(payload).select().single();
+        if(data) setDraftId(data.id);
+      }
+    } catch (error) {
+      console.error("Error saving draft:", error);
     }
   }
 
   // 下書き削除
   async function deleteDraft(){
-    if(draftId){ await supabase.from("drafts").delete().eq("id",draftId); setDraftId(null); }
-    localStorage.removeItem("tleague_draft");
+    try {
+      if(draftId){ 
+        await supabase.from("drafts").delete().eq("id",draftId); 
+        setDraftId(null); 
+      }
+      localStorage.removeItem("tleague_draft");
+    } catch (error) {
+      console.error("Error deleting draft:", error);
+    }
   }
   useEffect(() => {
     async function fetchData() {
@@ -473,6 +495,7 @@ export default function App() {
     setLr({...addRules, uma:addRules.uma.map(Number)});
     setBashiroTotal("");
     await deleteDraft();
+    setDraftId(null);
     setAddStep(0); setTab("history");
   }
 
@@ -495,12 +518,13 @@ export default function App() {
     setEditKeypadActive(null);
   }
 
-  function resetAdd() {
-    deleteDraft();
+  async function resetAdd() {
+    await deleteDraft();
     setAddStep(0); setAddRules({...lr}); setAddSel([]); setAddRounds([]);
     setAddDate(today());
     setRpSc({}); setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes({}); setRpOpenRiichi([]); setRpDealIn([]); setAddChips({}); setAddBashiro({});
     setRpActive(null); setChipActive(null); setAddErr(""); setBashiroTotal("");
+    setDraftId(null);
   }
 
   // ---- スタイル ----
@@ -776,7 +800,18 @@ export default function App() {
               const sortedPl = [...r.players].sort((a,b) => N(r.scores[b]) - N(r.scores[a]));
               return (
                 <div key={ri} style={{background:"rgba(255,255,255,0.05)",borderRadius:8,padding:9,marginBottom:8}}>
-                  <div style={{fontSize:11,color:"#ccc",marginBottom:7}}>第{ri+1}半荘</div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+                    <div style={{fontSize:11,color:"#ccc"}}>第{ri+1}半荘</div>
+                    <button onClick={()=>{
+                      if(!window.confirm(`第${ri+1}半荘を削除しますか？\nこの操作は取り消せません。`)) return;
+                      setEditSession(prev=>({
+                        ...prev,
+                        rounds: prev.rounds.filter((_,i)=>i!==ri)
+                      }));
+                    }} style={{...S.bs({fontSize:10,color:"#e74c3c",padding:"3px 8px"})}}>
+                      🗑️ 削除
+                    </button>
+                  </div>
                   {sortedPl.map(pid => {
                     const m = gm(pid); if (!m) return null;
                     const key = `${ri}-${pid}`;
