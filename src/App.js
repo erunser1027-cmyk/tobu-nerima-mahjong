@@ -605,7 +605,6 @@ export default function App() {
       const s = sessions.find(s=>s.id===id);
       await writeAuditLog(memberName, "削除", `${s?.date||id} の対局を削除`);
       setSessions(p => p.filter(s => s.id !== id));
-      setDeleteConfirm(null);
       setHistOpen(prev => { const n={...prev}; delete n[id]; return n; });
       showToast("success", "🗑 削除しました");
     } catch (e) {
