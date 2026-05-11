@@ -11,16 +11,21 @@ const SCORE_RATES = [
   { label:"0.3レート（1000点=30円）", val:30 },
 ];
 
+// 更新履歴 - 新しい機能は必ず今日の日付で追加してください
+// 今日: 2026-05-11
 const CHANGELOG = [
-  { date:"2026-05-08", features:[
+  { date:"2026-05-11", features:[
+    "履歴編集で新規半荘を追加できる機能追加（➕ボタン）",
     "エラーハンドリング強化（Supabase通信エラーへの対応）",
     "履歴編集で半荘データの削除機能追加（🗑️ボタン・確認ダイアログ付き）",
     "LIVEバッジのバグ修正（保存後も消えない問題を解消）",
     "古い下書きの自動削除機能追加（今日以外の下書きは自動削除）",
+  ]},
+  { date:"2026-05-08", features:[
     "最高点入力モーダルのバグ修正（保存・スキップが正常に動作するように）",
     "確定済み半荘の削除機能追加（🗑️ボタン）",
     "対局中のメンバー途中参加機能追加（➕ボタン）",
-    "メインメニューに💰チップ王タブを追加",
+    "チップ王をダッシュボードのサブタブに配置（💰 チップ王）",
     "チップ王ランキング機能追加（生涯成績にチップ収支を表示）",
     "設定タブ追加（更新履歴・アプリにする方法を統合）",
     "生涯成績の色分け基準を折りたたみ式に変更",
@@ -226,6 +231,8 @@ export default function App() {
   const [highScoreModal, setHighScoreModal] = useState(null); // {roundIndex, playerId, score}
   const [highScoreInput, setHighScoreInput] = useState(""); // {name, type}
   const [showMemberAdd, setShowMemberAdd] = useState(false);
+  const [editAddingRound, setEditAddingRound] = useState(false);
+  const [editNewRoundSc, setEditNewRoundSc] = useState({});
 
   const fileRef = useRef(null);
   const [photoTgt, setPhotoTgt] = useState(null);
@@ -516,6 +523,8 @@ export default function App() {
     }).eq("id", updated.id);    setSessions(p => p.map(s => s.id === updated.id ? updated : s));
     setEditSession(null);
     setEditKeypadActive(null);
+    setEditAddingRound(false);
+    setEditNewRoundSc({});
   }
 
   async function resetAdd() {
@@ -983,9 +992,66 @@ export default function App() {
               </div>
             </div>
 
+            {/* 新規半荘追加 */}
+            <div style={{marginTop:8,marginBottom:8}}>
+              {!editAddingRound ? (
+                <button onClick={()=>{
+                  setEditAddingRound(true);
+                  setEditNewRoundSc(Object.fromEntries(editSession.members.map(id=>[id,""])));
+                }} style={{...S.bs({width:"100%",fontSize:11,background:"rgba(52,152,219,0.1)",border:"1px solid rgba(52,152,219,0.3)",color:"#7fb9e0"})}}>
+                  ➕ 新規半荘を追加
+                </button>
+              ) : (
+                <div style={{background:"rgba(52,152,219,0.06)",borderRadius:8,padding:10,border:"1px solid rgba(52,152,219,0.3)"}}>
+                  <div style={{fontSize:12,fontWeight:600,color:"#7fb9e0",marginBottom:8}}>➕ 新規半荘を追加</div>
+                  <div style={{fontSize:10,color:"#aaa",marginBottom:8}}>4人分の順位点を入力してください</div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:8}}>
+                    {editSession.members.map(id=>{
+                      const m = gm(id); if(!m) return null;
+                      return (
+                        <div key={id} style={{background:"rgba(255,255,255,0.05)",borderRadius:6,padding:6}}>
+                          <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:4}}>
+                            <Av m={m} sz={18}/>
+                            <div style={{fontSize:11,flex:1}}>{m.name}</div>
+                          </div>
+                          <input type="text" inputMode="decimal" value={editNewRoundSc[id]||""} 
+                            onChange={e=>setEditNewRoundSc(prev=>({...prev,[id]:e.target.value}))}
+                            placeholder="点数"
+                            style={{...S.inp({width:"100%",fontSize:14,textAlign:"center"})}}/>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{display:"flex",gap:6}}>
+                    <button onClick={()=>{
+                      const playing = editSession.members.filter(id=>String(editNewRoundSc[id]||"").trim()!=="");
+                      if(playing.length!==4){alert("4人分の点数を入力してください");return;}
+                      const scores = {};
+                      playing.forEach(id=>{scores[id]=N(editNewRoundSc[id]);});
+                      setEditSession(prev=>({
+                        ...prev,
+                        rounds:[...prev.rounds,{players:playing,scores,photos:{},yakuman:[],yakumanTypes:{},openRiichi:[],dealIn:[]}]
+                      }));
+                      setEditAddingRound(false);
+                      setEditNewRoundSc({});
+                    }} style={{...S.br({flex:1,fontSize:11})}}>✅ 追加</button>
+                    <button onClick={()=>{
+                      setEditAddingRound(false);
+                      setEditNewRoundSc({});
+                    }} style={{...S.bg({fontSize:11})}}>キャンセル</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div style={{display:"flex",gap:6}}>
               <button onClick={saveEditSession} style={S.br({flex:1})}>💾 保存する</button>
-              <button onClick={()=>{setEditSession(null);setEditKeypadActive(null);}} style={S.bg()}>キャンセル</button>
+              <button onClick={()=>{
+                setEditSession(null);
+                setEditKeypadActive(null);
+                setEditAddingRound(false);
+                setEditNewRoundSc({});
+              }} style={S.bg()}>キャンセル</button>
             </div>
           </div>
         </div>
