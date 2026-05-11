@@ -212,6 +212,7 @@ export default function App() {
   const [addBashiro, setAddBashiro] = useState({});
   const [chipActive, setChipActive] = useState(null);
   const [histOpen, setHistOpen] = useState({});
+  const [bashiroExclude, setBashiroExclude] = useState({});
   const [bashiroTotal, setBashiroTotal] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [editSession, setEditSession] = useState(null);
@@ -2334,6 +2335,8 @@ export default function App() {
                 const tot=calcTotals(s), mems=s.members.map(id=>gm(id)).filter(Boolean);
                 const rL=SCORE_RATES.find(r=>r.val===s.rules.scoreRate)?.label.split("（")[0]||"";
                 const isOpen=histOpen[s.id];
+                const excludeBashiro=bashiroExclude[s.id]||false;
+                const hasBashiro=Object.values(s.bashiro||{}).some(v=>N(v)!==0);
                 const sortedMems=[...mems].sort((a,b)=>(tot[b.id]?.sc||0)-(tot[a.id]?.sc||0));
                 return (
                   <div key={s.id} style={S.card()}>
@@ -2351,8 +2354,13 @@ export default function App() {
                       <div onClick={()=>setHistOpen(prev=>({...prev,[s.id]:!isOpen}))} style={{cursor:"pointer",flex:1,display:"flex",alignItems:"center",gap:6}}>
                         <span style={{fontWeight:500,fontSize:12,color:"#ccc"}}>📅 {s.date}（{s.rounds.length}半荘）</span>
                         <span style={{fontSize:10,color:"#555"}}>{rL}</span>
-                        {Object.values(s.bashiro||{}).some(v=>N(v)!==0) && (
-                          <span style={{fontSize:9,color:"#7fb9e0",background:"rgba(52,152,219,0.15)",padding:"2px 6px",borderRadius:4,border:"1px solid rgba(52,152,219,0.3)"}}>場代込み</span>
+                        {hasBashiro && (
+                          <span
+                            onClick={e=>{e.stopPropagation();setBashiroExclude(prev=>({...prev,[s.id]:!excludeBashiro}));}}
+                            style={{fontSize:9,cursor:"pointer",padding:"2px 6px",borderRadius:4,border:`1px solid ${excludeBashiro?"rgba(255,165,0,0.4)":"rgba(52,152,219,0.3)"}`,background:excludeBashiro?"rgba(255,165,0,0.12)":"rgba(52,152,219,0.15)",color:excludeBashiro?"#f39c12":"#7fb9e0",userSelect:"none"}}
+                          >
+                            {excludeBashiro?"場代抜き":"場代込み"}
+                          </span>
                         )}
                         <span style={{fontSize:14,color:"#888",marginLeft:"auto"}}>{isOpen?"▲":"▼"}</span>
                       </div>
@@ -2365,8 +2373,8 @@ export default function App() {
                       <div style={{display:"flex",flexDirection:"column",gap:2,marginTop:6}}>
                         {sortedMems.map((m,i)=>{
                           const playedRounds = s.rounds.filter(r=>r.players.map(Number).includes(m.id)).length;
-                          const hasBashiro = Object.values(s.bashiro||{}).some(v=>N(v)!==0);
                           const bashiroAmount = tot[m.id]?.ba || 0;
+                          const displayAmount = excludeBashiro ? (tot[m.id]?.seisan||0) : (tot[m.id]?.kati||0);
                           return (
                             <div key={m.id} style={{display:"flex",alignItems:"center",gap:7,padding:"4px 7px",background:i===0?"rgba(231,76,60,0.08)":"rgba(255,255,255,0.03)",borderRadius:6}}>
                               <span style={{fontSize:12,width:20,textAlign:"center"}}>{RI[i]||`${i+1}位`}</span>
@@ -2378,8 +2386,8 @@ export default function App() {
                               <div style={{fontSize:13,fontWeight:"bold",color:cc(tot[m.id]?.sc||0)}}>{fw(tot[m.id]?.sc||0)}</div>
                               <div style={{fontSize:11,color:"#888"}}>chip{fw(tot[m.id]?.chip||0)}</div>
                               <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end"}}>
-                                <div style={{fontSize:11,fontWeight:"bold",color:cc(tot[m.id]?.kati||0)}}>{fwy(tot[m.id]?.kati||0)}</div>
-                                {hasBashiro && bashiroAmount !== 0 && (
+                                <div style={{fontSize:11,fontWeight:"bold",color:cc(displayAmount)}}>{fwy(displayAmount)}</div>
+                                {hasBashiro && !excludeBashiro && bashiroAmount !== 0 && (
                                   <div style={{fontSize:9,color:"#666"}}>場代{bashiroAmount>=0?"+":""}{bashiroAmount.toLocaleString()}円</div>
                                 )}
                               </div>
