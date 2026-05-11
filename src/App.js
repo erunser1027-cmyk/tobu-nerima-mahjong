@@ -1010,49 +1010,31 @@ export default function App() {
                   <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:8}}>
                     {editSession.members.map(id=>{
                       const m = gm(id); if(!m) return null;
+                      const v = String(editNewRoundSc[id]||"");
+                      const hasV = v.trim() !== "";
                       const isActive = editNewRoundActive === id;
                       return (
-                        <div key={id} style={{background:"rgba(255,255,255,0.05)",borderRadius:6,padding:6}}>
-                          <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:4}}>
-                            <Av m={m} sz={18}/>
-                            <div style={{fontSize:11,flex:1}}>{m.name}</div>
+                        <div key={id} style={{borderRadius:9,background:hasV?"rgba(255,255,255,0.05)":"rgba(255,255,255,0.02)",border:`2px solid ${isActive?"#e74c3c":hasV?"rgba(255,255,255,0.2)":"rgba(255,255,255,0.07)"}`,padding:8}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:7}}>
+                            <Av m={m} sz={28}/>
+                            <div>
+                              <div style={{fontSize:12,fontWeight:500}}>{m.name}</div>
+                              {!hasV&&<div style={{fontSize:9,color:"#555"}}>未入力</div>}
+                            </div>
                           </div>
-                          <input type="text" inputMode="decimal" value={editNewRoundSc[id]||""} 
-                            onChange={e=>setEditNewRoundSc(prev=>({...prev,[id]:e.target.value}))}
-                            onFocus={()=>setEditNewRoundActive(id)}
-                            placeholder="点数"
-                            style={{...S.inp({width:"100%",fontSize:14,textAlign:"center",borderColor:isActive?"#3498db":"rgba(255,255,255,0.2)"})}}/>
+                          <div onClick={()=>setEditNewRoundActive(isActive?null:id)}
+                            style={{textAlign:"center",padding:"10px 6px",borderRadius:7,cursor:"pointer",
+                              background:isActive?"rgba(231,76,60,0.12)":hasV?"rgba(255,255,255,0.07)":"rgba(255,255,255,0.03)",
+                              border:isActive?"1px solid rgba(231,76,60,0.4)":"1px solid rgba(255,255,255,0.08)"}}>
+                            <div style={{fontSize:hasV?22:12,fontWeight:hasV?"bold":"normal",color:hasV?cc(N(v)):"#333",minHeight:28,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                              {hasV?(N(v)>=0?"+":"")+v:"タップで入力"}
+                            </div>
+                          </div>
+                          {isActive&&<Keypad value={v} onChange={val=>setEditNewRoundSc(prev=>({...prev,[id]:val}))}/>}
                         </div>
                       );
                     })}
                   </div>
-
-                  {/* テンキー */}
-                  {editNewRoundActive && (
-                    <div style={{background:"rgba(0,0,0,0.2)",borderRadius:8,padding:8,marginBottom:8}}>
-                      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:6}}>
-                        {["+10","+5","+1"].map(v=>(
-                          <button key={v} onClick={()=>{
-                            const num = parseInt(v);
-                            setEditNewRoundSc(prev=>({...prev,[editNewRoundActive]:String(N(prev[editNewRoundActive])+num)}));
-                          }} style={{...S.bs({padding:"10px 6px",fontSize:13,background:"rgba(46,204,113,0.2)",border:"1px solid rgba(46,204,113,0.5)",color:"#2ecc71"})}}>
-                            {v}
-                          </button>
-                        ))}
-                      </div>
-                      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
-                        {["-10","-5","-1"].map(v=>(
-                          <button key={v} onClick={()=>{
-                            const num = parseInt(v);
-                            setEditNewRoundSc(prev=>({...prev,[editNewRoundActive]:String(N(prev[editNewRoundActive])+num)}));
-                          }} style={{...S.bs({padding:"10px 6px",fontSize:13,background:"rgba(231,76,60,0.2)",border:"1px solid rgba(231,76,60,0.5)",color:"#e74c3c"})}}>
-                            {v}
-                          </button>
-                        ))}
-                      </div>
-                      <button onClick={()=>setEditNewRoundActive(null)} style={{...S.bs({width:"100%",marginTop:6,fontSize:11})}}>✓ 閉じる</button>
-                    </div>
-                  )}
 
                   <div style={{display:"flex",gap:6}}>
                     <button onClick={()=>{
