@@ -1301,6 +1301,14 @@ export default function App() {
               <button onClick={()=>setShowSettings(false)} style={S.bs()}>✕</button>
             </div>
 
+            {/* ロゴセクション */}
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"16px 0 20px",marginBottom:12,borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+              <img src="/icon-512.png" alt="T.LEAGUE" style={{width:110,height:110,objectFit:"contain",opacity:0.92,marginBottom:12}}/>
+              <div style={{fontSize:9,letterSpacing:5,color:"#444",fontWeight:400,textTransform:"uppercase",marginBottom:6}}>Nerima Night Crew</div>
+              <div style={{fontSize:11,color:"#555",letterSpacing:1,fontStyle:"italic",fontWeight:300}}>Waiting for the Flow.</div>
+              <div style={{fontSize:9,color:"#333",letterSpacing:2,marginTop:3}}>流れを待つ。</div>
+            </div>
+
             {/* 更新履歴セクション */}
             <div style={{marginBottom:12}}>
               <div onClick={()=>setShowChangelogSection(p=>!p)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",padding:"8px 10px",background:"rgba(255,255,255,0.04)",borderRadius:8,marginBottom:showChangelogSection?8:0}}>
