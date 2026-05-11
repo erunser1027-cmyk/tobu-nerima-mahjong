@@ -15,6 +15,7 @@ const SCORE_RATES = [
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-11", features:[
+    "履歴表示に場代金額を追加（場代込みの対局で収支の下に場代金額を表示）",
     "履歴表示にプレイ半荘数を追加（名前の横に「(3半荘)」と表示）",
     "通信エラー時のトースト通知追加（保存成功・失敗を画面下部に表示）",
     "二重送信防止機能追加（保存ボタン連打による重複登録を防止）",
@@ -2356,6 +2357,8 @@ export default function App() {
                       <div style={{display:"flex",flexDirection:"column",gap:2,marginTop:6}}>
                         {sortedMems.map((m,i)=>{
                           const playedRounds = s.rounds.filter(r=>r.players.map(Number).includes(m.id)).length;
+                          const hasBashiro = Object.values(s.bashiro||{}).some(v=>N(v)!==0);
+                          const bashiroAmount = tot[m.id]?.ba || 0;
                           return (
                             <div key={m.id} style={{display:"flex",alignItems:"center",gap:7,padding:"4px 7px",background:i===0?"rgba(231,76,60,0.08)":"rgba(255,255,255,0.03)",borderRadius:6}}>
                               <span style={{fontSize:12,width:20,textAlign:"center"}}>{RI[i]||`${i+1}位`}</span>
@@ -2366,7 +2369,12 @@ export default function App() {
                               </div>
                               <div style={{fontSize:13,fontWeight:"bold",color:cc(tot[m.id]?.sc||0)}}>{fw(tot[m.id]?.sc||0)}</div>
                               <div style={{fontSize:11,color:"#888"}}>chip{fw(tot[m.id]?.chip||0)}</div>
-                              <div style={{fontSize:11,fontWeight:"bold",color:cc(tot[m.id]?.kati||0)}}>{fwy(tot[m.id]?.kati||0)}</div>
+                              <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end"}}>
+                                <div style={{fontSize:11,fontWeight:"bold",color:cc(tot[m.id]?.kati||0)}}>{fwy(tot[m.id]?.kati||0)}</div>
+                                {hasBashiro && bashiroAmount !== 0 && (
+                                  <div style={{fontSize:9,color:"#666"}}>場代{bashiroAmount>=0?"+":""}{bashiroAmount.toLocaleString()}円</div>
+                                )}
+                              </div>
                             </div>
                           );
                         })}
