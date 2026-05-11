@@ -15,7 +15,8 @@ const SCORE_RATES = [
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-11", features:[
-    "履歴編集で新規半荘を追加できる機能追加（➕ボタン・プラスマイナステンキー付き）",
+    "履歴編集で半荘の順番を入れ替える機能追加（↑↓ボタン）",
+    "履歴編集で新規半荘を追加できる機能追加（対局中と同じUI・自動計算機能付き）",
     "エラーハンドリング強化（Supabase通信エラーへの対応）",
     "履歴編集で半荘データの削除機能追加（🗑️ボタン・確認ダイアログ付き）",
     "LIVEバッジのバグ修正（保存後も消えない問題を解消）",
@@ -813,15 +814,42 @@ export default function App() {
                 <div key={ri} style={{background:"rgba(255,255,255,0.05)",borderRadius:8,padding:9,marginBottom:8}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
                     <div style={{fontSize:11,color:"#ccc"}}>第{ri+1}半荘</div>
-                    <button onClick={()=>{
-                      if(!window.confirm(`第${ri+1}半荘を削除しますか？\nこの操作は取り消せません。`)) return;
-                      setEditSession(prev=>({
-                        ...prev,
-                        rounds: prev.rounds.filter((_,i)=>i!==ri)
-                      }));
-                    }} style={{...S.bs({fontSize:10,color:"#e74c3c",padding:"3px 8px"})}}>
-                      🗑️ 削除
-                    </button>
+                    <div style={{display:"flex",gap:4}}>
+                      {/* 上に移動 */}
+                      {ri > 0 && (
+                        <button onClick={()=>{
+                          setEditSession(prev=>{
+                            const newRounds = [...prev.rounds];
+                            [newRounds[ri-1], newRounds[ri]] = [newRounds[ri], newRounds[ri-1]];
+                            return {...prev, rounds: newRounds};
+                          });
+                        }} style={{...S.bs({fontSize:10,color:"#7fb9e0",padding:"3px 8px"})}}>
+                          ↑
+                        </button>
+                      )}
+                      {/* 下に移動 */}
+                      {ri < editSession.rounds.length - 1 && (
+                        <button onClick={()=>{
+                          setEditSession(prev=>{
+                            const newRounds = [...prev.rounds];
+                            [newRounds[ri], newRounds[ri+1]] = [newRounds[ri+1], newRounds[ri]];
+                            return {...prev, rounds: newRounds};
+                          });
+                        }} style={{...S.bs({fontSize:10,color:"#7fb9e0",padding:"3px 8px"})}}>
+                          ↓
+                        </button>
+                      )}
+                      {/* 削除 */}
+                      <button onClick={()=>{
+                        if(!window.confirm(`第${ri+1}半荘を削除しますか？\nこの操作は取り消せません。`)) return;
+                        setEditSession(prev=>({
+                          ...prev,
+                          rounds: prev.rounds.filter((_,i)=>i!==ri)
+                        }));
+                      }} style={{...S.bs({fontSize:10,color:"#e74c3c",padding:"3px 8px"})}}>
+                        🗑️ 削除
+                      </button>
+                    </div>
                   </div>
                   {sortedPl.map(pid => {
                     const m = gm(pid); if (!m) return null;
@@ -1006,13 +1034,19 @@ export default function App() {
               ) : (
                 <div style={{background:"rgba(52,152,219,0.06)",borderRadius:8,padding:10,border:"1px solid rgba(52,152,219,0.3)"}}>
                   <div style={{fontSize:12,fontWeight:600,color:"#7fb9e0",marginBottom:8}}>➕ 新規半荘を追加</div>
-                  <div style={{fontSize:10,color:"#aaa",marginBottom:8}}>4人分の順位点を入力してください</div>
+                  <div style={{fontSize:10,color:"#aaa",marginBottom:8}}>
+                    4人分の順位点を入力してください<br/>
+                    <span style={{fontSize:9,color:"#666"}}>3人入力で残り1人を自動計算（空欄が1人のとき）</span>
+                  </div>
                   <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:8}}>
                     {editSession.members.map(id=>{
                       const m = gm(id); if(!m) return null;
                       const v = String(editNewRoundSc[id]||"");
                       const hasV = v.trim() !== "";
                       const isActive = editNewRoundActive === id;
+                      const othersFilled = editSession.members.filter(oid => oid !== id && String(editNewRoundSc[oid]||"").trim() !== "").length === 3;
+                      const showAutoBtn = !hasV && othersFilled;
+                      
                       return (
                         <div key={id} style={{borderRadius:9,background:hasV?"rgba(255,255,255,0.05)":"rgba(255,255,255,0.02)",border:`2px solid ${isActive?"#e74c3c":hasV?"rgba(255,255,255,0.2)":"rgba(255,255,255,0.07)"}`,padding:8}}>
                           <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:7}}>
@@ -1022,14 +1056,25 @@ export default function App() {
                               {!hasV&&<div style={{fontSize:9,color:"#555"}}>未入力</div>}
                             </div>
                           </div>
-                          <div onClick={()=>setEditNewRoundActive(isActive?null:id)}
-                            style={{textAlign:"center",padding:"10px 6px",borderRadius:7,cursor:"pointer",
-                              background:isActive?"rgba(231,76,60,0.12)":hasV?"rgba(255,255,255,0.07)":"rgba(255,255,255,0.03)",
-                              border:isActive?"1px solid rgba(231,76,60,0.4)":"1px solid rgba(255,255,255,0.08)"}}>
-                            <div style={{fontSize:hasV?22:12,fontWeight:hasV?"bold":"normal",color:hasV?cc(N(v)):"#333",minHeight:28,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                              {hasV?(N(v)>=0?"+":"")+v:"タップで入力"}
+                          {showAutoBtn ? (
+                            <button onClick={()=>{
+                              const others = editSession.members.filter(oid => oid !== id);
+                              const filled = others.filter(oid => String(editNewRoundSc[oid]||"").trim() !== "");
+                              const sum = filled.reduce((acc, oid) => acc + N(editNewRoundSc[oid]), 0);
+                              setEditNewRoundSc(prev => ({ ...prev, [id]: String(-sum) }));
+                            }} style={{width:"100%",padding:"10px 6px",borderRadius:7,border:"none",background:"rgba(52,152,219,0.25)",color:"#7fb9e0",cursor:"pointer",fontWeight:"bold",fontSize:13}}>
+                              🔄 自動計算
+                            </button>
+                          ) : (
+                            <div onClick={()=>setEditNewRoundActive(isActive?null:id)}
+                              style={{textAlign:"center",padding:"10px 6px",borderRadius:7,cursor:"pointer",
+                                background:isActive?"rgba(231,76,60,0.12)":hasV?"rgba(255,255,255,0.07)":"rgba(255,255,255,0.03)",
+                                border:isActive?"1px solid rgba(231,76,60,0.4)":"1px solid rgba(255,255,255,0.08)"}}>
+                              <div style={{fontSize:hasV?22:12,fontWeight:hasV?"bold":"normal",color:hasV?cc(N(v)):"#333",minHeight:28,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                {hasV?(N(v)>=0?"+":"")+v:"タップで入力"}
+                              </div>
                             </div>
-                          </div>
+                          )}
                           {isActive&&<Keypad value={v} onChange={val=>setEditNewRoundSc(prev=>({...prev,[id]:val}))}/>}
                         </div>
                       );
