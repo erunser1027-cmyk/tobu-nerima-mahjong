@@ -15,6 +15,9 @@ const SCORE_RATES = [
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-11", features:[
+    "通信エラー時のトースト通知追加（保存成功・失敗を画面下部に表示）",
+    "二重送信防止機能追加（保存ボタン連打による重複登録を防止）",
+    "保存処理のエラーハンドリング強化（通信失敗時も下書きが残る仕様に）",
     "履歴表示に場代込み表示を追加（場代が入力された対局に「場代込み」バッジ表示）",
     "履歴編集で半荘の順番を入れ替える機能追加（↑↓ボタン）",
     "履歴編集で新規半荘を追加できる機能追加（対局中と同じUI・自動計算機能付き）",
@@ -254,21 +257,44 @@ export default function App() {
   // 起動時にSupabaseから下書き復元
   useEffect(()=>{
     async function loadDraft(){
-      const { data } = await supabase.from("drafts").select("*").order("updated_at",{ascending:false}).limit(1).single();
-      if(data){
-        const today = new Date().toISOString().slice(0,10);
-        // 今日の下書きのみ復元
-        if(data.date === today){
+      const today = new Date().toISOString().slice(0,10);
+      
+      // Supabase から取得試行
+      try {
+        const { data } = await supabase.from("drafts").select("*").order("updated_at",{ascending:false}).limit(1).single();
+        if(data && data.date === today){
           setDraftId(data.id);
           setAddDate(data.date);
           setAddRules(data.rules);
           setAddSel(data.members);
           setAddRounds(data.rounds);
           setAddStep(data.rounds.length>0?2:0);
-        } else {
-          // 古い下書きは削除
+          return;
+        } else if(data) {
           await supabase.from("drafts").delete().eq("id",data.id);
         }
+      } catch (e) {
+        console.error("Failed to load draft from Supabase:", e);
+      }
+      
+      // Supabase失敗時 → localStorage から復元
+      try {
+        const backup = localStorage.getItem("tleague_draft_backup");
+        if(backup){
+          const draft = JSON.parse(backup);
+          if(draft.date === today){
+            setAddDate(draft.date);
+            setAddRules(draft.rules);
+            setAddSel(draft.members);
+            setAddRounds(draft.rounds);
+            setAddStep(draft.rounds.length>0?2:0);
+            showToast("success", "📦 ローカル保存から復元しました");
+          } else {
+            localStorage.removeItem("tleague_draft_backup");
+          }
+        }
+      } catch (e) {
+        console.error("localStorage restore failed:", e);
       }
     }
     loadDraft();
@@ -277,8 +303,17 @@ export default function App() {
   // 半荘確定のたびにSupabaseに下書き保存
   async function saveDraft(date, rules, sel, rounds){
     if(rounds.length===0) return;
+    const payload = { date, rules, members:sel, rounds, updated_at: new Date().toISOString() };
+    
+    // localStorage にバックアップ（オフライン時の保険）
     try {
-      const payload = { date, rules, members:sel, rounds, updated_at: new Date().toISOString() };
+      localStorage.setItem("tleague_draft_backup", JSON.stringify(payload));
+    } catch (e) {
+      console.error("localStorage backup failed:", e);
+    }
+    
+    // Supabase に保存
+    try {
       if(draftId){
         await supabase.from("drafts").update(payload).eq("id",draftId);
       } else {
@@ -286,7 +321,8 @@ export default function App() {
         if(data) setDraftId(data.id);
       }
     } catch (error) {
-      console.error("Error saving draft:", error);
+      console.error("Error saving draft to Supabase:", error);
+      showToast("error", "⚠️ 通信エラー。下書きはローカル保存されています");
     }
   }
 
@@ -298,6 +334,7 @@ export default function App() {
         setDraftId(null); 
       }
       localStorage.removeItem("tleague_draft");
+      localStorage.removeItem("tleague_draft_backup");
     } catch (error) {
       console.error("Error deleting draft:", error);
     }
