@@ -14,7 +14,10 @@ const SCORE_RATES = [
 // 更新履歴 - 新しい機能は必ず今日の日付で追加してください
 // 今日: 2026-05-11
 const CHANGELOG = [
-  { date:"2026-05-11", features:[
+  { date:"2026-05-12", features:[
+    "操作ログ機能追加（対局の削除・編集時に操作者を記録。りょうはログ対象外）",
+    "設定画面にJSONバックアップ書き出し機能追加（全対戦データをファイルで保存可能）",
+  ]},
     "設定ボタンに更新通知ドット追加（未読の更新があると赤く光る）",
     "履歴の場代込みバッジをタップで場代抜き金額に切り替え可能に",
     "設定画面にTリーグオフィシャルロゴ・Nerima Night Crew・Waiting for the Flow. を表示",
@@ -217,11 +220,13 @@ export default function App() {
   const [histOpen, setHistOpen] = useState({});
   const [bashiroExclude, setBashiroExclude] = useState({});
   const [bashiroTotal, setBashiroTotal] = useState("");
-  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [editSession, setEditSession] = useState(null);
   const [toast, setToast] = useState(null); // {type:"error"|"success", msg:string}
   const [isSaving, setIsSaving] = useState(false);
   const [memberDeleteStep, setMemberDeleteStep] = useState({});
+  const [auditModal, setAuditModal] = useState(null); // {action:"delete"|"edit", label, onConfirm}
+  const [auditWho, setAuditWho] = useState(null);
+  const [auditLog, setAuditLog] = useState([]);
   const [memberEditId, setMemberEditId] = useState(null);
   const [memberEditName, setMemberEditName] = useState("");
   const [editKeypadActive, setEditKeypadActive] = useState(null); // "ri-pid"
@@ -261,6 +266,24 @@ export default function App() {
     setToast({ type, msg });
     setTimeout(() => setToast(null), 3500);
   };
+
+  const writeAuditLog = async (memberName, action, detail) => {
+    if (memberName === "りょう") return; // りょうはログなし
+    await supabase.from("audit_log").insert({ member_name: memberName, action, detail });
+    // ローカルにも即反映
+    setAuditLog(prev => [{
+      created_at: new Date().toISOString(),
+      member_name: memberName,
+      action,
+      detail
+    }, ...prev]);
+  };
+
+  // audit_log 読み込み
+  useEffect(()=>{
+    supabase.from("audit_log").select("*").order("created_at",{ascending:false}).limit(50)
+      .then(({data})=>{ if(data) setAuditLog(data); });
+  },[]);
 
   const gm = id => members.find(m => m.id === Number(id));
   const is5 = addSel.length > 4;
@@ -575,10 +598,12 @@ export default function App() {
     }
   }
 
-  async function deleteSession(id) {
+  async function deleteSession(id, memberName) {
     try {
       const { error } = await supabase.from("sessions").delete().eq("id", id);
       if (error) throw error;
+      const s = sessions.find(s=>s.id===id);
+      await writeAuditLog(memberName, "削除", `${s?.date||id} の対局を削除`);
       setSessions(p => p.filter(s => s.id !== id));
       setDeleteConfirm(null);
       setHistOpen(prev => { const n={...prev}; delete n[id]; return n; });
@@ -589,7 +614,7 @@ export default function App() {
     }
   }
 
-  async function saveEditSession() {
+  async function saveEditSession(memberName) {
     if (isSaving) return;
     setIsSaving(true);
     const updated = { ...editSession };
@@ -601,6 +626,7 @@ export default function App() {
         rules: updated.rules,
       }).eq("id", updated.id);
       if (error) throw error;
+      await writeAuditLog(memberName, "編集", `${updated.date} の対局を編集`);
       setSessions(p => p.map(s => s.id === updated.id ? updated : s));
       setEditSession(null);
       setEditKeypadActive(null);
@@ -1130,7 +1156,7 @@ export default function App() {
                       const v = String(editNewRoundSc[id]||"");
                       const hasV = v.trim() !== "";
                       const isActive = editNewRoundActive === id;
-                      const othersFilled = editSession.members.filter(oid => oid !== id && String(editNewRoundSc[oid]||"").trim() !== "").length === 3;
+                      const othersFilled = editSession.members.filter(oid => oid !== id && String(editNewRoundSc[oid]||"").trim() !== "").length === editSession.members.length - 1;
                       const showAutoBtn = !hasV && othersFilled;
                       
                       return (
@@ -1192,7 +1218,7 @@ export default function App() {
             </div>
 
             <div style={{display:"flex",gap:6}}>
-              <button onClick={saveEditSession} style={S.br({flex:1})}>💾 保存する</button>
+              <button onClick={()=>{setAuditWho(null);setAuditModal({action:"edit",label:`${editSession.date}の対局`,onConfirm:(name)=>saveEditSession(name)});}} style={S.br({flex:1})}>💾 保存する</button>
               <button onClick={()=>{
                 setEditSession(null);
                 setEditKeypadActive(null);
@@ -1387,6 +1413,72 @@ export default function App() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* 操作ログセクション */}
+            {auditLog.length > 0 && (
+              <div style={{marginTop:8}}>
+                <div style={{padding:"8px 10px",background:"rgba(255,255,255,0.04)",borderRadius:8}}>
+                  <div style={{fontSize:12,fontWeight:500,color:"#ccc",marginBottom:8}}>🔍 操作ログ</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:180,overflowY:"auto"}}>
+                    {auditLog.map((log,i)=>{
+                      const d = new Date(log.created_at);
+                      const dateStr = `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+                      return (
+                        <div key={i} style={{display:"flex",alignItems:"center",gap:6,fontSize:10,padding:"4px 6px",background:"rgba(255,255,255,0.03)",borderRadius:5}}>
+                          <span style={{color:"#555",flexShrink:0}}>{dateStr}</span>
+                          <span style={{color:log.action==="削除"?"#e74c3c":"#7fb9e0",fontWeight:600,flexShrink:0}}>{log.action}</span>
+                          <span style={{color:"#aaa",fontWeight:500,flexShrink:0}}>{log.member_name}</span>
+                          <span style={{color:"#666"}}>{log.detail}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* データバックアップセクション */}
+            <div style={{marginTop:8}}>
+              <div style={{padding:"8px 10px",background:"rgba(255,255,255,0.04)",borderRadius:8,marginBottom:8}}>
+                <div style={{fontSize:12,fontWeight:500,color:"#ccc",marginBottom:6}}>💾 データバックアップ</div>
+                <div style={{fontSize:10,color:"#888",marginBottom:10,lineHeight:1.6}}>
+                  全対戦データをJSONファイルで書き出します。<br/>
+                  万が一のデータ消失に備えて、定期的にバックアップしてください。
+                </div>
+                <button onClick={async ()=>{
+                  try {
+                    const { data: sessionsData, error } = await supabase
+                      .from("sessions")
+                      .select("*")
+                      .order("date", { ascending: false });
+                    if (error) throw error;
+                    const { data: membersData } = await supabase.from("members").select("*");
+                    const backup = {
+                      exported_at: new Date().toISOString(),
+                      app: "東武練馬Tリーグ",
+                      version: CHANGELOG[0]?.date || "",
+                      members: membersData || [],
+                      sessions: sessionsData || [],
+                    };
+                    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `tleague_backup_${new Date().toISOString().slice(0,10)}.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    showToast("success", "✅ バックアップを書き出しました");
+                  } catch(e) {
+                    showToast("error", "⚠️ バックアップの取得に失敗しました");
+                  }
+                }} style={{...S.bg({width:"100%",fontSize:12,padding:"10px",fontWeight:600})}}>
+                  📥 JSONでバックアップを書き出す
+                </button>
+                <div style={{fontSize:9,color:"#555",marginTop:6,textAlign:"center"}}>
+                  ※ ファイル名：tleague_backup_YYYY-MM-DD.json
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -2357,16 +2449,6 @@ export default function App() {
                 const sortedMems=[...mems].sort((a,b)=>(tot[b.id]?.sc||0)-(tot[a.id]?.sc||0));
                 return (
                   <div key={s.id} style={S.card()}>
-                    {/* 削除確認 */}
-                    {deleteConfirm === s.id && (
-                      <div style={{background:"rgba(231,76,60,0.15)",border:"1px solid rgba(231,76,60,0.4)",borderRadius:8,padding:10,marginBottom:8,textAlign:"center"}}>
-                        <div style={{fontSize:12,color:"#fff",marginBottom:8}}>⚠️ この対戦記録を削除しますか？</div>
-                        <div style={{display:"flex",gap:6,justifyContent:"center"}}>
-                          <button style={S.br({fontSize:12,padding:"6px 14px"})} onClick={()=>deleteSession(s.id)}>削除する</button>
-                          <button style={S.bg({fontSize:12})} onClick={()=>setDeleteConfirm(null)}>キャンセル</button>
-                        </div>
-                      </div>
-                    )}
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:isOpen?10:0}}>
                       <div onClick={()=>setHistOpen(prev=>({...prev,[s.id]:!isOpen}))} style={{cursor:"pointer",flex:1,display:"flex",alignItems:"center",gap:6}}>
                         <span style={{fontWeight:500,fontSize:12,color:"#ccc"}}>📅 {s.date}（{s.rounds.length}半荘）</span>
@@ -2383,7 +2465,7 @@ export default function App() {
                       </div>
                       <div style={{display:"flex",gap:4,marginLeft:8}}>
                         <button onClick={e=>{e.stopPropagation();setEditSession(JSON.parse(JSON.stringify(s)));}} style={S.bs({fontSize:11,color:"#7fb9e0"})}>✏️ 編集</button>
-                        <button onClick={e=>{e.stopPropagation();setDeleteConfirm(s.id);}} style={S.bs({fontSize:11,color:"#e74c3c"})}>🗑️</button>
+                        <button onClick={e=>{e.stopPropagation();setAuditWho(null);setAuditModal({action:"delete",label:`${s.date}の対局`,onConfirm:(name)=>deleteSession(s.id,name)});}} style={S.bs({fontSize:11,color:"#e74c3c"})}>🗑️</button>
                       </div>
                     </div>
                     {!isOpen && (
@@ -2961,6 +3043,45 @@ export default function App() {
           </>
         )}
       </div>
+      {/* 操作者確認モーダル */}
+      {auditModal && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:9998,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#1a1a2e",borderRadius:12,padding:20,width:"100%",maxWidth:340,border:"1px solid rgba(255,255,255,0.12)"}}>
+            <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:4}}>
+              {auditModal.action==="delete"?"🗑️ 削除の確認":"✏️ 編集の確認"}
+            </div>
+            <div style={{fontSize:11,color:"#888",marginBottom:14}}>
+              {auditModal.label} を{auditModal.action==="delete"?"削除":"保存"}します。<br/>操作者を選択してください。
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:14}}>
+              {members.map(m=>(
+                <div key={m.id} onClick={()=>setAuditWho(m.id)}
+                  style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"8px 4px",borderRadius:8,cursor:"pointer",
+                    border:`1px solid ${auditWho===m.id?"#3498db":"rgba(255,255,255,0.1)"}`,
+                    background:auditWho===m.id?"rgba(52,152,219,0.2)":"rgba(255,255,255,0.03)"}}>
+                  <Av m={m} sz={28}/>
+                  <div style={{fontSize:10,color:"#ccc",textAlign:"center"}}>{m.name}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>{setAuditModal(null);setAuditWho(null);}} style={S.bs({flex:1,fontSize:12})}>キャンセル</button>
+              <button
+                disabled={!auditWho}
+                onClick={()=>{
+                  const name = members.find(m=>m.id===auditWho)?.name||"不明";
+                  auditModal.onConfirm(name);
+                  setAuditModal(null);
+                  setAuditWho(null);
+                }}
+                style={{...S.br({flex:1,fontSize:12}),opacity:auditWho?1:0.4}}>
+                {auditModal.action==="delete"?"削除する":"保存する"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {toast && (
         <div style={{
           position:"fixed", bottom:20, left:"50%", transform:"translateX(-50%)",
