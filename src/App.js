@@ -234,6 +234,11 @@ export default function App() {
   const [showLivePanel, setShowLivePanel] = useState(false);
   const [yakumanCelebration, setYakumanCelebration] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const latestChangelogDate = CHANGELOG[0]?.date || "";
+  const [hasNewUpdate, setHasNewUpdate] = useState(()=>{
+    const seen = localStorage.getItem("tleague_settings_seen");
+    return seen !== latestChangelogDate;
+  });
   const [showChangelogSection, setShowChangelogSection] = useState(false);
   const [showAppGuideSection, setShowAppGuideSection] = useState(false);
   const [showColorLegend, setShowColorLegend] = useState(false);
@@ -1288,8 +1293,17 @@ export default function App() {
             {[["all","全期間"],["year","今年"],["month","今月"]].map(([v,l])=>(
               <button key={v} onClick={()=>setPeriod(v)} style={S.pd(period===v)}>{l}</button>
             ))}
-            <button onClick={()=>setShowSettings(p=>!p)} style={{marginLeft:"auto",padding:"4px 10px",borderRadius:13,cursor:"pointer",fontSize:11,background:"transparent",border:showSettings?"1px solid #7fb9e0":"1px solid rgba(255,255,255,0.18)",color:showSettings?"#7fb9e0":"#888"}}>
+            <button onClick={()=>{
+                setShowSettings(p=>!p);
+                if(hasNewUpdate){
+                  localStorage.setItem("tleague_settings_seen", latestChangelogDate);
+                  setHasNewUpdate(false);
+                }
+              }} style={{marginLeft:"auto",padding:"4px 10px",borderRadius:13,cursor:"pointer",fontSize:11,background:"transparent",border:showSettings?"1px solid #7fb9e0":"1px solid rgba(255,255,255,0.18)",color:showSettings?"#7fb9e0":"#888",position:"relative"}}>
               ⚙️ 設定
+              {hasNewUpdate && !showSettings && (
+                <span style={{position:"absolute",top:-4,right:-4,width:8,height:8,borderRadius:"50%",background:"#e74c3c",boxShadow:"0 0 6px #e74c3c",animation:"pulse 1s infinite"}}/>
+              )}
             </button>
           </div>
         )}
