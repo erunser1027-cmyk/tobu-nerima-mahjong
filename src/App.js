@@ -15,6 +15,7 @@ const SCORE_RATES = [
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-11", features:[
+    "履歴表示に場代込み表示を追加（場代が入力された対局に「場代込み」バッジ表示）",
     "履歴編集で半荘の順番を入れ替える機能追加（↑↓ボタン）",
     "履歴編集で新規半荘を追加できる機能追加（対局中と同じUI・自動計算機能付き）",
     "エラーハンドリング強化（Supabase通信エラーへの対応）",
@@ -2266,6 +2267,9 @@ export default function App() {
                       <div onClick={()=>setHistOpen(prev=>({...prev,[s.id]:!isOpen}))} style={{cursor:"pointer",flex:1,display:"flex",alignItems:"center",gap:6}}>
                         <span style={{fontWeight:500,fontSize:12,color:"#ccc"}}>📅 {s.date}（{s.rounds.length}半荘）</span>
                         <span style={{fontSize:10,color:"#555"}}>{rL}</span>
+                        {Object.values(s.bashiro||{}).some(v=>N(v)!==0) && (
+                          <span style={{fontSize:9,color:"#7fb9e0",background:"rgba(52,152,219,0.15)",padding:"2px 6px",borderRadius:4,border:"1px solid rgba(52,152,219,0.3)"}}>場代込み</span>
+                        )}
                         <span style={{fontSize:14,color:"#888",marginLeft:"auto"}}>{isOpen?"▲":"▼"}</span>
                       </div>
                       <div style={{display:"flex",gap:4,marginLeft:8}}>
