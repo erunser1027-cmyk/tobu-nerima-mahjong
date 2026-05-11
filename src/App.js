@@ -15,7 +15,7 @@ const SCORE_RATES = [
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-11", features:[
-    "履歴編集で新規半荘を追加できる機能追加（➕ボタン）",
+    "履歴編集で新規半荘を追加できる機能追加（➕ボタン・プラスマイナステンキー付き）",
     "エラーハンドリング強化（Supabase通信エラーへの対応）",
     "履歴編集で半荘データの削除機能追加（🗑️ボタン・確認ダイアログ付き）",
     "LIVEバッジのバグ修正（保存後も消えない問題を解消）",
@@ -233,6 +233,7 @@ export default function App() {
   const [showMemberAdd, setShowMemberAdd] = useState(false);
   const [editAddingRound, setEditAddingRound] = useState(false);
   const [editNewRoundSc, setEditNewRoundSc] = useState({});
+  const [editNewRoundActive, setEditNewRoundActive] = useState(null);
 
   const fileRef = useRef(null);
   const [photoTgt, setPhotoTgt] = useState(null);
@@ -525,6 +526,7 @@ export default function App() {
     setEditKeypadActive(null);
     setEditAddingRound(false);
     setEditNewRoundSc({});
+    setEditNewRoundActive(null);
   }
 
   async function resetAdd() {
@@ -1008,6 +1010,7 @@ export default function App() {
                   <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:8}}>
                     {editSession.members.map(id=>{
                       const m = gm(id); if(!m) return null;
+                      const isActive = editNewRoundActive === id;
                       return (
                         <div key={id} style={{background:"rgba(255,255,255,0.05)",borderRadius:6,padding:6}}>
                           <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:4}}>
@@ -1016,12 +1019,41 @@ export default function App() {
                           </div>
                           <input type="text" inputMode="decimal" value={editNewRoundSc[id]||""} 
                             onChange={e=>setEditNewRoundSc(prev=>({...prev,[id]:e.target.value}))}
+                            onFocus={()=>setEditNewRoundActive(id)}
                             placeholder="点数"
-                            style={{...S.inp({width:"100%",fontSize:14,textAlign:"center"})}}/>
+                            style={{...S.inp({width:"100%",fontSize:14,textAlign:"center",borderColor:isActive?"#3498db":"rgba(255,255,255,0.2)"})}}/>
                         </div>
                       );
                     })}
                   </div>
+
+                  {/* テンキー */}
+                  {editNewRoundActive && (
+                    <div style={{background:"rgba(0,0,0,0.2)",borderRadius:8,padding:8,marginBottom:8}}>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:6}}>
+                        {["+10","+5","+1"].map(v=>(
+                          <button key={v} onClick={()=>{
+                            const num = parseInt(v);
+                            setEditNewRoundSc(prev=>({...prev,[editNewRoundActive]:String(N(prev[editNewRoundActive])+num)}));
+                          }} style={{...S.bs({padding:"10px 6px",fontSize:13,background:"rgba(46,204,113,0.2)",border:"1px solid rgba(46,204,113,0.5)",color:"#2ecc71"})}}>
+                            {v}
+                          </button>
+                        ))}
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
+                        {["-10","-5","-1"].map(v=>(
+                          <button key={v} onClick={()=>{
+                            const num = parseInt(v);
+                            setEditNewRoundSc(prev=>({...prev,[editNewRoundActive]:String(N(prev[editNewRoundActive])+num)}));
+                          }} style={{...S.bs({padding:"10px 6px",fontSize:13,background:"rgba(231,76,60,0.2)",border:"1px solid rgba(231,76,60,0.5)",color:"#e74c3c"})}}>
+                            {v}
+                          </button>
+                        ))}
+                      </div>
+                      <button onClick={()=>setEditNewRoundActive(null)} style={{...S.bs({width:"100%",marginTop:6,fontSize:11})}}>✓ 閉じる</button>
+                    </div>
+                  )}
+
                   <div style={{display:"flex",gap:6}}>
                     <button onClick={()=>{
                       const playing = editSession.members.filter(id=>String(editNewRoundSc[id]||"").trim()!=="");
@@ -1034,10 +1066,12 @@ export default function App() {
                       }));
                       setEditAddingRound(false);
                       setEditNewRoundSc({});
+                      setEditNewRoundActive(null);
                     }} style={{...S.br({flex:1,fontSize:11})}}>✅ 追加</button>
                     <button onClick={()=>{
                       setEditAddingRound(false);
                       setEditNewRoundSc({});
+                      setEditNewRoundActive(null);
                     }} style={{...S.bg({fontSize:11})}}>キャンセル</button>
                   </div>
                 </div>
@@ -1051,6 +1085,7 @@ export default function App() {
                 setEditKeypadActive(null);
                 setEditAddingRound(false);
                 setEditNewRoundSc({});
+                setEditNewRoundActive(null);
               }} style={S.bg()}>キャンセル</button>
             </div>
           </div>
