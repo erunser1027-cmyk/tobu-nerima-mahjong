@@ -210,6 +210,8 @@ export default function App() {
   const [bashiroTotal, setBashiroTotal] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [editSession, setEditSession] = useState(null);
+  const [toast, setToast] = useState(null); // {type:"error"|"success", msg:string}
+  const [isSaving, setIsSaving] = useState(false);
   const [memberDeleteStep, setMemberDeleteStep] = useState({});
   const [memberEditId, setMemberEditId] = useState(null);
   const [memberEditName, setMemberEditName] = useState("");
@@ -240,6 +242,11 @@ export default function App() {
   const fileRef = useRef(null);
   const [photoTgt, setPhotoTgt] = useState(null);
   const cvRef = useRef(null);
+
+  const showToast = (type, msg) => {
+    setToast({ type, msg });
+    setTimeout(() => setToast(null), 3500);
+  };
 
   const gm = id => members.find(m => m.id === Number(id));
   const is5 = addSel.length > 4;
@@ -490,6 +497,8 @@ export default function App() {
   }
 
   async function saveSession() {
+    if (isSaving) return; // 二重送信防止
+    setIsSaving(true);
     const chips={}, bashiro={};
     addSel.forEach(id => { chips[id]=N(addChips[id]); bashiro[id]=N(addBashiro[id]); });
     const newSess = {
@@ -500,35 +509,63 @@ export default function App() {
       chips,
       bashiro,
     };
-    const { data } = await supabase.from("sessions").insert(newSess).select().single();
-    if (data) setSessions(p => [...p, data]);
-    setLr({...addRules, uma:addRules.uma.map(Number)});
-    setBashiroTotal("");
-    await deleteDraft();
-    setDraftId(null);
-    setAddStep(0); setTab("history");
+    try {
+      const { data, error } = await supabase.from("sessions").insert(newSess).select().single();
+      if (error) throw error;
+      if (data) setSessions(p => [...p, data]);
+      setLr({...addRules, uma:addRules.uma.map(Number)});
+      setBashiroTotal("");
+      await deleteDraft();
+      setDraftId(null);
+      setAddStep(0); setTab("history");
+      showToast("success", "✅ 保存しました");
+    } catch (e) {
+      console.error("saveSession error:", e);
+      showToast("error", "⚠️ 保存失敗。下書きは残っています。再度お試しください");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   async function deleteSession(id) {
-    await supabase.from("sessions").delete().eq("id", id);
-    setSessions(p => p.filter(s => s.id !== id));
-    setDeleteConfirm(null);
-    setHistOpen(prev => { const n={...prev}; delete n[id]; return n; });
+    try {
+      const { error } = await supabase.from("sessions").delete().eq("id", id);
+      if (error) throw error;
+      setSessions(p => p.filter(s => s.id !== id));
+      setDeleteConfirm(null);
+      setHistOpen(prev => { const n={...prev}; delete n[id]; return n; });
+      showToast("success", "🗑 削除しました");
+    } catch (e) {
+      console.error("deleteSession error:", e);
+      showToast("error", "⚠️ 削除に失敗しました");
+    }
   }
 
   async function saveEditSession() {
+    if (isSaving) return;
+    setIsSaving(true);
     const updated = { ...editSession };
-    await supabase.from("sessions").update({
-      rounds: updated.rounds,
-      chips: updated.chips,
-      bashiro: updated.bashiro,
-      rules: updated.rules,
-    }).eq("id", updated.id);    setSessions(p => p.map(s => s.id === updated.id ? updated : s));
-    setEditSession(null);
-    setEditKeypadActive(null);
-    setEditAddingRound(false);
-    setEditNewRoundSc({});
-    setEditNewRoundActive(null);
+    try {
+      const { error } = await supabase.from("sessions").update({
+        rounds: updated.rounds,
+        chips: updated.chips,
+        bashiro: updated.bashiro,
+        rules: updated.rules,
+      }).eq("id", updated.id);
+      if (error) throw error;
+      setSessions(p => p.map(s => s.id === updated.id ? updated : s));
+      setEditSession(null);
+      setEditKeypadActive(null);
+      setEditAddingRound(false);
+      setEditNewRoundSc({});
+      setEditNewRoundActive(null);
+      showToast("success", "✅ 編集を保存しました");
+    } catch (e) {
+      console.error("saveEditSession error:", e);
+      showToast("error", "⚠️ 編集の保存失敗。再度お試しください");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   async function resetAdd() {
@@ -2727,7 +2764,7 @@ export default function App() {
                     </div>
                   </div>
                   <div style={{display:"flex",gap:6,paddingBottom:14}}>
-                    <button style={S.br()} onClick={saveSession}>💾 保存する</button>
+                    <button style={{...S.br(),opacity:isSaving?0.5:1}} disabled={isSaving} onClick={saveSession}>{isSaving?"保存中...":"💾 保存する"}</button>
                     <button style={S.bg()} onClick={resetAdd}>✖ 破棄</button>
                   </div>
                 </>
@@ -2839,6 +2876,16 @@ export default function App() {
           </>
         )}
       </div>
+      {toast && (
+        <div style={{
+          position:"fixed", bottom:20, left:"50%", transform:"translateX(-50%)",
+          background: toast.type==="error" ? "rgba(231,76,60,0.95)" : "rgba(46,204,113,0.95)",
+          color:"#fff", padding:"10px 18px", borderRadius:8, fontSize:13, fontWeight:500,
+          zIndex:9999, boxShadow:"0 4px 12px rgba(0,0,0,0.4)", maxWidth:"90%",
+        }}>
+          {toast.msg}
+        </div>
+      )}
     </div>
   );
 }
