@@ -2288,8 +2288,6 @@ export default function App() {
             });
           });
           const dealInScenes = scenes.filter(s=>s.dealedIn);
-          const openRiichiTotal = scenes.length;
-          const dealInTotal = dealInScenes.length;
           return (
             <>
               <div style={{fontSize:13,fontWeight:600,color:"#e74c3c",marginBottom:4,display:"flex",alignItems:"center",gap:6}}>
