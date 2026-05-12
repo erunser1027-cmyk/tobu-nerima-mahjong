@@ -15,8 +15,8 @@ const SCORE_RATES = [
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-12", features:[
-    "ハイ&ローをタブ内で完結化（2人選択UI内蔵・対人成績タブ不要に）",
-    "ハイ&ローのカード値をスコア差（A−B）に変更",
+    "ハイ&ローのカードを絶対値表示に変更・遊び方をタブ内に移動・設定タブから削除",
+    "ハイ&ローをタブ内で完結化（2人選択UI内蔵）",
     "ハイ&ローを独立タブ化（外馬の隣）",
     "外馬モード追加（LIVE中に1位・最下位を予想、精度ランキング表示）",
     "MVP条件変更（スコア+100pt以上 かつ 10半荘以上参加）",
@@ -394,7 +394,6 @@ export default function App() {
   const [showChangelogSection, setShowChangelogSection] = useState(false);
   const [showAppGuideSection, setShowAppGuideSection] = useState(false);
   const [showMvpSection, setShowMvpSection] = useState(false);
-  const [showChinchiroSection, setShowChinchiroSection] = useState(false);
   const [showColorLegend, setShowColorLegend] = useState(false);
   const [editRoundIndex, setEditRoundIndex] = useState(null);
 
@@ -1645,34 +1644,6 @@ export default function App() {
               )}
             </div>
 
-            {/* T.LEAGUEハイ＆ロー 遊び方セクション */}
-            <div style={{marginBottom:12}}>
-              <div onClick={()=>setShowChinchiroSection(p=>!p)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",padding:"8px 10px",background:"rgba(243,156,18,0.07)",borderRadius:8,border:"1px solid rgba(243,156,18,0.18)"}}>
-                <div style={{fontSize:12,fontWeight:500,color:"#f39c12"}}>🃏 T.LEAGUEハイ＆ローの遊び方</div>
-                <span style={{fontSize:14,color:"#888"}}>{showChinchiroSection?"▲":"▼"}</span>
-              </div>
-              {showChinchiroSection && (
-                <div style={{padding:"12px 14px",background:"rgba(243,156,18,0.04)",borderRadius:"0 0 8px 8px",border:"1px solid rgba(243,156,18,0.12)",borderTop:"none"}}>
-                  <div style={{fontSize:11,color:"#ccc",lineHeight:2,marginBottom:10}}>
-                    <span style={{color:"#f39c12",fontWeight:700}}>①</span> 「🃏 ハイ&ロー」タブを開く<br/>
-                    <span style={{color:"#f39c12",fontWeight:700}}>②</span> タブ内で対戦したい2人をタップして選ぶ<br/>
-                    <span style={{color:"#f39c12",fontWeight:700}}>③</span> 「🎲 ランダム決定」ボタンで先攻・後攻を決める<br/>
-                    <span style={{color:"#f39c12",fontWeight:700}}>④</span> 2人の過去の<span style={{color:"#f39c12",fontWeight:600}}>スコア差</span>がカード値になる（Aのスコア − Bのスコア）。表示されたカードを見て次が HIGH か LOW かを予想<br/>
-                    <span style={{color:"#f39c12",fontWeight:700}}>⑤</span> 先攻→後攻の順に交互に予想。これを5ラウンド繰り返す<br/>
-                    <span style={{color:"#f39c12",fontWeight:700}}>⑥</span> 合計ポイントの多い方が勝ち！
-                  </div>
-                  <div style={{background:"rgba(255,255,255,0.04)",borderRadius:7,padding:"8px 10px",marginBottom:8}}>
-                    <div style={{fontSize:10,color:"#888",lineHeight:1.8}}>
-                      カードは「2人のスコア差」なので、その試合でどちらが優勢だったかが数字に出る。2人の対戦傾向を知っていると読めるが、ランダム抽選なので完全には読めない。飲みの席でひと盛り上がりしたいときにどうぞ🍻
-                    </div>
-                  </div>
-                  <div style={{fontSize:9,color:"#555",textAlign:"center"}}>
-                    ※ 2人の対戦履歴が2件以上ないと遊べません
-                  </div>
-                </div>
-              )}
-            </div>
-
             {/* アプリにする方法セクション */}
             <div>
               <div onClick={()=>setShowAppGuideSection(p=>!p)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",padding:"8px 10px",background:"rgba(255,255,255,0.04)",borderRadius:8,marginBottom:showAppGuideSection?8:0}}>
@@ -2478,7 +2449,7 @@ export default function App() {
 
                 const startGame = () => {
                   const shuffled = [...hiloHistory].sort(()=>Math.random()-0.5).slice(0,11);
-                  const cards = shuffled.map(h=>h.diff); // スコア差をカード値に
+                  const cards = shuffled.map(h=>Math.abs(h.diff)); // スコア差の絶対値
                   setHiloCards(cards);
                   setHiloCardIdx(0);
                   setHiloScoreA(0); setHiloScoreB(0);
@@ -2531,7 +2502,11 @@ export default function App() {
 
                 return (
                   <>
-                    <div style={{fontSize:13,fontWeight:600,color:"#f39c12",marginBottom:10}}>🃏 T.LEAGUEハイ＆ロー</div>
+                    <div style={{fontSize:13,fontWeight:600,color:"#f39c12",marginBottom:6}}>🃏 T.LEAGUEハイ＆ロー</div>
+                    <div style={{fontSize:10,color:"#666",marginBottom:10,lineHeight:1.7}}>
+                      2人を選んでSTART。過去の対戦スコア差をカードに見立て、次のカードが HIGH（大きい）か LOW（小さい）かを交互に予想。5ラウンド制、正解数が多い方の勝ち。
+                      <span style={{color:"#555"}}> ※対戦履歴2件以上必要</span>
+                    </div>
 
                     {/* メンバー選択 */}
                     {!hiloMode && (
@@ -2614,9 +2589,9 @@ export default function App() {
                         </div>
 
                         <div style={{textAlign:"center",marginBottom:14}}>
-                          <div style={{fontSize:10,color:"#888",marginBottom:6}}>現在のカード（{mA?.name}と{mB?.name}のスコア差）</div>
+                          <div style={{fontSize:10,color:"#888",marginBottom:6}}>現在のカード（2人のスコア差）</div>
                           <div style={{display:"inline-block",background:"rgba(255,255,255,0.1)",border:"2px solid rgba(243,156,18,0.6)",borderRadius:12,padding:"12px 28px"}}>
-                            <div style={{fontSize:32,fontWeight:"bold",color:curCard>=0?"#2ecc71":"#e74c3c"}}>{curCard>=0?"+":""}{curCard}</div>
+                            <div style={{fontSize:32,fontWeight:"bold",color:"#f39c12"}}>{curCard}</div>
                           </div>
                         </div>
 
@@ -2629,7 +2604,7 @@ export default function App() {
                               {hiloReveal.isSame?"引き分け（同値）":hiloReveal.correct?"正解！":"ハズレ"}
                             </div>
                             <div style={{fontSize:11,color:"#888",marginTop:2}}>
-                              次：<span style={{color:hiloReveal.next>=hiloReveal.prev?"#2ecc71":"#e74c3c",fontWeight:"bold"}}>{hiloReveal.next>=0?"+":""}{hiloReveal.next}</span>
+                              次：<span style={{color:hiloReveal.next>hiloReveal.prev?"#2ecc71":"#e74c3c",fontWeight:"bold"}}>{hiloReveal.next}</span>
                               <span style={{marginLeft:6}}>{hiloReveal.next>hiloReveal.prev?"▲HIGH":hiloReveal.next<hiloReveal.prev?"▼LOW":"→SAME"}</span>
                             </div>
                           </div>
@@ -2687,7 +2662,7 @@ export default function App() {
                             <div key={i} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,0.05)",fontSize:10}}>
                               <span style={{color:"#555",width:52}}>R{l.round+1} {l.who==="a"?mA?.name:mB?.name}</span>
                               <span style={{color:l.pred==="high"?"#2ecc71":"#e74c3c",fontWeight:"bold",width:36}}>{l.pred==="high"?"▲HIGH":"▼LOW"}</span>
-                              <span style={{color:"#555"}}>{l.prev>=0?"+":""}{l.prev}→{l.next>=0?"+":""}{l.next}</span>
+                              <span style={{color:"#555"}}>{l.prev}→{l.next}</span>
                               <span style={{marginLeft:"auto"}}>{l.correct?"✅":"❌"}</span>
                             </div>
                           ))}
