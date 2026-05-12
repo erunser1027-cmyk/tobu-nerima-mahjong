@@ -15,6 +15,8 @@ const SCORE_RATES = [
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-12", features:[
+    "LINEシェア機能追加（設定タブからアプリURLをLINEで送信可能）",
+    "MVP演出条件を変更（場代抜き清算額+3,000円以上 かつ 3半荘以上参加）",
     "当月MVP演出追加（炎アバター・👑王冠・金バッジ・confetti紙吹雪）",
     "月別プルダウンフィルター追加（全期間〜今月の間に月を選んで表示）",
     "操作ログ機能追加（対局の削除・編集時に操作者を記録）",
@@ -116,12 +118,12 @@ function getMonthList(sessions) {
 function calcMvpIds(sessions, members, targetMonth) {
   const filtered = sessions.filter(s => s.date.startsWith(targetMonth));
   const totals = {};
-  members.forEach(m => { totals[m.id] = { kati: 0, rounds: 0 }; });
+  members.forEach(m => { totals[m.id] = { seisan: 0, rounds: 0 }; });
   filtered.forEach(sess => {
     const tot = calcTotals(sess);
     sess.members.forEach(id => {
-      if (!totals[id]) totals[id] = { kati: 0, rounds: 0 };
-      totals[id].kati += (tot[id]?.kati || 0);
+      if (!totals[id]) totals[id] = { seisan: 0, rounds: 0 };
+      totals[id].seisan += (tot[id]?.seisan || 0); // 場代抜きの純粋な勝ち点
       totals[id].rounds += sess.rounds.filter(r => r.players.map(Number).includes(Number(id))).length;
     });
   });
@@ -129,9 +131,7 @@ function calcMvpIds(sessions, members, targetMonth) {
     .filter(m => {
       const t = totals[m.id];
       if (!t || t.rounds === 0) return false;
-      const overProfit = t.kati >= 3000;
-      const overRounds = t.rounds >= 3 && t.kati > 0;
-      return overProfit && overRounds; // 両方満たす場合のみ
+      return t.seisan >= 3000 && t.rounds >= 3; // 両方満たす場合のみ
     })
     .map(m => m.id);
 }
@@ -360,9 +360,10 @@ export default function App() {
   const [yakumanCelebration, setYakumanCelebration] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const latestChangelogDate = CHANGELOG[0]?.date || "";
+  const latestChangelogKey = `${latestChangelogDate}-${CHANGELOG[0]?.features?.length||0}`;
   const [hasNewUpdate, setHasNewUpdate] = useState(()=>{
     const seen = localStorage.getItem("tleague_settings_seen");
-    return seen !== latestChangelogDate;
+    return seen !== latestChangelogKey;
   });
   const [showChangelogSection, setShowChangelogSection] = useState(false);
   const [showAppGuideSection, setShowAppGuideSection] = useState(false);
@@ -1482,7 +1483,7 @@ export default function App() {
             <button onClick={()=>{
                 setShowSettings(p=>!p);
                 if(hasNewUpdate){
-                  localStorage.setItem("tleague_settings_seen", latestChangelogDate);
+                  localStorage.setItem("tleague_settings_seen", latestChangelogKey);
                   setHasNewUpdate(false);
                 }
               }} style={{marginLeft:"auto",padding:"4px 10px",borderRadius:13,cursor:"pointer",fontSize:11,background:"transparent",border:showSettings?"1px solid #7fb9e0":"1px solid rgba(255,255,255,0.18)",color:showSettings?"#7fb9e0":"#888",position:"relative"}}>
@@ -1524,11 +1525,11 @@ export default function App() {
                   <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
                     <div style={{display:"flex",gap:6,alignItems:"flex-start",fontSize:10,color:"#ccc"}}>
                       <span>🔥</span>
-                      <span><span style={{color:"#f1c40f",fontWeight:600}}>純利益 +3,000円以上</span>（場代込みの収支）</span>
+                      <span><span style={{color:"#f1c40f",fontWeight:600}}>純粋な勝ち点 +3,000円以上</span>（場代を含まない清算額）</span>
                     </div>
                     <div style={{display:"flex",gap:6,alignItems:"flex-start",fontSize:10,color:"#ccc"}}>
                       <span>🔥</span>
-                      <span><span style={{color:"#f1c40f",fontWeight:600}}>3半荘以上参加 かつ トータルプラス</span></span>
+                      <span><span style={{color:"#f1c40f",fontWeight:600}}>3半荘以上参加</span></span>
                     </div>
                   </div>
                   <div style={{fontSize:9,color:"#666",lineHeight:1.7,borderTop:"1px solid rgba(255,255,255,0.06)",paddingTop:8}}>
@@ -1599,6 +1600,28 @@ export default function App() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* LINE共有セクション */}
+            <div style={{marginTop:8,marginBottom:8}}>
+              <div style={{padding:"10px 12px",background:"rgba(6,199,85,0.06)",borderRadius:8,border:"1px solid rgba(6,199,85,0.2)"}}>
+                <div style={{fontSize:12,fontWeight:500,color:"#06c755",marginBottom:6}}>💬 LINEで共有する</div>
+                <div style={{fontSize:10,color:"#888",marginBottom:10,lineHeight:1.7}}>
+                  招待コードを知っている方にアプリのURLをLINEで送れます。<br/>
+                  <span style={{color:"#555"}}>※ 送信先のLINEを知っている場合に限ります</span>
+                </div>
+                <button onClick={()=>{
+                  const url = "https://tleague.nerima-night-crew.com";
+                  const text = encodeURIComponent(`東武練馬Tリーグ 麻雀スコアアプリ\n${url}`);
+                  window.open(`https://line.me/R/msg/text/?${text}`, "_blank");
+                }} style={{
+                  width:"100%", padding:"10px", borderRadius:8, border:"none",
+                  background:"#06c755", color:"#fff", fontSize:13, fontWeight:700,
+                  cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6,
+                }}>
+                  <span style={{fontSize:16}}>💬</span> LINEで送る
+                </button>
+              </div>
             </div>
 
             {/* 操作ログセクション */}
