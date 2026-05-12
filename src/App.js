@@ -251,6 +251,13 @@ function Keypad({ value, onChange }) {
   );
 }
 
+// MVP順位別スタイル
+const MVP_STYLE = {
+  1: { border:"rgba(241,196,15,0.6)",  bg:"rgba(241,196,15,0.13)",  badge:"linear-gradient(90deg,#f1c40f,#e67e22)", badgeColor:"#000", label:"今月MVP" },
+  2: { border:"rgba(192,192,192,0.6)", bg:"rgba(192,192,192,0.09)", badge:"linear-gradient(90deg,#c0c0c0,#909090)", badgeColor:"#000", label:"今月MVP" },
+  3: { border:"rgba(205,127,50,0.6)",  bg:"rgba(205,127,50,0.09)",  badge:"linear-gradient(90deg,#cd7f32,#a0522d)", badgeColor:"#fff", label:"今月MVP" },
+};
+
 // CSS animations injection
 if (!document.getElementById("tleague-animations")) {
   const style = document.createElement("style");
@@ -380,6 +387,23 @@ export default function App() {
   const mvpIds = period === "month" || (period === "pick" && selectedMonth === currentMonth)
     ? calcMvpIds(sessions, members, currentMonth)
     : [];
+
+  // MVP内での順位マップ {id: 1|2|3|4} — seisan降順
+  const mvpRanks = (() => {
+    if (mvpIds.length === 0) return {};
+    const targetMonth = period === "pick" ? selectedMonth : currentMonth;
+    const filtered = sessions.filter(s => s.date.startsWith(targetMonth));
+    const seisanMap = {};
+    mvpIds.forEach(id => { seisanMap[id] = 0; });
+    filtered.forEach(sess => {
+      const tot = calcTotals(sess);
+      mvpIds.forEach(id => { seisanMap[id] = (seisanMap[id]||0) + (tot[id]?.seisan||0); });
+    });
+    const sorted = [...mvpIds].sort((a,b) => seisanMap[b] - seisanMap[a]);
+    const ranks = {};
+    sorted.forEach((id, i) => { ranks[id] = i + 1; });
+    return ranks;
+  })();
   const [highScoreModal, setHighScoreModal] = useState(null); // {roundIndex, playerId, score}
   const [highScoreInput, setHighScoreInput] = useState(""); // {name, type}
   const [showMemberAdd, setShowMemberAdd] = useState(false);
@@ -1775,17 +1799,19 @@ export default function App() {
                       <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:7,marginBottom:10}}>
                         {sortedStats.filter(p=>p.games>0).map((p,i)=>{
                           const isMvp = mvpIds.includes(p.id);
+                          const rank = mvpRanks[p.id];
+                          const ms = MVP_STYLE[rank];
                           return (
                           <div key={p.id} style={S.card({
-                            background:isMvp?"linear-gradient(135deg,rgba(241,196,15,0.15),rgba(230,126,34,0.08))":i===0?"linear-gradient(135deg,rgba(231,76,60,0.2),rgba(192,57,43,0.12))":"rgba(255,255,255,0.05)",
-                            border:`1px solid ${isMvp?"rgba(241,196,15,0.5)":i===0?"#e74c3c":"rgba(255,255,255,0.1)"}`,
-                            textAlign:"center",padding:10,
-                            animation:isMvp?"cardReveal 0.5s ease both":"none",
+                            background: ms ? ms.bg : i===0 ? "linear-gradient(135deg,rgba(231,76,60,0.2),rgba(192,57,43,0.12))" : "rgba(255,255,255,0.05)",
+                            border: `1px solid ${ms ? ms.border : i===0 ? "#e74c3c" : "rgba(255,255,255,0.1)"}`,
+                            textAlign:"center", padding:10,
+                            animation: isMvp ? "cardReveal 0.5s ease both" : "none",
                           })}>
                             {isMvp ? <MvpAv m={gm(p.id)} sz={36}/> : <Av m={gm(p.id)} sz={36}/>}
                             <div style={{fontSize:12,fontWeight:500,marginTop:isMvp?8:4}}>
                               {p.name}
-                              {isMvp && <span style={{display:"block",fontSize:9,background:"linear-gradient(90deg,#f1c40f,#e67e22)",color:"#000",fontWeight:"bold",padding:"1px 5px",borderRadius:6,animation:"badgeIn 0.4s ease both",marginTop:2}}>今月MVP</span>}
+                              {ms && <span style={{display:"block",fontSize:9,background:ms.badge,color:ms.badgeColor,fontWeight:"bold",padding:"1px 5px",borderRadius:6,animation:"badgeIn 0.4s ease both",marginTop:2}}>{ms.label}</span>}
                             </div>
                             <div style={{fontSize:18,fontWeight:"bold",color:cc(p.sc),marginTop:2}}>{fw(p.sc)}</div>
                             <div style={{fontSize:10,color:cc(p.seisan)}}>清算 {fwy(p.seisan)}</div>
@@ -1799,11 +1825,15 @@ export default function App() {
                         <div style={{fontSize:11,color:"#ccc",marginBottom:8}}>💰 収支内訳</div>
                         {sortedStats.filter(p=>p.games>0).map(p=>{
                           const isMvp = mvpIds.includes(p.id);
+                          const ms = MVP_STYLE[mvpRanks[p.id]];
                           return (
                           <div key={p.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
                             {isMvp ? <MvpAv m={gm(p.id)} sz={28}/> : <Av m={gm(p.id)} sz={28}/>}
                             <div style={{flex:1,minWidth:0}}>
-                              <div style={{fontSize:12,fontWeight:500}}>{p.name}{isMvp&&<span style={{fontSize:8,background:"linear-gradient(90deg,#f1c40f,#e67e22)",color:"#000",fontWeight:"bold",padding:"1px 4px",borderRadius:4,marginLeft:4}}>MVP</span>}</div>
+                              <div style={{fontSize:12,fontWeight:500}}>
+                                {p.name}
+                                {ms && <span style={{fontSize:8,background:ms.badge,color:ms.badgeColor,fontWeight:"bold",padding:"1px 4px",borderRadius:4,marginLeft:4}}>MVP</span>}
+                              </div>
                               <div style={{fontSize:10,color:"#666"}}>{p.games}半荘</div>
                             </div>
                             <div style={{textAlign:"right",minWidth:60}}>
@@ -1903,20 +1933,22 @@ export default function App() {
                         <tbody>
                           {liSorted.map((p,i)=>{
                             const isMvp = mvpIds.includes(p.id);
+                            const rank = mvpRanks[p.id];
+                            const ms = MVP_STYLE[rank];
                             return (
                             <tr key={p.id} onClick={()=>setLifeDetail(lifeDetail===p.id?null:p.id)}
                               style={{cursor:"pointer",
-                                background:isMvp?"rgba(241,196,15,0.06)":lifeDetail===p.id?"rgba(231,76,60,0.08)":i%2===0?"transparent":"rgba(255,255,255,0.02)",
-                                animation:isMvp?"cardReveal 0.5s ease both":"none",
-                                animationDelay:isMvp?`${i*0.08}s`:"0s",
-                                outline:isMvp?"1px solid rgba(241,196,15,0.35)":"none",
+                                background: ms ? ms.bg : lifeDetail===p.id ? "rgba(231,76,60,0.08)" : i%2===0 ? "transparent" : "rgba(255,255,255,0.02)",
+                                animation: isMvp ? "cardReveal 0.5s ease both" : "none",
+                                animationDelay: isMvp ? `${i*0.08}s` : "0s",
+                                outline: ms ? `1px solid ${ms.border}` : "none",
                               }}>
                               <td style={{padding:"6px 4px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
                                 <div style={{display:"flex",alignItems:"center",gap:4}}>
                                   <span style={{fontSize:11}}>{RI[i]||"—"}</span>
                                   {isMvp ? <MvpAv m={gm(p.id)} sz={18}/> : <Av m={gm(p.id)} sz={18}/>}
                                   <span style={{fontSize:12,fontWeight:500}}>{p.name}</span>
-                                  {isMvp && <span style={{fontSize:9,background:"linear-gradient(90deg,#f1c40f,#e67e22)",color:"#000",fontWeight:"bold",padding:"1px 5px",borderRadius:6,animation:"badgeIn 0.4s ease both",marginLeft:2}}>今月MVP</span>}
+                                  {ms && <span style={{fontSize:9,background:ms.badge,color:ms.badgeColor,fontWeight:"bold",padding:"1px 5px",borderRadius:6,animation:"badgeIn 0.4s ease both",marginLeft:2}}>{ms.label}</span>}
                                 </div>
                               </td>
                               <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#aaa"}}>{p.games}</td>
