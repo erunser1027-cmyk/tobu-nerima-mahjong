@@ -15,9 +15,8 @@ const SCORE_RATES = [
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-12", features:[
-    "月間優秀者演出機能追加（純利益+3000円以上・3半荘以上・トータルプラスで炎エフェクト・confetti・王冠バッジ・カード登場アニメ発生）",
-    "期間フィルターに月別プルダウン追加（今月・今年の間に任意の月を選択可能）",
-    "設定画面に月間優秀者演出条件の説明を追加",
+    "当月MVP演出追加（炎アバター・👑王冠・金バッジ・confetti紙吹雪）",
+    "月別プルダウンフィルター追加（全期間〜今月の間に月を選んで表示）",
     "操作ログ機能追加（対局の削除・編集時に操作者を記録）",
     "設定画面にJSONバックアップ書き出し機能追加（全対戦データをファイルで保存可能）",
     "ESLintエラー修正・バグ修正3件",
@@ -107,6 +106,36 @@ const fwy = n => fw(n) + "円";
 const cc = n => n >= 0 ? "#2ecc71" : "#e74c3c";
 const mc = m => AC[(m.id - 1) % AC.length];
 
+// 利用可能な月一覧を生成
+function getMonthList(sessions) {
+  const months = [...new Set(sessions.map(s => s.date.slice(0, 7)))].sort().reverse();
+  return months;
+}
+
+// 当月MVP判定（閾値：純利益+3000円以上 OR 3回以上かつトータルプラス）
+function calcMvpIds(sessions, members, targetMonth) {
+  const filtered = sessions.filter(s => s.date.startsWith(targetMonth));
+  const totals = {};
+  members.forEach(m => { totals[m.id] = { kati: 0, rounds: 0 }; });
+  filtered.forEach(sess => {
+    const tot = calcTotals(sess);
+    sess.members.forEach(id => {
+      if (!totals[id]) totals[id] = { kati: 0, rounds: 0 };
+      totals[id].kati += (tot[id]?.kati || 0);
+      totals[id].rounds += sess.rounds.filter(r => r.players.map(Number).includes(Number(id))).length;
+    });
+  });
+  return members
+    .filter(m => {
+      const t = totals[m.id];
+      if (!t || t.rounds === 0) return false;
+      const overProfit = t.kati >= 3000;
+      const overRounds = t.rounds >= 3 && t.kati > 0;
+      return overProfit || overRounds;
+    })
+    .map(m => m.id);
+}
+
 function calcTotals(sess) {
   const res = {};
   sess.members.forEach(id => {
@@ -139,6 +168,52 @@ function Av({ m, sz }) {
       display:"flex", alignItems:"center", justifyContent:"center",
       fontWeight:600, fontSize:Math.round(sz*.4), margin:"0 auto" }}>
       {m.name.slice(0,1)}
+    </div>
+  );
+}
+
+// Confetti紙吹雪コンポーネント
+function Confetti() {
+  const pieces = Array.from({length:38}, (_,i)=>i);
+  const colors = ["#e74c3c","#f1c40f","#2ecc71","#3498db","#e67e22","#9b59b6","#fff","#ff69b4"];
+  return (
+    <div style={{position:"fixed",top:0,left:0,width:"100%",height:"100%",pointerEvents:"none",zIndex:9990,overflow:"hidden"}}>
+      {pieces.map(i=>{
+        const left = Math.random()*100;
+        const delay = Math.random()*2;
+        const duration = 2.5 + Math.random()*2;
+        const size = 6 + Math.random()*8;
+        const color = colors[i % colors.length];
+        const shape = i % 3 === 0 ? "50%" : "0%";
+        return (
+          <div key={i} style={{
+            position:"absolute", left:`${left}%`, top:"-20px",
+            width:size, height:size, borderRadius:shape,
+            background:color, opacity:0.9,
+            animation:`confettiFall ${duration}s ${delay}s ease-in forwards`,
+          }}/>
+        );
+      })}
+    </div>
+  );
+}
+
+// MVP用アバター（炎エフェクト付き）
+function MvpAv({ m, sz }) {
+  return (
+    <div style={{position:"relative", display:"inline-block"}}>
+      <div style={{
+        width:sz, height:sz, borderRadius:"50%", overflow:"hidden",
+        animation:"flame 1.5s ease-in-out infinite",
+        flexShrink:0,
+      }}>
+        <Av m={m} sz={sz}/>
+      </div>
+      <div style={{
+        position:"absolute", top:-10, left:"50%", transform:"translateX(-50%)",
+        fontSize:12, animation:"crownBounce 1.2s ease-in-out infinite",
+        filter:"drop-shadow(0 0 4px #f1c40f)",
+      }}>👑</div>
     </div>
   );
 }
@@ -176,6 +251,41 @@ function Keypad({ value, onChange }) {
   );
 }
 
+// CSS animations injection
+if (!document.getElementById("tleague-animations")) {
+  const style = document.createElement("style");
+  style.id = "tleague-animations";
+  style.textContent = `
+    @keyframes flame {
+      0%,100% { box-shadow: 0 0 8px 3px #ff6b00, 0 0 18px 6px #ff000088; filter: brightness(1.1); }
+      50% { box-shadow: 0 0 14px 6px #ffaa00, 0 0 28px 12px #ff440066; filter: brightness(1.25); }
+    }
+    @keyframes aura {
+      0%,100% { box-shadow: 0 0 10px 4px #f1c40f88; }
+      50% { box-shadow: 0 0 20px 10px #f1c40fcc; }
+    }
+    @keyframes crownBounce {
+      0%,100% { transform: translateY(0) rotate(-5deg); }
+      50% { transform: translateY(-3px) rotate(5deg); }
+    }
+    @keyframes cardReveal {
+      0% { opacity:0; transform: scale(0.92) translateY(10px); }
+      100% { opacity:1; transform: scale(1) translateY(0); }
+    }
+    @keyframes confettiFall {
+      0% { transform: translateY(-10px) rotate(0deg); opacity:1; }
+      100% { transform: translateY(100vh) rotate(720deg); opacity:0; }
+    }
+    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+    @keyframes badgeIn {
+      0% { transform: scale(0); opacity:0; }
+      70% { transform: scale(1.2); }
+      100% { transform: scale(1); opacity:1; }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 export default function App() {
   const [authed, setAuthed] = useState(()=>{
     try {
@@ -188,6 +298,8 @@ export default function App() {
   const [ci, setCi] = useState(""); const [ce, setCe] = useState(false);
   const [tab, setTab] = useState("dashboard");
   const [period, setPeriod] = useState("all");
+  const [selectedMonth, setSelectedMonth] = useState(""); // "YYYY-MM" or ""
+  const [confettiShown, setConfettiShown] = useState(false);
   const [members, setMembers] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -256,17 +368,22 @@ export default function App() {
   const [showAppGuideSection, setShowAppGuideSection] = useState(false);
   const [showColorLegend, setShowColorLegend] = useState(false);
   const [editRoundIndex, setEditRoundIndex] = useState(null);
+
+  // 月一覧（プルダウン用）
+  const monthList = getMonthList(sessions);
+
+  // 当月MVP判定
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+  const mvpIds = period === "month" || (period === "pick" && selectedMonth === currentMonth)
+    ? calcMvpIds(sessions, members, currentMonth)
+    : [];
   const [highScoreModal, setHighScoreModal] = useState(null); // {roundIndex, playerId, score}
   const [highScoreInput, setHighScoreInput] = useState(""); // {name, type}
   const [showMemberAdd, setShowMemberAdd] = useState(false);
   const [editAddingRound, setEditAddingRound] = useState(false);
   const [editNewRoundSc, setEditNewRoundSc] = useState({});
   const [editNewRoundActive, setEditNewRoundActive] = useState(null);
-  const [pickMonth, setPickMonth] = useState(()=>{
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-  });
-  const [confettiPieces, setConfettiPieces] = useState([]);
 
   const fileRef = useRef(null);
   const [photoTgt, setPhotoTgt] = useState(null);
@@ -294,6 +411,15 @@ export default function App() {
     supabase.from("audit_log").select("*").order("created_at",{ascending:false}).limit(50)
       .then(({data})=>{ if(data) setAuditLog(data); });
   },[]);
+
+  // 今月表示時にconfettiを1回だけ発火
+  useEffect(()=>{
+    if (period === "month" && mvpIds.length > 0 && !confettiShown) {
+      setConfettiShown(true);
+      setTimeout(()=>setConfettiShown(false), 4500);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[period, mvpIds.length]);
 
   const gm = id => members.find(m => m.id === Number(id));
   const is5 = addSel.length > 4;
@@ -410,39 +536,12 @@ export default function App() {
   }, []);
 
   // ---- 統計 ----
-
-  // 当月優秀者チェック（純利益+3000円以上 かつ 半荘3回以上 かつ トータルプラス）
-  function getMonthTopPerformers() {
-    const now = new Date();
-    const monthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
-    const monthSessions = sessions.filter(s => s.date.startsWith(monthKey));
-    return members.map(m => {
-      const sid = String(m.id);
-      let kati = 0, games = 0;
-      monthSessions.forEach(s => {
-        if (!s.members.map(Number).includes(m.id)) return;
-        let ss = 0;
-        s.rounds.forEach(r => {
-          const v = r.scores[sid] ?? r.scores[m.id];
-          if (v == null) return;
-          games++;
-          ss += N(v);
-        });
-        kati += ss * N(s.rules.scoreRate)
-               + N(s.chips[sid] ?? s.chips[m.id]) * N(s.rules.chipRate)
-               - N(s.bashiro?.[sid] ?? s.bashiro?.[m.id]);
-      });
-      return { id: m.id, kati, games };
-    }).filter(p => p.games >= 3 && p.kati >= 3000).map(p => p.id);
-  }
-
   function getStats() {
     const now = new Date();
     const fil = sessions.filter(s => {
       const d = new Date(s.date);
       if (period === "month") return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear();
       if (period === "year") return d.getFullYear()===now.getFullYear();
-      if (period === "pick") { const [py,pm]=pickMonth.split("-"); return d.getFullYear()===Number(py) && d.getMonth()+1===Number(pm); }
       return true;
     });
     return members.map(m => {
@@ -734,25 +833,6 @@ export default function App() {
 
   const stats = getStats();
   const sortedStats = [...stats].sort((a,b)=>b.sc-a.sc);
-  const topPerformerIds = getMonthTopPerformers();
-  const isTopPerformer = (id) => topPerformerIds.includes(Number(id));
-
-  // confetti: 優秀者がいる場合に起動時1回だけ表示
-  useEffect(() => {
-    if (topPerformerIds.length === 0) return;
-    const pieces = Array.from({length: 60}, (_, i) => ({
-      id: i,
-      left: Math.random() * 100,
-      delay: Math.random() * 2.5,
-      duration: 2.5 + Math.random() * 2,
-      color: ["#e74c3c","#f39c12","#ffd700","#2ecc71","#3498db","#9b59b6","#e91e63","#00bcd4"][Math.floor(Math.random()*8)],
-      size: 6 + Math.random() * 8,
-    }));
-    setConfettiPieces(pieces);
-    const t = setTimeout(() => setConfettiPieces([]), 4500);
-    return () => clearTimeout(t);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   function ConfirmedRound({ r, ri, sessMembers }) {
     const allM = sessMembers.map(id=>gm(id)).filter(Boolean);
@@ -911,25 +991,6 @@ export default function App() {
 
   return (
     <div style={{ width:"100%", maxWidth:480, margin:"0 auto", minHeight:"100vh", background:"#0f0f1a", color:"#fff", fontFamily:"sans-serif", boxSizing:"border-box" }}>
-      {/* confetti overlay */}
-      {confettiPieces.length > 0 && (
-        <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:9990,overflow:"hidden"}}>
-          {confettiPieces.map(p=>(
-            <div key={p.id} style={{
-              position:"absolute",
-              left:`${p.left}%`,
-              top:-20,
-              width:p.size,
-              height:p.size * 0.4,
-              background:p.color,
-              borderRadius:2,
-              animation:`confettiFall ${p.duration}s ${p.delay}s ease-in forwards`,
-              opacity:1,
-            }}/>
-          ))}
-        </div>
-      )}
-
       <input type="file" accept="image/*" ref={fileRef} style={{display:"none"}} onChange={onFile}/>
       {lb && <div onClick={()=>setLb(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.93)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,cursor:"pointer"}}><img src={lb} alt="" style={{maxWidth:"90%",maxHeight:"80vh",borderRadius:8}}/></div>}
 
@@ -1388,28 +1449,34 @@ export default function App() {
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.2} }
         @keyframes yakumanPop { 0%{transform:scale(0.3);opacity:0} 70%{transform:scale(1.1)} 100%{transform:scale(1);opacity:1} }
         @keyframes yakumanFloat { 0%{transform:translateY(0)} 100%{transform:translateY(-8px)} }
-        @keyframes fireGlow { 0%,100%{box-shadow:0 0 8px 2px #ff4500,0 0 18px 4px #ff8c00,0 0 30px 6px rgba(255,140,0,0.4)} 50%{box-shadow:0 0 14px 4px #ff6600,0 0 28px 8px #ffd700,0 0 45px 10px rgba(255,215,0,0.5)} }
-        @keyframes auraGlow { 0%,100%{filter:drop-shadow(0 0 6px #ffd700) drop-shadow(0 0 12px #ff8c00)} 50%{filter:drop-shadow(0 0 12px #ffd700) drop-shadow(0 0 24px #ff4500)} }
-        @keyframes confettiFall { 0%{transform:translateY(-20px) rotate(0deg);opacity:1} 100%{transform:translateY(105vh) rotate(720deg);opacity:0} }
-        @keyframes cardReveal { 0%{transform:scale(0.85) translateY(20px);opacity:0} 60%{transform:scale(1.04) translateY(-4px);opacity:1} 100%{transform:scale(1) translateY(0);opacity:1} }
       `}</style>
 
       <div style={{padding:10,paddingBottom:28}}>
         {(tab==="dashboard"||tab==="history") && (
-          <div style={{display:"flex",gap:4,marginBottom:8,alignItems:"center"}}>
-            {[["all","全期間"],["year","今年"]].map(([v,l])=>(
+          <div style={{display:"flex",gap:4,marginBottom:8,alignItems:"center",flexWrap:"wrap"}}>
+            {[["all","全期間"],["year","今年"],["month","今月"]].map(([v,l])=>(
               <button key={v} onClick={()=>setPeriod(v)} style={S.pd(period===v)}>{l}</button>
             ))}
+            {/* 月別プルダウン */}
             <select
-              value={period==="pick" ? pickMonth : "__"}
-              onChange={e=>{ if(e.target.value!=="__"){ setPickMonth(e.target.value); setPeriod("pick"); } }}
-              style={{fontSize:11,padding:"4px 6px",borderRadius:13,cursor:"pointer",border:period==="pick"?"1px solid #e74c3c":"1px solid rgba(255,255,255,0.18)",color:period==="pick"?"#e74c3c":"#888",background:"#1a1a2e",outline:"none",maxWidth:90}}>
-              <option value="__" disabled style={{background:"#1a1a2e"}}>月選択▾</option>
-              {[...new Set(sessions.map(s=>s.date.slice(0,7)))].sort().reverse().map(m=>(
-                <option key={m} value={m} style={{background:"#1a1a2e"}}>{Number(m.split("-")[0])}年{Number(m.split("-")[1])}月</option>
+              value={period==="pick" ? selectedMonth : ""}
+              onChange={e=>{
+                if(e.target.value){ setPeriod("pick"); setSelectedMonth(e.target.value); }
+              }}
+              style={{
+                padding:"4px 6px", borderRadius:13, fontSize:11, cursor:"pointer",
+                background: period==="pick" ? "transparent" : "transparent",
+                border: period==="pick" ? "1px solid #e74c3c" : "1px solid rgba(255,255,255,0.18)",
+                color: period==="pick" ? "#e74c3c" : "#888",
+                outline:"none", maxWidth:90,
+              }}>
+              <option value="" style={{background:"#1a1a2e",color:"#888"}}>月を選ぶ</option>
+              {monthList.map(m=>(
+                <option key={m} value={m} style={{background:"#1a1a2e",color:"#ccc"}}>
+                  {m.replace("-","年").replace(/^(\d+年)0?(\d+)$/,"$1$2月")}
+                </option>
               ))}
             </select>
-            <button onClick={()=>setPeriod("month")} style={S.pd(period==="month")}>今月</button>
             <button onClick={()=>{
                 setShowSettings(p=>!p);
                 if(hasNewUpdate){
@@ -1466,24 +1533,25 @@ export default function App() {
               )}
             </div>
 
-            {/* 月間優秀者演出条件セクション */}
+            {/* 当月成績優秀者の演出条件セクション */}
             <div style={{marginBottom:12}}>
-              <div style={{padding:"10px 12px",background:"rgba(255,215,0,0.06)",borderRadius:8,border:"1px solid rgba(255,215,0,0.2)"}}>
-                <div style={{fontSize:12,fontWeight:600,color:"#ffd700",marginBottom:8}}>🌟 月間優秀者演出について</div>
-                <div style={{fontSize:10,color:"#aaa",lineHeight:1.7,marginBottom:8}}>
-                  当月の成績が以下の条件をすべて満たすメンバーに特別演出が発生します。
+              <div style={{padding:"8px 10px",background:"rgba(241,196,15,0.06)",borderRadius:8,border:"1px solid rgba(241,196,15,0.15)"}}>
+                <div style={{fontSize:12,fontWeight:500,color:"#f1c40f",marginBottom:8}}>👑 当月成績優秀者の演出について</div>
+                <div style={{fontSize:10,color:"#aaa",lineHeight:1.8}}>
+                  「今月」表示時、以下のいずれかを満たすプレイヤーに特別演出が発生します。
                 </div>
-                <div style={{padding:"8px 10px",background:"rgba(255,215,0,0.08)",borderRadius:6,marginBottom:8}}>
-                  <div style={{fontSize:9,color:"#888",marginBottom:5}}>▼ 発生条件（すべて同時に満たすこと）</div>
-                  <div style={{fontSize:11,color:"#ffd700",marginBottom:2}}>✦ 当月の純利益が +3,000円以上</div>
-                  <div style={{fontSize:11,color:"#ffd700",marginBottom:2}}>✦ 当月の半荘数が 3回以上</div>
-                  <div style={{fontSize:11,color:"#ffd700"}}>✦ 当月のトータルがプラス</div>
+                <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:5}}>
+                  <div style={{display:"flex",gap:6,alignItems:"flex-start",fontSize:10,color:"#ccc"}}>
+                    <span style={{color:"#f1c40f"}}>🔥</span>
+                    <span><span style={{color:"#f1c40f",fontWeight:600}}>純利益 +3,000円以上</span>（場代込みの収支）</span>
+                  </div>
+                  <div style={{display:"flex",gap:6,alignItems:"flex-start",fontSize:10,color:"#ccc"}}>
+                    <span style={{color:"#f1c40f"}}>🔥</span>
+                    <span><span style={{color:"#f1c40f",fontWeight:600}}>3半荘以上参加 かつ トータルプラス</span></span>
+                  </div>
                 </div>
-                <div style={{fontSize:10,color:"#ccc",lineHeight:2}}>
-                  <div>🔥 アバターに炎・オーラエフェクト</div>
-                  <div>🎉 起動時に紙吹雪（confetti）が降る</div>
-                  <div>👑 生涯成績に王冠バッジ＋金縁表示</div>
-                  <div>✨ 成績カードがドラマチックに登場</div>
+                <div style={{marginTop:8,fontSize:10,color:"#666",lineHeight:1.6}}>
+                  演出内容：アバターに炎エフェクト・👑王冠・金バッジ・ページを開いた瞬間に紙吹雪
                 </div>
               </div>
             </div>
@@ -1601,7 +1669,7 @@ export default function App() {
           const thisMonth = `${thisYear}-${String(now.getMonth()+1).padStart(2,"0")}`;
           const filteredSessions = period==="year" ? sessions.filter(s=>s.date.startsWith(String(thisYear)))
             : period==="month" ? sessions.filter(s=>s.date.startsWith(thisMonth))
-            : period==="pick" ? sessions.filter(s=>s.date.startsWith(pickMonth))
+            : period==="pick" ? sessions.filter(s=>s.date.startsWith(selectedMonth))
             : sessions;
 
           const lifetimeStats = members.map(m=>{
@@ -1788,19 +1856,22 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {liSorted.map((p,i)=>(
+                          {liSorted.map((p,i)=>{
+                            const isMvp = mvpIds.includes(p.id);
+                            return (
                             <tr key={p.id} onClick={()=>setLifeDetail(lifeDetail===p.id?null:p.id)}
-                              style={{cursor:"pointer",background:lifeDetail===p.id?"rgba(231,76,60,0.08)":i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
-                              <td style={{padding:"6px 4px",borderBottom:`1px solid ${isTopPerformer(p.id)?"rgba(255,215,0,0.35)":"rgba(255,255,255,0.05)"}`,background:isTopPerformer(p.id)?"rgba(255,215,0,0.06)":"transparent"}}>
+                              style={{cursor:"pointer",
+                                background:isMvp?"rgba(241,196,15,0.06)":lifeDetail===p.id?"rgba(231,76,60,0.08)":i%2===0?"transparent":"rgba(255,255,255,0.02)",
+                                animation:isMvp?"cardReveal 0.5s ease both":"none",
+                                animationDelay:isMvp?`${i*0.08}s`:"0s",
+                                outline:isMvp?"1px solid rgba(241,196,15,0.35)":"none",
+                              }}>
+                              <td style={{padding:"6px 4px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
                                 <div style={{display:"flex",alignItems:"center",gap:4}}>
                                   <span style={{fontSize:11}}>{RI[i]||"—"}</span>
-                                  <div style={{position:"relative",display:"inline-block"}}>
-                                    <div style={isTopPerformer(p.id)?{borderRadius:"50%",animation:"fireGlow 1.5s ease-in-out infinite"}:{}}>
-                                      <Av m={gm(p.id)} sz={18}/>
-                                    </div>
-                                  </div>
+                                  {isMvp ? <MvpAv m={gm(p.id)} sz={18}/> : <Av m={gm(p.id)} sz={18}/>}
                                   <span style={{fontSize:12,fontWeight:500}}>{p.name}</span>
-                                  {isTopPerformer(p.id) && <span style={{fontSize:10}}>👑</span>}
+                                  {isMvp && <span style={{fontSize:9,background:"linear-gradient(90deg,#f1c40f,#e67e22)",color:"#000",fontWeight:"bold",padding:"1px 5px",borderRadius:6,animation:"badgeIn 0.4s ease both",marginLeft:2}}>今月MVP</span>}
                                 </div>
                               </td>
                               <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#aaa"}}>{p.games}</td>
@@ -1816,7 +1887,7 @@ export default function App() {
                               <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#ffd700",fontWeight:p.yakuman>0?"bold":"normal"}}>{p.yakuman}</td>
                               <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:p.chY>=0?"#3498db":"#e74c3c",fontWeight:"bold"}}>{p.chY>=0?"+":""}{p.chY.toLocaleString()}</td>
                             </tr>
-                          ))}
+                          );})}
                         </tbody>
                       </table>
                     </div>
@@ -1828,12 +1899,10 @@ export default function App() {
                     const i = liSorted.indexOf(p);
                     if (!p) return null;
                     return (
-                      <div style={{...S.card({background:isTopPerformer(p.id)?"linear-gradient(135deg,rgba(255,215,0,0.12),rgba(255,140,0,0.08))":i===0?"linear-gradient(135deg,rgba(231,76,60,0.15),rgba(192,57,43,0.08))":"rgba(255,255,255,0.05)",border:`2px solid ${isTopPerformer(p.id)?"rgba(255,215,0,0.6)":i===0?"rgba(231,76,60,0.5)":"rgba(255,255,255,0.15)"}`,animation:"cardReveal 0.5s ease-out"})}>
+                      <div style={{...S.card({background:i===0?"linear-gradient(135deg,rgba(231,76,60,0.15),rgba(192,57,43,0.08))":"rgba(255,255,255,0.05)",border:`1px solid ${i===0?"rgba(231,76,60,0.5)":"rgba(255,255,255,0.15)"}`})}}>
                         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
                           <div style={{fontSize:22}}>{RI[i]||"—"}</div>
-                          <div style={isTopPerformer(p.id)?{borderRadius:"50%",animation:"fireGlow 1.5s ease-in-out infinite"}:{}}>
-                            <Av m={gm(p.id)} sz={44}/>
-                          </div>
+                          <Av m={gm(p.id)} sz={44}/>
                           <div style={{flex:1}}>
                             <div style={{fontSize:14,fontWeight:700}}>{p.name}</div>
                             <div style={{fontSize:11,color:"#888"}}>{p.games}半荘</div>
@@ -3159,6 +3228,9 @@ export default function App() {
           </>
         )}
       </div>
+      {/* confetti */}
+      {confettiShown && <Confetti/>}
+
       {/* 操作者確認モーダル */}
       {auditModal && (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:9998,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
