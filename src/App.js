@@ -15,6 +15,7 @@ const SCORE_RATES = [
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-12", features:[
+    "MVP条件変更（3半荘以上→10半荘以上参加に変更）",
     "MVP複数対応：順位別に金縁・銀縁・銅縁・バッジ色分け（4位以下は王冠のみ）",
     "更新通知の判定ロジック修正（同日複数更新でも赤いマークが出るように）",
     "LINEシェア機能追加（設定タブからアプリURLをLINEで送信可能）",
@@ -133,7 +134,7 @@ function calcMvpIds(sessions, members, targetMonth) {
     .filter(m => {
       const t = totals[m.id];
       if (!t || t.rounds === 0) return false;
-      return t.seisan >= 3000 && t.rounds >= 3; // 両方満たす場合のみ
+      return t.seisan >= 3000 && t.rounds >= 10; // 両方満たす場合のみ
     })
     .map(m => m.id);
 }
@@ -1555,7 +1556,7 @@ export default function App() {
                     </div>
                     <div style={{display:"flex",gap:6,alignItems:"flex-start",fontSize:10,color:"#ccc"}}>
                       <span>🔥</span>
-                      <span><span style={{color:"#f1c40f",fontWeight:600}}>3半荘以上参加</span></span>
+                      <span><span style={{color:"#f1c40f",fontWeight:600}}>10半荘以上参加</span></span>
                     </div>
                   </div>
                   <div style={{fontSize:9,color:"#666",lineHeight:1.7,borderTop:"1px solid rgba(255,255,255,0.06)",paddingTop:8}}>
