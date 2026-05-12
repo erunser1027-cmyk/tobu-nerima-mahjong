@@ -131,7 +131,7 @@ function calcMvpIds(sessions, members, targetMonth) {
       if (!t || t.rounds === 0) return false;
       const overProfit = t.kati >= 3000;
       const overRounds = t.rounds >= 3 && t.kati > 0;
-      return overProfit || overRounds;
+      return overProfit && overRounds; // 両方満たす場合のみ
     })
     .map(m => m.id);
 }
@@ -366,6 +366,7 @@ export default function App() {
   });
   const [showChangelogSection, setShowChangelogSection] = useState(false);
   const [showAppGuideSection, setShowAppGuideSection] = useState(false);
+  const [showMvpSection, setShowMvpSection] = useState(false);
   const [showColorLegend, setShowColorLegend] = useState(false);
   const [editRoundIndex, setEditRoundIndex] = useState(null);
 
@@ -542,6 +543,7 @@ export default function App() {
       const d = new Date(s.date);
       if (period === "month") return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear();
       if (period === "year") return d.getFullYear()===now.getFullYear();
+      if (period === "pick") return s.date.startsWith(selectedMonth);
       return true;
     });
     return members.map(m => {
@@ -1508,6 +1510,35 @@ export default function App() {
               <div style={{fontSize:9,color:"#333",letterSpacing:2,marginTop:3}}>流れを待つ。</div>
             </div>
 
+            {/* 当月MVP演出条件セクション */}
+            <div style={{marginBottom:12}}>
+              <div onClick={()=>setShowMvpSection(p=>!p)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",padding:"8px 10px",background:"rgba(241,196,15,0.07)",borderRadius:8,border:"1px solid rgba(241,196,15,0.18)",marginBottom:showMvpSection?8:0}}>
+                <div style={{fontSize:12,fontWeight:500,color:"#f1c40f"}}>👑 当月成績優秀者の演出について</div>
+                <span style={{fontSize:14,color:"#888"}}>{showMvpSection?"▲":"▼"}</span>
+              </div>
+              {showMvpSection && (
+                <div style={{padding:"10px 12px",background:"rgba(241,196,15,0.04)",borderRadius:"0 0 8px 8px",border:"1px solid rgba(241,196,15,0.12)",borderTop:"none"}}>
+                  <div style={{fontSize:10,color:"#aaa",lineHeight:1.8,marginBottom:8}}>
+                    「今月」表示時、以下を<span style={{color:"#f1c40f",fontWeight:600}}>両方とも</span>満たすプレイヤーに特別演出が発生します。
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
+                    <div style={{display:"flex",gap:6,alignItems:"flex-start",fontSize:10,color:"#ccc"}}>
+                      <span>🔥</span>
+                      <span><span style={{color:"#f1c40f",fontWeight:600}}>純利益 +3,000円以上</span>（場代込みの収支）</span>
+                    </div>
+                    <div style={{display:"flex",gap:6,alignItems:"flex-start",fontSize:10,color:"#ccc"}}>
+                      <span>🔥</span>
+                      <span><span style={{color:"#f1c40f",fontWeight:600}}>3半荘以上参加 かつ トータルプラス</span></span>
+                    </div>
+                  </div>
+                  <div style={{fontSize:9,color:"#666",lineHeight:1.7,borderTop:"1px solid rgba(255,255,255,0.06)",paddingTop:8}}>
+                    演出：アバターに炎エフェクト・👑王冠・金バッジ表示<br/>
+                    ページを開いた瞬間に紙吹雪（confetti）が降る
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* 更新履歴セクション */}
             <div style={{marginBottom:12}}>
               <div onClick={()=>setShowChangelogSection(p=>!p)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",padding:"8px 10px",background:"rgba(255,255,255,0.04)",borderRadius:8,marginBottom:showChangelogSection?8:0}}>
@@ -1531,29 +1562,6 @@ export default function App() {
                   ))}
                 </div>
               )}
-            </div>
-
-            {/* 当月成績優秀者の演出条件セクション */}
-            <div style={{marginBottom:12}}>
-              <div style={{padding:"8px 10px",background:"rgba(241,196,15,0.06)",borderRadius:8,border:"1px solid rgba(241,196,15,0.15)"}}>
-                <div style={{fontSize:12,fontWeight:500,color:"#f1c40f",marginBottom:8}}>👑 当月成績優秀者の演出について</div>
-                <div style={{fontSize:10,color:"#aaa",lineHeight:1.8}}>
-                  「今月」表示時、以下のいずれかを満たすプレイヤーに特別演出が発生します。
-                </div>
-                <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:5}}>
-                  <div style={{display:"flex",gap:6,alignItems:"flex-start",fontSize:10,color:"#ccc"}}>
-                    <span style={{color:"#f1c40f"}}>🔥</span>
-                    <span><span style={{color:"#f1c40f",fontWeight:600}}>純利益 +3,000円以上</span>（場代込みの収支）</span>
-                  </div>
-                  <div style={{display:"flex",gap:6,alignItems:"flex-start",fontSize:10,color:"#ccc"}}>
-                    <span style={{color:"#f1c40f"}}>🔥</span>
-                    <span><span style={{color:"#f1c40f",fontWeight:600}}>3半荘以上参加 かつ トータルプラス</span></span>
-                  </div>
-                </div>
-                <div style={{marginTop:8,fontSize:10,color:"#666",lineHeight:1.6}}>
-                  演出内容：アバターに炎エフェクト・👑王冠・金バッジ・ページを開いた瞬間に紙吹雪
-                </div>
-              </div>
             </div>
 
             {/* アプリにする方法セクション */}
@@ -1742,24 +1750,37 @@ export default function App() {
                   ) : (
                     <>
                       <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:7,marginBottom:10}}>
-                        {sortedStats.filter(p=>p.games>0).map((p,i)=>(
-                          <div key={p.id} style={S.card({background:i===0?"linear-gradient(135deg,rgba(231,76,60,0.2),rgba(192,57,43,0.12))":"rgba(255,255,255,0.05)",border:`1px solid ${i===0?"#e74c3c":"rgba(255,255,255,0.1)"}`,textAlign:"center",padding:10})}>
-                            <Av m={gm(p.id)} sz={36}/>
-                            <div style={{fontSize:12,fontWeight:500,marginTop:4}}>{p.name}</div>
+                        {sortedStats.filter(p=>p.games>0).map((p,i)=>{
+                          const isMvp = mvpIds.includes(p.id);
+                          return (
+                          <div key={p.id} style={S.card({
+                            background:isMvp?"linear-gradient(135deg,rgba(241,196,15,0.15),rgba(230,126,34,0.08))":i===0?"linear-gradient(135deg,rgba(231,76,60,0.2),rgba(192,57,43,0.12))":"rgba(255,255,255,0.05)",
+                            border:`1px solid ${isMvp?"rgba(241,196,15,0.5)":i===0?"#e74c3c":"rgba(255,255,255,0.1)"}`,
+                            textAlign:"center",padding:10,
+                            animation:isMvp?"cardReveal 0.5s ease both":"none",
+                          })}>
+                            {isMvp ? <MvpAv m={gm(p.id)} sz={36}/> : <Av m={gm(p.id)} sz={36}/>}
+                            <div style={{fontSize:12,fontWeight:500,marginTop:isMvp?8:4}}>
+                              {p.name}
+                              {isMvp && <span style={{display:"block",fontSize:9,background:"linear-gradient(90deg,#f1c40f,#e67e22)",color:"#000",fontWeight:"bold",padding:"1px 5px",borderRadius:6,animation:"badgeIn 0.4s ease both",marginTop:2}}>今月MVP</span>}
+                            </div>
                             <div style={{fontSize:18,fontWeight:"bold",color:cc(p.sc),marginTop:2}}>{fw(p.sc)}</div>
                             <div style={{fontSize:10,color:cc(p.seisan)}}>清算 {fwy(p.seisan)}</div>
                             <div style={{fontSize:10,color:cc(p.kati),fontWeight:500}}>勝ち分 {fwy(p.kati)}</div>
                             <div style={{fontSize:10,color:"#666",marginTop:2}}>{p.games}半荘 {p.wr}%</div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                       <div style={S.card()}>
                         <div style={{fontSize:11,color:"#ccc",marginBottom:8}}>💰 収支内訳</div>
-                        {sortedStats.filter(p=>p.games>0).map(p=>(
+                        {sortedStats.filter(p=>p.games>0).map(p=>{
+                          const isMvp = mvpIds.includes(p.id);
+                          return (
                           <div key={p.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
-                            <Av m={gm(p.id)} sz={28}/>
+                            {isMvp ? <MvpAv m={gm(p.id)} sz={28}/> : <Av m={gm(p.id)} sz={28}/>}
                             <div style={{flex:1,minWidth:0}}>
-                              <div style={{fontSize:12,fontWeight:500}}>{p.name}</div>
+                              <div style={{fontSize:12,fontWeight:500}}>{p.name}{isMvp&&<span style={{fontSize:8,background:"linear-gradient(90deg,#f1c40f,#e67e22)",color:"#000",fontWeight:"bold",padding:"1px 4px",borderRadius:4,marginLeft:4}}>MVP</span>}</div>
                               <div style={{fontSize:10,color:"#666"}}>{p.games}半荘</div>
                             </div>
                             <div style={{textAlign:"right",minWidth:60}}>
@@ -1775,7 +1796,8 @@ export default function App() {
                               <div style={{fontSize:9,color:"#666"}}>勝ち分</div>
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                       <div style={S.card()}>
                         <div style={{fontSize:11,color:"#ccc",marginBottom:5}}>📈 月別スコア推移</div>
