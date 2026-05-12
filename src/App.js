@@ -15,7 +15,8 @@ const SCORE_RATES = [
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-12", features:[
-    "MVP演出追加（スコア+100pt以上 かつ 10半荘以上参加で炎・王冠・金銀銅バッジ・confetti）",
+    "T.LEAGUEチンチロの遊び方を設定タブに追加・STARTボタンを棒グラフ直下に移動",
+    "MVP条件変更（スコア+100pt以上 かつ 10半荘以上参加）",
     "月別プルダウンフィルター追加（全期間〜今月の間に月を選んで表示）",
     "操作ログ機能追加（対局の削除・編集時に操作者を記録）",
     "設定画面にJSONバックアップ書き出し機能追加（全対戦データをファイルで保存可能）",
@@ -374,6 +375,7 @@ export default function App() {
   const [showChangelogSection, setShowChangelogSection] = useState(false);
   const [showAppGuideSection, setShowAppGuideSection] = useState(false);
   const [showMvpSection, setShowMvpSection] = useState(false);
+  const [showChinchiroSection, setShowChinchiroSection] = useState(false);
   const [showColorLegend, setShowColorLegend] = useState(false);
   const [editRoundIndex, setEditRoundIndex] = useState(null);
 
@@ -1588,6 +1590,34 @@ export default function App() {
               )}
             </div>
 
+            {/* T.LEAGUEチンチロ 遊び方セクション */}
+            <div style={{marginBottom:12}}>
+              <div onClick={()=>setShowChinchiroSection(p=>!p)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",padding:"8px 10px",background:"rgba(231,76,60,0.07)",borderRadius:8,border:"1px solid rgba(231,76,60,0.18)",marginBottom:showChinchiroSection?0:0}}>
+                <div style={{fontSize:12,fontWeight:500,color:"#e74c3c"}}>🎲 T.LEAGUEチンチロの遊び方</div>
+                <span style={{fontSize:14,color:"#888"}}>{showChinchiroSection?"▲":"▼"}</span>
+              </div>
+              {showChinchiroSection && (
+                <div style={{padding:"12px 14px",background:"rgba(231,76,60,0.04)",borderRadius:"0 0 8px 8px",border:"1px solid rgba(231,76,60,0.12)",borderTop:"none"}}>
+                  <div style={{fontSize:11,color:"#ccc",lineHeight:2,marginBottom:10}}>
+                    <span style={{color:"#e74c3c",fontWeight:700}}>①</span> ダッシュボードの「対人成績」を開く<br/>
+                    <span style={{color:"#e74c3c",fontWeight:700}}>②</span> 対戦したい2人を選ぶ<br/>
+                    <span style={{color:"#e74c3c",fontWeight:700}}>③</span> 勝敗バーの下の「<span style={{color:"#e74c3c",fontWeight:600}}>T.LEAGUEチンチロ START ▶</span>」を押す<br/>
+                    <span style={{color:"#e74c3c",fontWeight:700}}>④</span> 2人の過去の対戦成績からランダムに最大10戦が抽選され、伏せられた状態で並ぶ<br/>
+                    <span style={{color:"#e74c3c",fontWeight:700}}>⑤</span> カードを1枚ずつタップして、勝敗をめくっていく<br/>
+                    <span style={{color:"#e74c3c",fontWeight:700}}>⑥</span> 全部めくったら勝者が決定！
+                  </div>
+                  <div style={{background:"rgba(255,255,255,0.04)",borderRadius:7,padding:"8px 10px",marginBottom:8}}>
+                    <div style={{fontSize:10,color:"#888",lineHeight:1.8}}>
+                      過去の実際の対戦データが勝敗の根拠になるので、実力差がそのまま結果に反映されやすい。ただしランダム抽選なので、格下が逆転することも。飲みの席でひと盛り上がりしたいときにどうぞ🍻
+                    </div>
+                  </div>
+                  <div style={{fontSize:9,color:"#555",textAlign:"center"}}>
+                    ※ 同卓した記録がない2人では遊べません
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* アプリにする方法セクション */}
             <div>
               <div onClick={()=>setShowAppGuideSection(p=>!p)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",padding:"8px 10px",background:"rgba(255,255,255,0.04)",borderRadius:8,marginBottom:showAppGuideSection?8:0}}>
@@ -2165,6 +2195,19 @@ export default function App() {
                               <Bar aVal={aWins} bVal={bWins}/>
                             </div>
 
+                            {/* ランダム10戦START（バーグラフ直下） */}
+                            {history.length > 0 && (
+                              <button onClick={()=>{
+                                if(last10Mode){ setLast10Mode(false); setLast10Revealed({}); }
+                                else { setLast10Mode(true); setLast10Revealed({}); setLast10Seed(Date.now()); }
+                              }} style={{width:"100%",padding:"10px",marginBottom:12,borderRadius:8,border:"none",cursor:"pointer",
+                                fontWeight:"bold",fontSize:13,
+                                background:last10Mode?"rgba(255,255,255,0.1)":"linear-gradient(135deg,#e74c3c,#3498db)",
+                                color:"#fff"}}>
+                                {last10Mode ? "🎲 やめる" : "🎲 T.LEAGUEチンチロ START ▶"}
+                              </button>
+                            )}
+
                             {/* 着順比較 */}
                             <div style={{fontSize:11,color:"#ccc",marginBottom:6}}>📊 着順内訳</div>
                             {[["1位","#f39c12",aR1,bR1],["2位","#aaa",aR2,bR2],["3位","#888",aR3,bR3],["4位","#e74c3c",aR4,bR4]].map(([label,col,av,bv])=>(
@@ -2219,7 +2262,6 @@ export default function App() {
                           {/* 過去10戦ゲームモード */}
                           {history.length > 0 && (() => {
                             const allHistory = [...history];
-                            // ランダムに10戦選ぶ
                             const shuffled = allHistory.sort(()=>Math.random()-0.5);
                             const last10 = shuffled.slice(0, Math.min(10, shuffled.length));
                             const isPlaying = last10Mode;
@@ -2227,27 +2269,13 @@ export default function App() {
                             const allRevealed = last10.every((_,i)=>revealed[i]);
                             const aWins10 = last10.filter((_,i)=>revealed[i]&&last10[i].va>last10[i].vb).length;
                             const bWins10 = last10.filter((_,i)=>revealed[i]&&last10[i].vb>last10[i].va).length;
+                            if (!isPlaying) return null;
                             return (
                               <div style={{...S.card({background:"linear-gradient(135deg,rgba(231,76,60,0.08),rgba(52,152,219,0.08))",border:"1px solid rgba(255,255,255,0.15)"})}}>
-                                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:isPlaying?12:0}}>
-                                  <div>
-                                    <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>🎲 ランダム{Math.min(10,last10.length)}戦で勝負する</div>
-                                    {isPlaying&&<div style={{fontSize:10,color:"#888",marginTop:2}}>タップで結果をめくる</div>}
-                                  </div>
-                                  <button onClick={()=>{
-                                    if(isPlaying){ setLast10Mode(false); setLast10Revealed({}); }
-                                    else { setLast10Mode(true); setLast10Revealed({}); setLast10Seed(Date.now()); }
-                                  }} style={{padding:"7px 14px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:"bold",fontSize:12,
-                                    background:isPlaying?"rgba(255,255,255,0.1)":"linear-gradient(135deg,#e74c3c,#3498db)",color:"#fff"}}>
-                                    {isPlaying?"やめる":"START ▶"}
-                                  </button>
-                                </div>
-
-                                {isPlaying && (
-                                  <>
-                                    {/* 対戦カード */}
-                                    <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
-                                      {last10.map((h,i)=>{
+                                <div style={{fontSize:10,color:"#888",marginBottom:12}}>🀄 タップで結果をめくる</div>
+                                {/* 対戦カード */}
+                                <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
+                                  {last10.map((h,i)=>{
                                         const isRev = !!revealed[i];
                                         const aWin = h.va > h.vb;
                                         return (
@@ -2279,47 +2307,45 @@ export default function App() {
                                           </div>
                                         );
                                       })}
+                                </div>
+
+                                {/* 全部めくったら結果発表 */}
+                                {allRevealed && (
+                                  <div style={{background:"rgba(255,255,255,0.06)",borderRadius:10,padding:14,textAlign:"center"}}>
+                                    <div style={{fontSize:13,color:"#ccc",marginBottom:10}}>🏁 過去{last10.length}戦の結果</div>
+                                    <div style={{display:"flex",justifyContent:"space-around",alignItems:"center"}}>
+                                      <div style={{textAlign:"center"}}>
+                                        <Av m={h2hStats.mA} sz={44}/>
+                                        <div style={{fontSize:13,fontWeight:600,marginTop:5}}>{h2hStats.mA?.name}</div>
+                                        <div style={{fontSize:28,fontWeight:"bold",color:aWins10>=bWins10?"#2ecc71":"#e74c3c",marginTop:4}}>{aWins10}勝</div>
+                                      </div>
+                                      <div style={{fontSize:18,color:"#555"}}>vs</div>
+                                      <div style={{textAlign:"center"}}>
+                                        <Av m={h2hStats.mB} sz={44}/>
+                                        <div style={{fontSize:13,fontWeight:600,marginTop:5}}>{h2hStats.mB?.name}</div>
+                                        <div style={{fontSize:28,fontWeight:"bold",color:bWins10>=aWins10?"#2ecc71":"#e74c3c",marginTop:4}}>{bWins10}勝</div>
+                                      </div>
                                     </div>
-
-                                    {/* 全部めくったら結果発表 */}
-                                    {allRevealed && (
-                                      <div style={{background:"rgba(255,255,255,0.06)",borderRadius:10,padding:14,textAlign:"center"}}>
-                                        <div style={{fontSize:13,color:"#ccc",marginBottom:10}}>🏁 過去{last10.length}戦の結果</div>
-                                        <div style={{display:"flex",justifyContent:"space-around",alignItems:"center"}}>
-                                          <div style={{textAlign:"center"}}>
-                                            <Av m={h2hStats.mA} sz={44}/>
-                                            <div style={{fontSize:13,fontWeight:600,marginTop:5}}>{h2hStats.mA?.name}</div>
-                                            <div style={{fontSize:28,fontWeight:"bold",color:aWins10>=bWins10?"#2ecc71":"#e74c3c",marginTop:4}}>{aWins10}勝</div>
-                                          </div>
-                                          <div style={{fontSize:18,color:"#555"}}>vs</div>
-                                          <div style={{textAlign:"center"}}>
-                                            <Av m={h2hStats.mB} sz={44}/>
-                                            <div style={{fontSize:13,fontWeight:600,marginTop:5}}>{h2hStats.mB?.name}</div>
-                                            <div style={{fontSize:28,fontWeight:"bold",color:bWins10>=aWins10?"#2ecc71":"#e74c3c",marginTop:4}}>{bWins10}勝</div>
-                                          </div>
-                                        </div>
-                                        {aWins10 !== bWins10 && (
-                                          <div style={{marginTop:12,fontSize:16,fontWeight:700,color:"#ffd700"}}>
-                                            🏆 {aWins10>bWins10?h2hStats.mA?.name:h2hStats.mB?.name} の勝ち！
-                                          </div>
-                                        )}
-                                        {aWins10 === bWins10 && (
-                                          <div style={{marginTop:12,fontSize:16,fontWeight:700,color:"#aaa"}}>🤝 引き分け！</div>
-                                        )}
-                                        <button onClick={()=>{setLast10Mode(false);setLast10Revealed({});}}
-                                          style={{marginTop:14,padding:"8px 20px",borderRadius:8,border:"none",background:"rgba(255,255,255,0.1)",color:"#aaa",cursor:"pointer",fontSize:12}}>
-                                          閉じる
-                                        </button>
+                                    {aWins10 !== bWins10 && (
+                                      <div style={{marginTop:12,fontSize:16,fontWeight:700,color:"#ffd700"}}>
+                                        🏆 {aWins10>bWins10?h2hStats.mA?.name:h2hStats.mB?.name} の勝ち！
                                       </div>
                                     )}
-
-                                    {/* 進捗 */}
-                                    {!allRevealed && (
-                                      <div style={{textAlign:"center",fontSize:11,color:"#666"}}>
-                                        {Object.keys(revealed).length} / {last10.length} めくり済み
-                                      </div>
+                                    {aWins10 === bWins10 && (
+                                      <div style={{marginTop:12,fontSize:16,fontWeight:700,color:"#aaa"}}>🤝 引き分け！</div>
                                     )}
-                                  </>
+                                    <button onClick={()=>{setLast10Mode(false);setLast10Revealed({});}}
+                                      style={{marginTop:14,padding:"8px 20px",borderRadius:8,border:"none",background:"rgba(255,255,255,0.1)",color:"#aaa",cursor:"pointer",fontSize:12}}>
+                                      閉じる
+                                    </button>
+                                  </div>
+                                )}
+
+                                {/* 進捗 */}
+                                {!allRevealed && (
+                                  <div style={{textAlign:"center",fontSize:11,color:"#666"}}>
+                                    {Object.keys(revealed).length} / {last10.length} めくり済み
+                                  </div>
                                 )}
                               </div>
                             );
