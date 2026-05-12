@@ -15,7 +15,9 @@ const SCORE_RATES = [
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-12", features:[
-    "ハイ&ローを独立タブ化（外馬の隣・対人成績で選んだ2人の成績からランダムでカード生成）",
+    "ハイ&ローをタブ内で完結化（2人選択UI内蔵・対人成績タブ不要に）",
+    "ハイ&ローのカード値をスコア差（A−B）に変更",
+    "ハイ&ローを独立タブ化（外馬の隣）",
     "外馬モード追加（LIVE中に1位・最下位を予想、精度ランキング表示）",
     "MVP条件変更（スコア+100pt以上 かつ 10半荘以上参加）",
     "月別プルダウンフィルター追加（全期間〜今月の間に月を選んで表示）",
@@ -365,6 +367,8 @@ export default function App() {
   const [sortAsc, setSortAsc] = useState(false);
   const [h2hA, setH2hA] = useState(null);
   const [h2hB, setH2hB] = useState(null);
+  const [hiloSelA, setHiloSelA] = useState(null);
+  const [hiloSelB, setHiloSelB] = useState(null);
   const [lifeDetail, setLifeDetail] = useState(null);
   const [hiloMode, setHiloMode] = useState(false);
   const [hiloCards, setHiloCards] = useState([]); // カード値の配列
@@ -1650,16 +1654,16 @@ export default function App() {
               {showChinchiroSection && (
                 <div style={{padding:"12px 14px",background:"rgba(243,156,18,0.04)",borderRadius:"0 0 8px 8px",border:"1px solid rgba(243,156,18,0.12)",borderTop:"none"}}>
                   <div style={{fontSize:11,color:"#ccc",lineHeight:2,marginBottom:10}}>
-                    <span style={{color:"#f39c12",fontWeight:700}}>①</span> ダッシュボードの「対人成績」を開き、対戦したい2人を選ぶ<br/>
-                    <span style={{color:"#f39c12",fontWeight:700}}>②</span> 「<span style={{color:"#f39c12",fontWeight:600}}>🃏 ハイ&ロー</span>」タブを開く<br/>
+                    <span style={{color:"#f39c12",fontWeight:700}}>①</span> 「🃏 ハイ&ロー」タブを開く<br/>
+                    <span style={{color:"#f39c12",fontWeight:700}}>②</span> タブ内で対戦したい2人をタップして選ぶ<br/>
                     <span style={{color:"#f39c12",fontWeight:700}}>③</span> 「🎲 ランダム決定」ボタンで先攻・後攻を決める<br/>
-                    <span style={{color:"#f39c12",fontWeight:700}}>④</span> 過去の対戦スコアがカード値になる。表示されたカードを見て次が HIGH か LOW かを予想<br/>
+                    <span style={{color:"#f39c12",fontWeight:700}}>④</span> 2人の過去の<span style={{color:"#f39c12",fontWeight:600}}>スコア差</span>がカード値になる（Aのスコア − Bのスコア）。表示されたカードを見て次が HIGH か LOW かを予想<br/>
                     <span style={{color:"#f39c12",fontWeight:700}}>⑤</span> 先攻→後攻の順に交互に予想。これを5ラウンド繰り返す<br/>
                     <span style={{color:"#f39c12",fontWeight:700}}>⑥</span> 合計ポイントの多い方が勝ち！
                   </div>
                   <div style={{background:"rgba(255,255,255,0.04)",borderRadius:7,padding:"8px 10px",marginBottom:8}}>
                     <div style={{fontSize:10,color:"#888",lineHeight:1.8}}>
-                      過去の実際の対戦スコアがカードになるので、相手の調子や傾向を読む力も試される。外れても言い訳できないのが面白さ。飲みの席でひと盛り上がりしたいときにどうぞ🍻
+                      カードは「2人のスコア差」なので、その試合でどちらが優勢だったかが数字に出る。2人の対戦傾向を知っていると読めるが、ランダム抽選なので完全には読めない。飲みの席でひと盛り上がりしたいときにどうぞ🍻
                     </div>
                   </div>
                   <div style={{fontSize:9,color:"#555",textAlign:"center"}}>
@@ -2451,15 +2455,30 @@ export default function App() {
 
               {/* ハイ&ロー サブタブ */}
               {dashSub==="hilo" && (()=>{
-                const h2hHistory = h2hStats?.history || [];
-                const mA = h2hStats?.mA, mB = h2hStats?.mB;
-                const hasPlayers = h2hA && h2hB;
-                const hasHistory = h2hHistory.length >= 2;
+                const mA = gm(hiloSelA), mB = gm(hiloSelB);
+                const hasPlayers = hiloSelA && hiloSelB;
+
+                // 選んだ2人の対戦履歴を独立計算
+                const hiloHistory = [];
+                if (hasPlayers) {
+                  const sidA = String(hiloSelA), sidB = String(hiloSelB);
+                  sessions.forEach(s => {
+                    const sMembers = s.members.map(Number);
+                    if (!sMembers.includes(hiloSelA) || !sMembers.includes(hiloSelB)) return;
+                    s.rounds.forEach(r => {
+                      const rPlayers = r.players.map(Number);
+                      if (!rPlayers.includes(hiloSelA) || !rPlayers.includes(hiloSelB)) return;
+                      const va = N(r.scores[sidA] ?? r.scores[hiloSelA]);
+                      const vb = N(r.scores[sidB] ?? r.scores[hiloSelB]);
+                      hiloHistory.push({ va, vb, diff: va - vb });
+                    });
+                  });
+                }
+                const hasHistory = hiloHistory.length >= 2;
 
                 const startGame = () => {
-                  // 選んだ2人のh2h履歴のscoreをランダムシャッフルしてカードに
-                  const shuffled = [...h2hHistory].sort(()=>Math.random()-0.5).slice(0,11);
-                  const cards = shuffled.map(h=>h.va);
+                  const shuffled = [...hiloHistory].sort(()=>Math.random()-0.5).slice(0,11);
+                  const cards = shuffled.map(h=>h.diff); // スコア差をカード値に
                   setHiloCards(cards);
                   setHiloCardIdx(0);
                   setHiloScoreA(0); setHiloScoreB(0);
@@ -2514,165 +2533,176 @@ export default function App() {
                   <>
                     <div style={{fontSize:13,fontWeight:600,color:"#f39c12",marginBottom:10}}>🃏 T.LEAGUEハイ＆ロー</div>
 
-                    {/* 2人選択 */}
-                    {!hasPlayers && (
-                      <div style={{textAlign:"center",padding:24,color:"#555",fontSize:12}}>
-                        <div style={{fontSize:36,marginBottom:8}}>🃏</div>
-                        「対人成績」タブで対戦する2人を選んでください
+                    {/* メンバー選択 */}
+                    {!hiloMode && (
+                      <div style={{...S.card({background:"rgba(255,255,255,0.04)"}),marginBottom:10}}>
+                        <div style={{fontSize:11,color:"#888",marginBottom:8}}>対戦する2人を選んでください</div>
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
+                          {members.map(m=>{
+                            const isA = hiloSelA===m.id;
+                            const isB = hiloSelB===m.id;
+                            const sel = isA?"A":isB?"B":null;
+                            return (
+                              <div key={m.id} onClick={()=>{
+                                if(isA){ setHiloSelA(null); }
+                                else if(isB){ setHiloSelB(null); }
+                                else if(!hiloSelA){ setHiloSelA(m.id); }
+                                else if(!hiloSelB && m.id!==hiloSelA){ setHiloSelB(m.id); }
+                              }} style={{borderRadius:8,padding:"6px 4px",textAlign:"center",cursor:"pointer",position:"relative",
+                                border:isA?"2px solid #e74c3c":isB?"2px solid #3498db":"1px solid rgba(255,255,255,0.12)",
+                                background:isA?"rgba(231,76,60,0.15)":isB?"rgba(52,152,219,0.15)":"rgba(255,255,255,0.03)"}}>
+                                <Av m={m} sz={28}/>
+                                <div style={{fontSize:10,marginTop:3,color:sel?"#fff":"#aaa"}}>{m.name}</div>
+                                {sel && <div style={{position:"absolute",top:3,right:5,fontSize:9,fontWeight:"bold",color:isA?"#e74c3c":"#3498db"}}>{sel}</div>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {hasPlayers && (
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginTop:10,fontSize:11,color:"#ccc"}}>
+                            <div style={{display:"flex",alignItems:"center",gap:4}}><Av m={mA} sz={18}/>{mA?.name}</div>
+                            <span style={{color:"#555"}}>vs</span>
+                            <div style={{display:"flex",alignItems:"center",gap:4}}><Av m={mB} sz={18}/>{mB?.name}</div>
+                            {hasHistory && <span style={{fontSize:9,color:"#666",marginLeft:4}}>{hiloHistory.length}戦のデータ</span>}
+                          </div>
+                        )}
                       </div>
                     )}
 
-                    {hasPlayers && !hasHistory && (
-                      <div style={{textAlign:"center",padding:24,color:"#555",fontSize:12}}>
-                        この2人の対戦履歴が2件以上ないと遊べません
+                    {/* 未選択・履歴不足 */}
+                    {!hasPlayers && <div style={{textAlign:"center",padding:12,color:"#555",fontSize:11}}>上から2人選んでください</div>}
+                    {hasPlayers && !hasHistory && <div style={{textAlign:"center",padding:12,color:"#555",fontSize:11}}>この2人の対戦履歴が2件以上ないと遊べません</div>}
+
+                    {/* START */}
+                    {hasPlayers && hasHistory && !hiloMode && (
+                      <button onClick={startGame} style={{width:"100%",padding:"14px",borderRadius:10,border:"none",cursor:"pointer",
+                        background:"linear-gradient(135deg,#e74c3c,#f39c12)",color:"#fff",fontWeight:"bold",fontSize:15}}>
+                        🃏 START ▶
+                      </button>
+                    )}
+
+                    {/* 先攻後攻決め */}
+                    {hiloMode && hiloPhase==="decide" && (
+                      <div style={{...S.card({background:"linear-gradient(135deg,rgba(231,76,60,0.06),rgba(243,156,18,0.06))",border:"1px solid rgba(243,156,18,0.3)"}),textAlign:"center",padding:"14px 10px"}}>
+                        <div style={{fontSize:12,color:"#888",marginBottom:14}}>先攻・後攻をランダムで決めます</div>
+                        <div style={{display:"flex",justifyContent:"center",gap:20,marginBottom:16}}>
+                          <div style={{textAlign:"center"}}><Av m={mA} sz={40}/><div style={{fontSize:11,marginTop:4,color:"#e74c3c"}}>{mA?.name}</div></div>
+                          <div style={{fontSize:20,color:"#555",alignSelf:"center"}}>vs</div>
+                          <div style={{textAlign:"center"}}><Av m={mB} sz={40}/><div style={{fontSize:11,marginTop:4,color:"#3498db"}}>{mB?.name}</div></div>
+                        </div>
+                        <button onClick={()=>{ setHiloSenko(Math.random()<0.5?"a":"b"); setHiloPhase("playing"); }}
+                          style={{padding:"12px 28px",borderRadius:10,border:"none",cursor:"pointer",
+                            background:"linear-gradient(135deg,#e74c3c,#f39c12)",color:"#fff",fontWeight:"bold",fontSize:14}}>
+                          🎲 ランダム決定
+                        </button>
                       </div>
                     )}
 
-                    {hasPlayers && hasHistory && (
-                      <div style={{...S.card({background:"linear-gradient(135deg,rgba(231,76,60,0.06),rgba(243,156,18,0.06))",border:"1px solid rgba(243,156,18,0.3)"})}}>
-                        <div style={{textAlign:"center",fontSize:12,fontWeight:700,color:"#f39c12",marginBottom:10}}>
-                          {mA?.name} vs {mB?.name}
-                          <span style={{fontSize:10,color:"#666",fontWeight:400,marginLeft:8}}>({h2hHistory.length}戦のデータ使用)</span>
+                    {/* ゲーム中 */}
+                    {hiloMode && hiloPhase==="playing" && !isDone && (
+                      <div style={S.card({background:"linear-gradient(135deg,rgba(231,76,60,0.06),rgba(243,156,18,0.06))",border:"1px solid rgba(243,156,18,0.3)"})}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,padding:"6px 10px",background:"rgba(0,0,0,0.2)",borderRadius:8}}>
+                          <div style={{textAlign:"center"}}>
+                            <div style={{fontSize:9,color:"#888",marginBottom:2}}>{mA?.name}{hiloSenko==="a"?" 👑先攻":""}</div>
+                            <div style={{fontSize:22,fontWeight:"bold",color:hiloScoreA>=hiloScoreB?"#2ecc71":"#e74c3c"}}>{hiloScoreA}pt</div>
+                          </div>
+                          <div style={{fontSize:10,color:"#555"}}>第{hiloRound+1}ラウンド / {totalRounds}</div>
+                          <div style={{textAlign:"center"}}>
+                            <div style={{fontSize:9,color:"#888",marginBottom:2}}>{mB?.name}{hiloSenko==="b"?" 👑先攻":""}</div>
+                            <div style={{fontSize:22,fontWeight:"bold",color:hiloScoreB>=hiloScoreA?"#2ecc71":"#e74c3c"}}>{hiloScoreB}pt</div>
+                          </div>
                         </div>
 
-                        {/* 未開始 */}
-                        {!hiloMode && (
-                          <button onClick={startGame}
-                            style={{width:"100%",padding:"14px",borderRadius:10,border:"none",cursor:"pointer",
-                              background:"linear-gradient(135deg,#e74c3c,#f39c12)",color:"#fff",fontWeight:"bold",fontSize:15}}>
-                            🃏 START ▶
-                          </button>
-                        )}
+                        <div style={{textAlign:"center",marginBottom:14}}>
+                          <div style={{fontSize:10,color:"#888",marginBottom:6}}>現在のカード（{mA?.name}と{mB?.name}のスコア差）</div>
+                          <div style={{display:"inline-block",background:"rgba(255,255,255,0.1)",border:"2px solid rgba(243,156,18,0.6)",borderRadius:12,padding:"12px 28px"}}>
+                            <div style={{fontSize:32,fontWeight:"bold",color:curCard>=0?"#2ecc71":"#e74c3c"}}>{curCard>=0?"+":""}{curCard}</div>
+                          </div>
+                        </div>
 
-                        {/* 先攻後攻決め */}
-                        {hiloMode && hiloPhase==="decide" && (
-                          <div style={{textAlign:"center",padding:"10px 0"}}>
-                            <div style={{fontSize:12,color:"#888",marginBottom:14}}>先攻・後攻をランダムで決めます</div>
-                            <div style={{display:"flex",justifyContent:"center",gap:16,marginBottom:16}}>
-                              <div style={{textAlign:"center"}}>
-                                <Av m={mA} sz={40}/>
-                                <div style={{fontSize:11,marginTop:4,color:"#e74c3c"}}>{mA?.name}</div>
-                              </div>
-                              <div style={{fontSize:20,color:"#555",alignSelf:"center"}}>vs</div>
-                              <div style={{textAlign:"center"}}>
-                                <Av m={mB} sz={40}/>
-                                <div style={{fontSize:11,marginTop:4,color:"#3498db"}}>{mB?.name}</div>
-                              </div>
+                        {hiloReveal && (
+                          <div style={{textAlign:"center",marginBottom:12,padding:"10px",borderRadius:8,
+                            background:hiloReveal.correct?"rgba(46,204,113,0.15)":"rgba(231,76,60,0.15)",
+                            border:`1px solid ${hiloReveal.correct?"rgba(46,204,113,0.4)":"rgba(231,76,60,0.4)"}`}}>
+                            <div style={{fontSize:20}}>{hiloReveal.correct?"✅":"❌"}</div>
+                            <div style={{fontSize:13,fontWeight:"bold",color:hiloReveal.correct?"#2ecc71":"#e74c3c"}}>
+                              {hiloReveal.isSame?"引き分け（同値）":hiloReveal.correct?"正解！":"ハズレ"}
                             </div>
-                            <button onClick={()=>{ setHiloSenko(Math.random()<0.5?"a":"b"); setHiloPhase("playing"); }}
-                              style={{padding:"12px 28px",borderRadius:10,border:"none",cursor:"pointer",
-                                background:"linear-gradient(135deg,#e74c3c,#f39c12)",color:"#fff",fontWeight:"bold",fontSize:14}}>
-                              🎲 ランダム決定
-                            </button>
+                            <div style={{fontSize:11,color:"#888",marginTop:2}}>
+                              次：<span style={{color:hiloReveal.next>=hiloReveal.prev?"#2ecc71":"#e74c3c",fontWeight:"bold"}}>{hiloReveal.next>=0?"+":""}{hiloReveal.next}</span>
+                              <span style={{marginLeft:6}}>{hiloReveal.next>hiloReveal.prev?"▲HIGH":hiloReveal.next<hiloReveal.prev?"▼LOW":"→SAME"}</span>
+                            </div>
                           </div>
                         )}
 
-                        {/* ゲーム中 */}
-                        {hiloMode && hiloPhase==="playing" && !isDone && (
+                        {!hiloReveal && (
                           <>
-                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,padding:"6px 10px",background:"rgba(0,0,0,0.2)",borderRadius:8}}>
-                              <div style={{textAlign:"center"}}>
-                                <div style={{fontSize:9,color:"#888",marginBottom:2}}>{mA?.name}{hiloSenko==="a"?" 👑先攻":""}</div>
-                                <div style={{fontSize:22,fontWeight:"bold",color:hiloScoreA>=hiloScoreB?"#2ecc71":"#e74c3c"}}>{hiloScoreA}pt</div>
+                            <div style={{textAlign:"center",marginBottom:10}}>
+                              <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:4}}>
+                                <Av m={currentMem} sz={22}/>
+                                <span style={{fontSize:12,color:"#ccc"}}>{currentMem?.name}</span>
+                                <span style={{fontSize:10,color:"#888"}}>（{hiloSubTurn==="senko"?"先攻":"後攻"}）</span>
                               </div>
-                              <div style={{fontSize:10,color:"#555"}}>第{hiloRound+1}ラウンド</div>
-                              <div style={{textAlign:"center"}}>
-                                <div style={{fontSize:9,color:"#888",marginBottom:2}}>{mB?.name}{hiloSenko==="b"?" 👑先攻":""}</div>
-                                <div style={{fontSize:22,fontWeight:"bold",color:hiloScoreB>=hiloScoreA?"#2ecc71":"#e74c3c"}}>{hiloScoreB}pt</div>
-                              </div>
+                              <div style={{fontSize:11,color:"#888"}}>次のカードは？</div>
                             </div>
-
-                            <div style={{textAlign:"center",marginBottom:14}}>
-                              <div style={{fontSize:10,color:"#888",marginBottom:6}}>{mA?.name}のスコア（現在のカード）</div>
-                              <div style={{display:"inline-block",background:"rgba(255,255,255,0.1)",border:"2px solid rgba(243,156,18,0.6)",borderRadius:12,padding:"12px 28px"}}>
-                                <div style={{fontSize:32,fontWeight:"bold",color:curCard>=0?"#2ecc71":"#e74c3c"}}>{curCard>=0?"+":""}{curCard}</div>
-                              </div>
+                            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                              <button onClick={()=>handlePred("high")}
+                                style={{padding:"18px 0",borderRadius:10,border:"2px solid rgba(46,204,113,0.5)",background:"rgba(46,204,113,0.15)",color:"#2ecc71",fontWeight:"bold",fontSize:20,cursor:"pointer"}}>
+                                ▲ HIGH
+                              </button>
+                              <button onClick={()=>handlePred("low")}
+                                style={{padding:"18px 0",borderRadius:10,border:"2px solid rgba(231,76,60,0.5)",background:"rgba(231,76,60,0.15)",color:"#e74c3c",fontWeight:"bold",fontSize:20,cursor:"pointer"}}>
+                                ▼ LOW
+                              </button>
                             </div>
-
-                            {hiloReveal && (
-                              <div style={{textAlign:"center",marginBottom:12,padding:"10px",background:hiloReveal.correct?"rgba(46,204,113,0.15)":"rgba(231,76,60,0.15)",borderRadius:8,border:`1px solid ${hiloReveal.correct?"rgba(46,204,113,0.4)":"rgba(231,76,60,0.4)"}`}}>
-                                <div style={{fontSize:20}}>{hiloReveal.correct?"✅":"❌"}</div>
-                                <div style={{fontSize:13,fontWeight:"bold",color:hiloReveal.correct?"#2ecc71":"#e74c3c"}}>
-                                  {hiloReveal.isSame?"引き分け（同値）":hiloReveal.correct?"正解！":"ハズレ"}
-                                </div>
-                                <div style={{fontSize:11,color:"#888",marginTop:2}}>
-                                  次のカード：<span style={{color:hiloReveal.next>=hiloReveal.prev?"#2ecc71":"#e74c3c",fontWeight:"bold"}}>{hiloReveal.next>=0?"+":""}{hiloReveal.next}</span>
-                                  <span style={{marginLeft:6}}>{hiloReveal.next>hiloReveal.prev?"▲HIGH":hiloReveal.next<hiloReveal.prev?"▼LOW":"→SAME"}</span>
-                                </div>
-                              </div>
-                            )}
-
-                            {!hiloReveal && (
-                              <>
-                                <div style={{textAlign:"center",marginBottom:10}}>
-                                  <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:4}}>
-                                    <Av m={currentMem} sz={22}/>
-                                    <span style={{fontSize:12,color:"#ccc"}}>{currentMem?.name}</span>
-                                    <span style={{fontSize:10,color:"#888"}}>（{hiloSubTurn==="senko"?"先攻":"後攻"}）</span>
-                                  </div>
-                                  <div style={{fontSize:11,color:"#888"}}>次のカードは？</div>
-                                </div>
-                                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                                  <button onClick={()=>handlePred("high")}
-                                    style={{padding:"18px 0",borderRadius:10,border:"2px solid rgba(46,204,113,0.5)",background:"rgba(46,204,113,0.15)",color:"#2ecc71",fontWeight:"bold",fontSize:20,cursor:"pointer"}}>
-                                    ▲ HIGH
-                                  </button>
-                                  <button onClick={()=>handlePred("low")}
-                                    style={{padding:"18px 0",borderRadius:10,border:"2px solid rgba(231,76,60,0.5)",background:"rgba(231,76,60,0.15)",color:"#e74c3c",fontWeight:"bold",fontSize:20,cursor:"pointer"}}>
-                                    ▼ LOW
-                                  </button>
-                                </div>
-                              </>
-                            )}
                           </>
                         )}
+                        <button onClick={resetGame} style={{marginTop:10,width:"100%",padding:"6px",borderRadius:6,border:"none",background:"rgba(255,255,255,0.06)",color:"#555",cursor:"pointer",fontSize:10}}>🃏 やめる</button>
+                      </div>
+                    )}
 
-                        {/* 結果発表 */}
-                        {hiloMode && (hiloPhase==="result"||isDone) && (
-                          <div style={{textAlign:"center",padding:"10px 0"}}>
-                            <div style={{fontSize:13,color:"#ccc",marginBottom:14}}>🏁 ゲーム終了！</div>
-                            <div style={{display:"flex",justifyContent:"space-around",marginBottom:16}}>
-                              <div style={{textAlign:"center"}}>
-                                <Av m={mA} sz={44}/>
-                                <div style={{fontSize:12,fontWeight:600,marginTop:4}}>{mA?.name}</div>
-                                <div style={{fontSize:11,color:"#888"}}>{hiloSenko==="a"?"👑先攻":"後攻"}</div>
-                                <div style={{fontSize:30,fontWeight:"bold",color:hiloScoreA>hiloScoreB?"#2ecc71":"#e74c3c",marginTop:4}}>{hiloScoreA}pt</div>
-                              </div>
-                              <div style={{fontSize:18,color:"#555",alignSelf:"center"}}>vs</div>
-                              <div style={{textAlign:"center"}}>
-                                <Av m={mB} sz={44}/>
-                                <div style={{fontSize:12,fontWeight:600,marginTop:4}}>{mB?.name}</div>
-                                <div style={{fontSize:11,color:"#888"}}>{hiloSenko==="b"?"👑先攻":"後攻"}</div>
-                                <div style={{fontSize:30,fontWeight:"bold",color:hiloScoreB>hiloScoreA?"#2ecc71":"#e74c3c",marginTop:4}}>{hiloScoreB}pt</div>
-                              </div>
-                            </div>
-                            {hiloScoreA!==hiloScoreB && <div style={{fontSize:18,fontWeight:700,color:"#ffd700",marginBottom:12}}>🏆 {hiloScoreA>hiloScoreB?mA?.name:mB?.name} の勝ち！</div>}
-                            {hiloScoreA===hiloScoreB && <div style={{fontSize:16,fontWeight:700,color:"#aaa",marginBottom:12}}>🤝 引き分け！</div>}
-                            <div style={{textAlign:"left",marginBottom:12}}>
-                              {hiloLog.map((l,i)=>(
-                                <div key={i} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,0.05)",fontSize:10}}>
-                                  <span style={{color:"#555",width:52}}>R{l.round+1} {l.who==="a"?mA?.name:mB?.name}</span>
-                                  <span style={{color:l.pred==="high"?"#2ecc71":"#e74c3c",fontWeight:"bold",width:36}}>{l.pred==="high"?"▲HIGH":"▼LOW"}</span>
-                                  <span style={{color:"#555"}}>{l.prev>=0?"+":""}{l.prev}→{l.next>=0?"+":""}{l.next}</span>
-                                  <span style={{marginLeft:"auto"}}>{l.correct?"✅":"❌"}</span>
-                                </div>
-                              ))}
-                            </div>
-                            <div style={{display:"flex",gap:8}}>
-                              <button onClick={startGame} style={{flex:1,padding:"8px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#e74c3c,#f39c12)",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:"bold"}}>もう一度</button>
-                              <button onClick={resetGame} style={{flex:1,padding:"8px",borderRadius:8,border:"none",background:"rgba(255,255,255,0.1)",color:"#aaa",cursor:"pointer",fontSize:12}}>閉じる</button>
-                            </div>
+                    {/* 結果発表 */}
+                    {hiloMode && (hiloPhase==="result"||isDone) && (
+                      <div style={S.card({background:"linear-gradient(135deg,rgba(231,76,60,0.06),rgba(243,156,18,0.06))",border:"1px solid rgba(243,156,18,0.3)"})}>
+                        <div style={{textAlign:"center",marginBottom:14,fontSize:13,color:"#ccc"}}>🏁 ゲーム終了！</div>
+                        <div style={{display:"flex",justifyContent:"space-around",marginBottom:16}}>
+                          <div style={{textAlign:"center"}}>
+                            <Av m={mA} sz={44}/>
+                            <div style={{fontSize:12,fontWeight:600,marginTop:4}}>{mA?.name}</div>
+                            <div style={{fontSize:11,color:"#888"}}>{hiloSenko==="a"?"👑先攻":"後攻"}</div>
+                            <div style={{fontSize:30,fontWeight:"bold",color:hiloScoreA>hiloScoreB?"#2ecc71":"#e74c3c",marginTop:4}}>{hiloScoreA}pt</div>
                           </div>
-                        )}
-
-                        {hiloMode && <button onClick={resetGame} style={{marginTop:10,width:"100%",padding:"6px",borderRadius:6,border:"none",background:"rgba(255,255,255,0.06)",color:"#555",cursor:"pointer",fontSize:10}}>🃏 やめる</button>}
+                          <div style={{fontSize:18,color:"#555",alignSelf:"center"}}>vs</div>
+                          <div style={{textAlign:"center"}}>
+                            <Av m={mB} sz={44}/>
+                            <div style={{fontSize:12,fontWeight:600,marginTop:4}}>{mB?.name}</div>
+                            <div style={{fontSize:11,color:"#888"}}>{hiloSenko==="b"?"👑先攻":"後攻"}</div>
+                            <div style={{fontSize:30,fontWeight:"bold",color:hiloScoreB>hiloScoreA?"#2ecc71":"#e74c3c",marginTop:4}}>{hiloScoreB}pt</div>
+                          </div>
+                        </div>
+                        {hiloScoreA!==hiloScoreB && <div style={{textAlign:"center",fontSize:18,fontWeight:700,color:"#ffd700",marginBottom:12}}>🏆 {hiloScoreA>hiloScoreB?mA?.name:mB?.name} の勝ち！</div>}
+                        {hiloScoreA===hiloScoreB && <div style={{textAlign:"center",fontSize:16,fontWeight:700,color:"#aaa",marginBottom:12}}>🤝 引き分け！</div>}
+                        <div style={{marginBottom:12}}>
+                          {hiloLog.map((l,i)=>(
+                            <div key={i} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,0.05)",fontSize:10}}>
+                              <span style={{color:"#555",width:52}}>R{l.round+1} {l.who==="a"?mA?.name:mB?.name}</span>
+                              <span style={{color:l.pred==="high"?"#2ecc71":"#e74c3c",fontWeight:"bold",width:36}}>{l.pred==="high"?"▲HIGH":"▼LOW"}</span>
+                              <span style={{color:"#555"}}>{l.prev>=0?"+":""}{l.prev}→{l.next>=0?"+":""}{l.next}</span>
+                              <span style={{marginLeft:"auto"}}>{l.correct?"✅":"❌"}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{display:"flex",gap:8}}>
+                          <button onClick={startGame} style={{flex:1,padding:"8px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#e74c3c,#f39c12)",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:"bold"}}>もう一度</button>
+                          <button onClick={resetGame} style={{flex:1,padding:"8px",borderRadius:8,border:"none",background:"rgba(255,255,255,0.1)",color:"#aaa",cursor:"pointer",fontSize:12}}>閉じる</button>
+                        </div>
                       </div>
                     )}
                   </>
                 );
               })()}
 
-              {/* 外馬モード サブタブ */}
+                            {/* 外馬モード サブタブ */}
               {dashSub==="sotoba" && (()=>{
                 const isLive = addStep === 2;
                 const currentRoundIndex = addRounds.length; // 次に予想すべき半荘番号（0-based）
