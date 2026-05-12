@@ -15,16 +15,12 @@ const SCORE_RATES = [
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-12", features:[
-    "MVP条件変更（3半荘以上→10半荘以上参加に変更）",
-    "MVP複数対応：順位別に金縁・銀縁・銅縁・バッジ色分け（4位以下は王冠のみ）",
-    "更新通知の判定ロジック修正（同日複数更新でも赤いマークが出るように）",
-    "LINEシェア機能追加（設定タブからアプリURLをLINEで送信可能）",
-    "MVP演出条件を変更（場代抜き清算額+3,000円以上 かつ 3半荘以上参加）",
-    "当月MVP演出追加（炎アバター・👑王冠・金バッジ・confetti紙吹雪）",
+    "MVP演出追加（スコア+100pt以上 かつ 10半荘以上参加で炎・王冠・金銀銅バッジ・confetti）",
     "月別プルダウンフィルター追加（全期間〜今月の間に月を選んで表示）",
     "操作ログ機能追加（対局の削除・編集時に操作者を記録）",
     "設定画面にJSONバックアップ書き出し機能追加（全対戦データをファイルで保存可能）",
-    "ESLintエラー修正・バグ修正3件",
+    "LINEシェア機能追加（設定タブからアプリURLをLINEで送信可能）",
+    "ESLintエラー修正・バグ修正多数",
   ]},
   { date:"2026-05-11", features:[
     "設定ボタンに更新通知ドット追加（未読の更新があると赤く光る）",
@@ -126,7 +122,7 @@ function calcMvpIds(sessions, members, targetMonth) {
     const tot = calcTotals(sess);
     sess.members.forEach(id => {
       if (!totals[id]) totals[id] = { seisan: 0, rounds: 0 };
-      totals[id].seisan += (tot[id]?.seisan || 0); // 場代抜きの純粋な勝ち点
+      totals[id].seisan += (tot[id]?.sc || 0); // 純粋なスコアポイント
       totals[id].rounds += sess.rounds.filter(r => r.players.map(Number).includes(Number(id))).length;
     });
   });
@@ -134,7 +130,7 @@ function calcMvpIds(sessions, members, targetMonth) {
     .filter(m => {
       const t = totals[m.id];
       if (!t || t.rounds === 0) return false;
-      return t.seisan >= 3000 && t.rounds >= 10; // 両方満たす場合のみ
+      return t.seisan >= 100 && t.rounds >= 10; // 両方満たす場合のみ
     })
     .map(m => m.id);
 }
@@ -1552,7 +1548,7 @@ export default function App() {
                   <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
                     <div style={{display:"flex",gap:6,alignItems:"flex-start",fontSize:10,color:"#ccc"}}>
                       <span>🔥</span>
-                      <span><span style={{color:"#f1c40f",fontWeight:600}}>純粋な勝ち点 +3,000円以上</span>（場代を含まない清算額）</span>
+                      <span><span style={{color:"#f1c40f",fontWeight:600}}>スコア +100ポイント以上</span>（純粋な得点）</span>
                     </div>
                     <div style={{display:"flex",gap:6,alignItems:"flex-start",fontSize:10,color:"#ccc"}}>
                       <span>🔥</span>
