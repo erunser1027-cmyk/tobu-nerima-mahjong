@@ -15,6 +15,7 @@ const SCORE_RATES = [
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-12", features:[
+    "外馬モードに1位・4位のオッズ表示追加（直近10半荘の成績から自動計算）",
     "ハイ&ローのカードを絶対値表示に変更・遊び方をタブ内に移動・設定タブから削除",
     "ハイ&ローをタブ内で完結化（2人選択UI内蔵）",
     "ハイ&ローを独立タブ化（外馬の隣）",
@@ -2680,8 +2681,29 @@ export default function App() {
                             {/* 外馬モード サブタブ */}
               {dashSub==="sotoba" && (()=>{
                 const isLive = addStep === 2;
-                const currentRoundIndex = addRounds.length; // 次に予想すべき半荘番号（0-based）
+                const currentRoundIndex = addRounds.length;
                 const playingMembers = addSel.map(id=>gm(id)).filter(Boolean);
+
+                // 直近10半荘からオッズ計算
+                const calcOdds = (memberId, rank) => {
+                  const recentRounds = [];
+                  [...sessions].reverse().forEach(s => {
+                    if (recentRounds.length >= 10) return;
+                    s.rounds.forEach(r => {
+                      if (recentRounds.length >= 10) return;
+                      const players = r.players.map(Number);
+                      if (!players.includes(memberId)) return;
+                      const sorted = [...players].sort((a,b)=>N(r.scores[String(b)]??r.scores[b])-N(r.scores[String(a)]??r.scores[a]));
+                      const playerRank = sorted.indexOf(memberId) + 1;
+                      recentRounds.push(playerRank);
+                    });
+                  });
+                  if (recentRounds.length === 0) return null;
+                  const count = recentRounds.filter(r=>r===rank).length;
+                  if (count === 0) return "---";
+                  const odds = (recentRounds.length / count).toFixed(1);
+                  return `${odds}倍`;
+                };
 
                 // 自分が今の半荘に対してすでに予想済みか
                 const myPred = predSelf
@@ -2722,8 +2744,11 @@ export default function App() {
                     {isLive && (
                       <div style={{marginBottom:16}}>
                         <div style={{...S.card({background:"linear-gradient(135deg,rgba(231,76,60,0.08),rgba(52,152,219,0.08))",border:"1px solid rgba(255,255,255,0.15)"}),marginBottom:10}}>
-                          <div style={{fontSize:12,color:"#ccc",marginBottom:10}}>
+                          <div style={{fontSize:12,color:"#ccc",marginBottom:6}}>
                             第{currentRoundIndex+1}半荘の予想
+                          </div>
+                          <div style={{fontSize:9,color:"#555",marginBottom:10,lineHeight:1.6}}>
+                            オッズは直近10半荘の成績から計算。「---」はその順位の実績なし。
                           </div>
 
                           {/* あなたは？ */}
@@ -2757,21 +2782,29 @@ export default function App() {
                               {/* 対局中メンバー */}
                               <div style={{fontSize:11,color:"#888",marginBottom:6}}>🥇 1位予想</div>
                               <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6,marginBottom:12}}>
-                                {playingMembers.map(m=>(
+                                {playingMembers.map(m=>{
+                                  const odds1 = calcOdds(m.id, 1);
+                                  return (
                                   <div key={m.id} onClick={()=>setPredFirst(predFirst===m.id?null:m.id)}
                                     style={{display:"flex",alignItems:"center",gap:6,padding:"8px 10px",borderRadius:8,cursor:"pointer",
                                       border:`1px solid ${predFirst===m.id?"#f1c40f":"rgba(255,255,255,0.1)"}`,
                                       background:predFirst===m.id?"rgba(241,196,15,0.15)":"rgba(255,255,255,0.03)"}}>
                                     <Av m={m} sz={22}/>
-                                    <span style={{fontSize:12}}>{m.name}</span>
-                                    {predFirst===m.id&&<span style={{marginLeft:"auto",fontSize:14}}>🥇</span>}
+                                    <div style={{flex:1}}>
+                                      <div style={{fontSize:12}}>{m.name}</div>
+                                      {odds1 && <div style={{fontSize:9,color:"#f1c40f"}}>🥇 {odds1}</div>}
+                                    </div>
+                                    {predFirst===m.id&&<span style={{fontSize:14}}>🥇</span>}
                                   </div>
-                                ))}
+                                  );
+                                })}
                               </div>
 
                               <div style={{fontSize:11,color:"#888",marginBottom:6}}>💀 最下位（4位）予想</div>
                               <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6,marginBottom:14}}>
-                                {playingMembers.map(m=>(
+                                {playingMembers.map(m=>{
+                                  const odds4 = calcOdds(m.id, 4);
+                                  return (
                                   <div key={m.id} onClick={()=>m.id!==predFirst&&setPredLast(predLast===m.id?null:m.id)}
                                     style={{display:"flex",alignItems:"center",gap:6,padding:"8px 10px",borderRadius:8,
                                       cursor:m.id===predFirst?"not-allowed":"pointer",
@@ -2779,10 +2812,14 @@ export default function App() {
                                       border:`1px solid ${predLast===m.id?"#e74c3c":"rgba(255,255,255,0.1)"}`,
                                       background:predLast===m.id?"rgba(231,76,60,0.15)":"rgba(255,255,255,0.03)"}}>
                                     <Av m={m} sz={22}/>
-                                    <span style={{fontSize:12}}>{m.name}</span>
-                                    {predLast===m.id&&<span style={{marginLeft:"auto",fontSize:14}}>💀</span>}
+                                    <div style={{flex:1}}>
+                                      <div style={{fontSize:12}}>{m.name}</div>
+                                      {odds4 && <div style={{fontSize:9,color:"#e74c3c"}}>💀 {odds4}</div>}
+                                    </div>
+                                    {predLast===m.id&&<span style={{fontSize:14}}>💀</span>}
                                   </div>
-                                ))}
+                                  );
+                                })}
                               </div>
 
                               <button
