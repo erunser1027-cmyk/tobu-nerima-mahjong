@@ -17,7 +17,9 @@ const CHANGELOG = [
   { date:"2026-05-12", features:[
     "操作ログ機能追加（対局の削除・編集時に操作者を記録。りょうはログ対象外）",
     "設定画面にJSONバックアップ書き出し機能追加（全対戦データをファイルで保存可能）",
+    "ESLintエラー修正・バグ修正3件",
   ]},
+  { date:"2026-05-11", features:[
     "設定ボタンに更新通知ドット追加（未読の更新があると赤く光る）",
     "履歴の場代込みバッジをタップで場代抜き金額に切り替え可能に",
     "設定画面にTリーグオフィシャルロゴ・Nerima Night Crew・Waiting for the Flow. を表示",
@@ -238,7 +240,7 @@ export default function App() {
   const [lifeDetail, setLifeDetail] = useState(null);
   const [last10Mode, setLast10Mode] = useState(false);
   const [last10Revealed, setLast10Revealed] = useState({});
-  const [last10Seed, setLast10Seed] = useState(0);
+  const [, setLast10Seed] = useState(0);
   const [showLivePanel, setShowLivePanel] = useState(false);
   const [yakumanCelebration, setYakumanCelebration] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
