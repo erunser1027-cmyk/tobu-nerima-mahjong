@@ -15,6 +15,7 @@ const SCORE_RATES = [
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-12", features:[
+    "外馬モード追加（LIVE中に1位・最下位を予想、精度ランキング表示）",
     "T.LEAGUEチンチロの遊び方を設定タブに追加・STARTボタンを棒グラフ直下に移動",
     "MVP条件変更（スコア+100pt以上 かつ 10半荘以上参加）",
     "月別プルダウンフィルター追加（全期間〜今月の間に月を選んで表示）",
@@ -355,6 +356,11 @@ export default function App() {
   const [memberEditName, setMemberEditName] = useState("");
   const [editKeypadActive, setEditKeypadActive] = useState(null); // "ri-pid"
   const [dashSub, setDashSub] = useState("summary");
+  const [predictions, setPredictions] = useState([]);
+  const [predSelf, setPredSelf] = useState(null);
+  const [predFirst, setPredFirst] = useState(null);
+  const [predLast, setPredLast] = useState(null);
+  const [predSubmitting, setPredSubmitting] = useState(false);
   const [sortKey, setSortKey] = useState("sc");
   const [sortAsc, setSortAsc] = useState(false);
   const [h2hA, setH2hA] = useState(null);
@@ -433,7 +439,43 @@ export default function App() {
     }, ...prev]);
   };
 
-  // audit_log 読み込み
+  // predictions 読み込み
+  useEffect(()=>{
+    supabase.from("predictions").select("*").order("created_at",{ascending:false})
+      .then(({data})=>{ if(data) setPredictions(data); });
+  },[]);
+
+  // 半荘が確定されたとき自動採点
+  useEffect(()=>{
+    if(addRounds.length === 0) return;
+    const lastRound = addRounds[addRounds.length - 1];
+    const roundIndex = addRounds.length - 1;
+    const sorted = [...lastRound.players].sort((a,b)=>N(lastRound.scores[String(b)]??lastRound.scores[b])-N(lastRound.scores[String(a)]??lastRound.scores[a]));
+    if(sorted.length < 2) return;
+    const actualFirst = Number(sorted[0]);
+    const actualLast = Number(sorted[sorted.length-1]);
+    const toScore = predictions.filter(p=>
+      p.session_date === addDate &&
+      p.round_index === roundIndex &&
+      p.actual_first === null
+    );
+    if(toScore.length === 0) return;
+    toScore.forEach(async p=>{
+      const correctFirst = p.pred_first === actualFirst;
+      const correctLast = p.pred_last === actualLast;
+      await supabase.from("predictions").update({
+        actual_first: actualFirst, actual_last: actualLast,
+        correct_first: correctFirst, correct_last: correctLast,
+      }).eq("id", p.id);
+    });
+    setPredictions(prev => prev.map(p =>
+      toScore.find(t=>t.id===p.id)
+        ? {...p, actual_first:actualFirst, actual_last:actualLast,
+            correct_first: p.pred_first===actualFirst, correct_last: p.pred_last===actualLast}
+        : p
+    ));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[addRounds.length]);
   useEffect(()=>{
     supabase.from("audit_log").select("*").order("created_at",{ascending:false}).limit(50)
       .then(({data})=>{ if(data) setAuditLog(data); });
@@ -1811,8 +1853,13 @@ export default function App() {
           return (
             <>
               <div style={{display:"flex",gap:4,marginBottom:10,flexWrap:"wrap"}}>
-                {[["summary","📊 概要"],["lifetime","🏆 生涯成績"],["h2h","⚔️ 対人成績"],["yakuman","🀄 役満"],["highscore","👑 最高点"],["chip","💰 チップ王"]].map(([v,l])=>(
-                  <button key={v} onClick={()=>setDashSub(v)} style={{padding:"5px 12px",borderRadius:16,border:"none",cursor:"pointer",fontSize:12,fontWeight:500,background:dashSub===v?"#e74c3c":"rgba(255,255,255,0.1)",color:"#fff"}}>{l}</button>
+                {[["summary","📊 概要"],["lifetime","🏆 生涯成績"],["h2h","⚔️ 対人成績"],["yakuman","🀄 役満"],["highscore","👑 最高点"],["chip","💰 チップ王"],["sotoba","🏇 外馬"]].map(([v,l])=>(
+                  <button key={v} onClick={()=>setDashSub(v)} style={{padding:"5px 12px",borderRadius:16,border:"none",cursor:"pointer",fontSize:12,fontWeight:500,
+                    background:dashSub===v?"#e74c3c":v==="sotoba"&&addStep===2?"rgba(231,76,60,0.25)":"rgba(255,255,255,0.1)",
+                    color:"#fff",position:"relative"}}>
+                    {l}
+                    {v==="sotoba"&&addStep===2&&<span style={{position:"absolute",top:-3,right:-3,width:7,height:7,borderRadius:"50%",background:"#e74c3c",animation:"pulse 1s infinite"}}/>}
+                  </button>
                 ))}
               </div>
 
@@ -2494,6 +2541,220 @@ export default function App() {
                             </div>
                           </div>
                         ))}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+
+              {/* 外馬モード サブタブ */}
+              {dashSub==="sotoba" && (()=>{
+                const isLive = addStep === 2;
+                const currentRoundIndex = addRounds.length; // 次に予想すべき半荘番号（0-based）
+                const playingMembers = addSel.map(id=>gm(id)).filter(Boolean);
+
+                // 自分が今の半荘に対してすでに予想済みか
+                const myPred = predSelf
+                  ? predictions.find(p=>p.session_date===addDate&&p.round_index===currentRoundIndex&&p.predictor_id===predSelf)
+                  : null;
+
+                // 予想精度ランキング
+                const rankMap = {};
+                members.forEach(m=>{ rankMap[m.id]={name:m.name,total:0,firstOk:0,lastOk:0}; });
+                predictions.filter(p=>p.actual_first!==null).forEach(p=>{
+                  if(!rankMap[p.predictor_id]) return;
+                  rankMap[p.predictor_id].total++;
+                  if(p.correct_first) rankMap[p.predictor_id].firstOk++;
+                  if(p.correct_last) rankMap[p.predictor_id].lastOk++;
+                });
+                const rankList = Object.entries(rankMap)
+                  .map(([id,v])=>({id:Number(id),...v,bothOk:v.firstOk+v.lastOk,bothTotal:v.total*2}))
+                  .filter(v=>v.total>0)
+                  .sort((a,b)=>(b.bothOk/b.bothTotal)-(a.bothOk/a.bothTotal)||(b.bothOk-a.bothOk));
+
+                return (
+                  <>
+                    <div style={{fontSize:13,fontWeight:600,color:"#e74c3c",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
+                      🏇 外馬モード
+                      {isLive && <span style={{fontSize:10,background:"rgba(231,76,60,0.2)",color:"#e74c3c",padding:"2px 7px",borderRadius:6,border:"1px solid rgba(231,76,60,0.4)"}}>LIVE</span>}
+                    </div>
+
+                    {/* LIVE中でない場合 */}
+                    {!isLive && (
+                      <div style={{textAlign:"center",padding:40,color:"#555"}}>
+                        <div style={{fontSize:36,marginBottom:10}}>🏇</div>
+                        <div style={{fontSize:13,color:"#666"}}>対局中のみ予想できます</div>
+                        <div style={{fontSize:11,color:"#444",marginTop:6}}>LIVEが始まるとここで予想できます</div>
+                      </div>
+                    )}
+
+                    {/* LIVE中 */}
+                    {isLive && (
+                      <div style={{marginBottom:16}}>
+                        <div style={{...S.card({background:"linear-gradient(135deg,rgba(231,76,60,0.08),rgba(52,152,219,0.08))",border:"1px solid rgba(255,255,255,0.15)"}),marginBottom:10}}>
+                          <div style={{fontSize:12,color:"#ccc",marginBottom:10}}>
+                            第{currentRoundIndex+1}半荘の予想
+                          </div>
+
+                          {/* あなたは？ */}
+                          {!predSelf && (
+                            <>
+                              <div style={{fontSize:11,color:"#888",marginBottom:8}}>まずあなたを選んでください</div>
+                              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
+                                {members.filter(m=>!addSel.includes(m.id)).map(m=>(
+                                  <div key={m.id} onClick={()=>setPredSelf(m.id)}
+                                    style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"8px 4px",borderRadius:8,cursor:"pointer",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)"}}>
+                                    <Av m={m} sz={28}/>
+                                    <div style={{fontSize:10,color:"#ccc"}}>{m.name}</div>
+                                  </div>
+                                ))}
+                              </div>
+                              {addSel.length > 0 && members.filter(m=>!addSel.includes(m.id)).length===0 && (
+                                <div style={{fontSize:11,color:"#666",textAlign:"center",padding:12}}>全員参加中のため外馬はいません</div>
+                              )}
+                            </>
+                          )}
+
+                          {/* 予想UI */}
+                          {predSelf && !myPred && (
+                            <>
+                              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12}}>
+                                <Av m={gm(predSelf)} sz={22}/>
+                                <span style={{fontSize:12,color:"#ccc"}}>{gm(predSelf)?.name}として予想</span>
+                                <button onClick={()=>{setPredSelf(null);setPredFirst(null);setPredLast(null);}} style={{marginLeft:"auto",fontSize:10,color:"#666",background:"none",border:"none",cursor:"pointer"}}>変更</button>
+                              </div>
+
+                              {/* 対局中メンバー */}
+                              <div style={{fontSize:11,color:"#888",marginBottom:6}}>🥇 1位予想</div>
+                              <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6,marginBottom:12}}>
+                                {playingMembers.map(m=>(
+                                  <div key={m.id} onClick={()=>setPredFirst(predFirst===m.id?null:m.id)}
+                                    style={{display:"flex",alignItems:"center",gap:6,padding:"8px 10px",borderRadius:8,cursor:"pointer",
+                                      border:`1px solid ${predFirst===m.id?"#f1c40f":"rgba(255,255,255,0.1)"}`,
+                                      background:predFirst===m.id?"rgba(241,196,15,0.15)":"rgba(255,255,255,0.03)"}}>
+                                    <Av m={m} sz={22}/>
+                                    <span style={{fontSize:12}}>{m.name}</span>
+                                    {predFirst===m.id&&<span style={{marginLeft:"auto",fontSize:14}}>🥇</span>}
+                                  </div>
+                                ))}
+                              </div>
+
+                              <div style={{fontSize:11,color:"#888",marginBottom:6}}>💀 最下位（4位）予想</div>
+                              <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6,marginBottom:14}}>
+                                {playingMembers.map(m=>(
+                                  <div key={m.id} onClick={()=>m.id!==predFirst&&setPredLast(predLast===m.id?null:m.id)}
+                                    style={{display:"flex",alignItems:"center",gap:6,padding:"8px 10px",borderRadius:8,
+                                      cursor:m.id===predFirst?"not-allowed":"pointer",
+                                      opacity:m.id===predFirst?0.3:1,
+                                      border:`1px solid ${predLast===m.id?"#e74c3c":"rgba(255,255,255,0.1)"}`,
+                                      background:predLast===m.id?"rgba(231,76,60,0.15)":"rgba(255,255,255,0.03)"}}>
+                                    <Av m={m} sz={22}/>
+                                    <span style={{fontSize:12}}>{m.name}</span>
+                                    {predLast===m.id&&<span style={{marginLeft:"auto",fontSize:14}}>💀</span>}
+                                  </div>
+                                ))}
+                              </div>
+
+                              <button
+                                disabled={!predFirst||!predLast||predSubmitting}
+                                onClick={async()=>{
+                                  if(!predFirst||!predLast) return;
+                                  setPredSubmitting(true);
+                                  const {data} = await supabase.from("predictions").insert({
+                                    session_date: addDate,
+                                    round_index: currentRoundIndex,
+                                    predictor_id: predSelf,
+                                    pred_first: predFirst,
+                                    pred_last: predLast,
+                                    actual_first: null,
+                                    actual_last: null,
+                                    correct_first: null,
+                                    correct_last: null,
+                                  }).select().single();
+                                  if(data) setPredictions(prev=>[data,...prev]);
+                                  setPredFirst(null); setPredLast(null);
+                                  setPredSubmitting(false);
+                                  showToast("success","✅ 予想を送信しました！");
+                                }}
+                                style={{width:"100%",padding:"11px",borderRadius:8,border:"none",
+                                  background:(!predFirst||!predLast)?"rgba(255,255,255,0.08)":"linear-gradient(135deg,#e74c3c,#3498db)",
+                                  color:"#fff",fontWeight:"bold",fontSize:13,cursor:(!predFirst||!predLast)?"not-allowed":"pointer",
+                                  opacity:predSubmitting?0.5:1}}>
+                                {predSubmitting?"送信中...":"🏇 予想を送信"}
+                              </button>
+                            </>
+                          )}
+
+                          {/* 予想済み */}
+                          {predSelf && myPred && (
+                            <div style={{textAlign:"center",padding:12}}>
+                              <div style={{fontSize:13,color:"#2ecc71",marginBottom:8}}>✅ 第{currentRoundIndex+1}半荘の予想済み</div>
+                              <div style={{display:"flex",justifyContent:"center",gap:16,marginBottom:8}}>
+                                <div style={{textAlign:"center"}}>
+                                  <div style={{fontSize:10,color:"#888",marginBottom:3}}>🥇 1位予想</div>
+                                  <Av m={gm(myPred.pred_first)} sz={32}/>
+                                  <div style={{fontSize:11,marginTop:3}}>{gm(myPred.pred_first)?.name}</div>
+                                </div>
+                                <div style={{textAlign:"center"}}>
+                                  <div style={{fontSize:10,color:"#888",marginBottom:3}}>💀 最下位予想</div>
+                                  <Av m={gm(myPred.pred_last)} sz={32}/>
+                                  <div style={{fontSize:11,marginTop:3}}>{gm(myPred.pred_last)?.name}</div>
+                                </div>
+                              </div>
+                              {myPred.actual_first && (
+                                <div style={{fontSize:11,marginTop:6,color:"#aaa"}}>
+                                  結果：1位{myPred.correct_first?"✅":"❌"} 最下位{myPred.correct_last?"✅":"❌"}
+                                </div>
+                              )}
+                              {!myPred.actual_first && (
+                                <div style={{fontSize:10,color:"#555"}}>半荘終了後に結果が出ます</div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 予想精度ランキング */}
+                    <div style={{fontSize:12,fontWeight:600,color:"#ccc",marginBottom:8}}>🏆 予想精度ランキング</div>
+                    {rankList.length === 0 ? (
+                      <div style={{textAlign:"center",padding:24,color:"#555",fontSize:12}}>まだ予想の記録がありません</div>
+                    ) : (
+                      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                        {rankList.map((p,i)=>{
+                          const m = gm(p.id);
+                          const rate = p.bothTotal>0?Math.round(p.bothOk/p.bothTotal*100):0;
+                          const firstRate = p.total>0?Math.round(p.firstOk/p.total*100):0;
+                          const lastRate = p.total>0?Math.round(p.lastOk/p.total*100):0;
+                          return (
+                            <div key={p.id} style={{...S.card({background:i===0?"rgba(241,196,15,0.08)":"rgba(255,255,255,0.04)",border:`1px solid ${i===0?"rgba(241,196,15,0.3)":"rgba(255,255,255,0.08)"}`}),padding:"10px 12px"}}>
+                              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                                <span style={{fontSize:16}}>{RI[i]||`${i+1}`}</span>
+                                <Av m={m} sz={28}/>
+                                <div style={{flex:1}}>
+                                  <div style={{fontSize:12,fontWeight:500}}>{p.name}</div>
+                                  <div style={{fontSize:10,color:"#666"}}>{p.total}半荘予想</div>
+                                </div>
+                                <div style={{textAlign:"right"}}>
+                                  <div style={{fontSize:18,fontWeight:"bold",color:rate>=50?"#2ecc71":"#e74c3c"}}>{rate}%</div>
+                                  <div style={{fontSize:9,color:"#666"}}>総合的中率</div>
+                                </div>
+                              </div>
+                              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                                <div style={{background:"rgba(241,196,15,0.08)",borderRadius:6,padding:"5px 8px",textAlign:"center"}}>
+                                  <div style={{fontSize:10,color:"#888"}}>🥇 1位的中</div>
+                                  <div style={{fontSize:14,fontWeight:"bold",color:"#f1c40f"}}>{firstRate}%</div>
+                                  <div style={{fontSize:9,color:"#555"}}>{p.firstOk}/{p.total}</div>
+                                </div>
+                                <div style={{background:"rgba(231,76,60,0.08)",borderRadius:6,padding:"5px 8px",textAlign:"center"}}>
+                                  <div style={{fontSize:10,color:"#888"}}>💀 最下位的中</div>
+                                  <div style={{fontSize:14,fontWeight:"bold",color:"#e74c3c"}}>{lastRate}%</div>
+                                  <div style={{fontSize:9,color:"#555"}}>{p.lastOk}/{p.total}</div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </>
