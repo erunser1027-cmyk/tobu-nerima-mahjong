@@ -15,6 +15,7 @@ const SCORE_RATES = [
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-12", features:[
+    "生涯成績テーブルに月間MVP1位回数を追加（👑月MVP列・ソート対応）",
     "外馬モードに1位・4位のオッズ表示追加（直近10半荘の成績から自動計算）",
     "ハイ&ローのカードを絶対値表示に変更・遊び方をタブ内に移動・設定タブから削除",
     "ハイ&ローをタブ内で完結化（2人選択UI内蔵）",
@@ -138,6 +139,20 @@ function calcMvpIds(sessions, members, targetMonth) {
       return t.seisan >= 100 && t.rounds >= 10; // 両方満たす場合のみ
     })
     .map(m => m.id);
+}
+
+// MVP条件を満たした中で最上位（seisan最大）の1人のIDを返す
+function calcTopMvpId(sessions, members, targetMonth) {
+  const ids = calcMvpIds(sessions, members, targetMonth);
+  if (ids.length === 0) return null;
+  const filtered = sessions.filter(s => s.date.startsWith(targetMonth));
+  const seisanMap = {};
+  ids.forEach(id => { seisanMap[id] = 0; });
+  filtered.forEach(sess => {
+    const tot = calcTotals(sess);
+    ids.forEach(id => { seisanMap[id] = (seisanMap[id]||0) + (tot[id]?.seisan||0); });
+  });
+  return ids.reduce((best, id) => seisanMap[id] > (seisanMap[best]||0) ? id : best, ids[0]);
 }
 
 function calcTotals(sess) {
@@ -1808,9 +1823,18 @@ export default function App() {
             });
             const seisan=scY+chY, kati=seisan-ba;
             const avgRank=games?(r1*1+r2*2+r3*3+r4*4)/games:0;
+
+            // 生涯MVP1位回数（全sessions・月ごとに1位のみカウント）
+            const mvpMonths = new Set(sessions.map(s=>s.date.slice(0,7)));
+            let mvpCount = 0;
+            mvpMonths.forEach(month=>{
+              const topId = calcTopMvpId(sessions, members, month);
+              if(topId === m.id) mvpCount++;
+            });
+
             return{
               ...m, sc:Math.round(sc), seisan, ba, kati, games, chY,
-              r1,r2,r3,r4,yakuman,openRiichiCount,dealInCount,
+              r1,r2,r3,r4,yakuman,openRiichiCount,dealInCount,mvpCount,
               dealInRate: games?Math.round(dealInCount/games*1000)/10:0,
               topRate:  games?Math.round(r1/games*1000)/10:0,
               renRate:  games?Math.round((r1+r2)/games*1000)/10:0,
@@ -2018,6 +2042,7 @@ export default function App() {
                             {sortTh("r4","4位")}
                             {sortTh("yakuman","役満")}
                             {sortTh("chY","チップ")}
+                            {sortTh("mvpCount","👑月MVP")}
                           </tr>
                         </thead>
                         <tbody>
@@ -2053,6 +2078,7 @@ export default function App() {
                               <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#e74c3c"}}>{p.r4}</td>
                               <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#ffd700",fontWeight:p.yakuman>0?"bold":"normal"}}>{p.yakuman}</td>
                               <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:p.chY>=0?"#3498db":"#e74c3c",fontWeight:"bold"}}>{p.chY>=0?"+":""}{p.chY.toLocaleString()}</td>
+                              <td style={{padding:"6px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.05)",color:p.mvpCount>0?"#f1c40f":"#555",fontWeight:p.mvpCount>0?"bold":"normal"}}>{p.mvpCount>0?`👑${p.mvpCount}`:"-"}</td>
                             </tr>
                           );})}
                         </tbody>
