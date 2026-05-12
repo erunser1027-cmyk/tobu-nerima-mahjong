@@ -15,8 +15,8 @@ const SCORE_RATES = [
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-12", features:[
+    "ハイ&ローを独立タブ化（外馬の隣・対人成績で選んだ2人の成績からランダムでカード生成）",
     "外馬モード追加（LIVE中に1位・最下位を予想、精度ランキング表示）",
-    "T.LEAGUEチンチロの遊び方を設定タブに追加・STARTボタンを棒グラフ直下に移動",
     "MVP条件変更（スコア+100pt以上 かつ 10半荘以上参加）",
     "月別プルダウンフィルター追加（全期間〜今月の間に月を選んで表示）",
     "操作ログ機能追加（対局の削除・編集時に操作者を記録）",
@@ -366,9 +366,18 @@ export default function App() {
   const [h2hA, setH2hA] = useState(null);
   const [h2hB, setH2hB] = useState(null);
   const [lifeDetail, setLifeDetail] = useState(null);
-  const [last10Mode, setLast10Mode] = useState(false);
-  const [last10Revealed, setLast10Revealed] = useState({});
-  const [, setLast10Seed] = useState(0);
+  const [hiloMode, setHiloMode] = useState(false);
+  const [hiloCards, setHiloCards] = useState([]); // カード値の配列
+  const [hiloCardIdx, setHiloCardIdx] = useState(0); // 現在のカードindex
+  const [hiloSenko, setHiloSenko] = useState(null); // 先攻 "a" or "b"
+  const [hiloRound, setHiloRound] = useState(0); // 0-4
+  const [hiloSubTurn, setHiloSubTurn] = useState("senko"); // "senko" or "koko"
+  const [hiloScoreA, setHiloScoreA] = useState(0);
+  const [hiloScoreB, setHiloScoreB] = useState(0);
+  const [hiloLog, setHiloLog] = useState([]); // [{round, who, pred, result, prev, next}]
+  const [hiloPhase, setHiloPhase] = useState("idle"); // idle|decide|playing|result
+  const [hiloReveal, setHiloReveal] = useState(null); // 直前の予想結果表示用
+  const [, ] = useState(0); // legacy placeholder
   const [showLivePanel, setShowLivePanel] = useState(false);
   const [yakumanCelebration, setYakumanCelebration] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -1632,29 +1641,29 @@ export default function App() {
               )}
             </div>
 
-            {/* T.LEAGUEチンチロ 遊び方セクション */}
+            {/* T.LEAGUEハイ＆ロー 遊び方セクション */}
             <div style={{marginBottom:12}}>
-              <div onClick={()=>setShowChinchiroSection(p=>!p)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",padding:"8px 10px",background:"rgba(231,76,60,0.07)",borderRadius:8,border:"1px solid rgba(231,76,60,0.18)",marginBottom:showChinchiroSection?0:0}}>
-                <div style={{fontSize:12,fontWeight:500,color:"#e74c3c"}}>🎲 T.LEAGUEチンチロの遊び方</div>
+              <div onClick={()=>setShowChinchiroSection(p=>!p)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",padding:"8px 10px",background:"rgba(243,156,18,0.07)",borderRadius:8,border:"1px solid rgba(243,156,18,0.18)"}}>
+                <div style={{fontSize:12,fontWeight:500,color:"#f39c12"}}>🃏 T.LEAGUEハイ＆ローの遊び方</div>
                 <span style={{fontSize:14,color:"#888"}}>{showChinchiroSection?"▲":"▼"}</span>
               </div>
               {showChinchiroSection && (
-                <div style={{padding:"12px 14px",background:"rgba(231,76,60,0.04)",borderRadius:"0 0 8px 8px",border:"1px solid rgba(231,76,60,0.12)",borderTop:"none"}}>
+                <div style={{padding:"12px 14px",background:"rgba(243,156,18,0.04)",borderRadius:"0 0 8px 8px",border:"1px solid rgba(243,156,18,0.12)",borderTop:"none"}}>
                   <div style={{fontSize:11,color:"#ccc",lineHeight:2,marginBottom:10}}>
-                    <span style={{color:"#e74c3c",fontWeight:700}}>①</span> ダッシュボードの「対人成績」を開く<br/>
-                    <span style={{color:"#e74c3c",fontWeight:700}}>②</span> 対戦したい2人を選ぶ<br/>
-                    <span style={{color:"#e74c3c",fontWeight:700}}>③</span> 勝敗バーの下の「<span style={{color:"#e74c3c",fontWeight:600}}>T.LEAGUEチンチロ START ▶</span>」を押す<br/>
-                    <span style={{color:"#e74c3c",fontWeight:700}}>④</span> 2人の過去の対戦成績からランダムに最大10戦が抽選され、伏せられた状態で並ぶ<br/>
-                    <span style={{color:"#e74c3c",fontWeight:700}}>⑤</span> カードを1枚ずつタップして、勝敗をめくっていく<br/>
-                    <span style={{color:"#e74c3c",fontWeight:700}}>⑥</span> 全部めくったら勝者が決定！
+                    <span style={{color:"#f39c12",fontWeight:700}}>①</span> ダッシュボードの「対人成績」を開き、対戦したい2人を選ぶ<br/>
+                    <span style={{color:"#f39c12",fontWeight:700}}>②</span> 「<span style={{color:"#f39c12",fontWeight:600}}>🃏 ハイ&ロー</span>」タブを開く<br/>
+                    <span style={{color:"#f39c12",fontWeight:700}}>③</span> 「🎲 ランダム決定」ボタンで先攻・後攻を決める<br/>
+                    <span style={{color:"#f39c12",fontWeight:700}}>④</span> 過去の対戦スコアがカード値になる。表示されたカードを見て次が HIGH か LOW かを予想<br/>
+                    <span style={{color:"#f39c12",fontWeight:700}}>⑤</span> 先攻→後攻の順に交互に予想。これを5ラウンド繰り返す<br/>
+                    <span style={{color:"#f39c12",fontWeight:700}}>⑥</span> 合計ポイントの多い方が勝ち！
                   </div>
                   <div style={{background:"rgba(255,255,255,0.04)",borderRadius:7,padding:"8px 10px",marginBottom:8}}>
                     <div style={{fontSize:10,color:"#888",lineHeight:1.8}}>
-                      過去の実際の対戦データが勝敗の根拠になるので、実力差がそのまま結果に反映されやすい。ただしランダム抽選なので、格下が逆転することも。飲みの席でひと盛り上がりしたいときにどうぞ🍻
+                      過去の実際の対戦スコアがカードになるので、相手の調子や傾向を読む力も試される。外れても言い訳できないのが面白さ。飲みの席でひと盛り上がりしたいときにどうぞ🍻
                     </div>
                   </div>
                   <div style={{fontSize:9,color:"#555",textAlign:"center"}}>
-                    ※ 同卓した記録がない2人では遊べません
+                    ※ 2人の対戦履歴が2件以上ないと遊べません
                   </div>
                 </div>
               )}
@@ -1844,6 +1853,35 @@ export default function App() {
             else { setSortKey(key); setSortAsc(false); }
           };
           const liSorted = [...lifetimeStats].sort((a,b)=> sortAsc ? a[sortKey]-b[sortKey] : b[sortKey]-a[sortKey]);
+
+          // 対人成績計算（ハイ&ローでも使用するためダッシュボードレベルで計算）
+          let h2hStats = null;
+          if (h2hA && h2hB) {
+            const mA = gm(h2hA), mB = gm(h2hB);
+            const sidA = String(h2hA), sidB = String(h2hB);
+            let togames=0, aWins=0, bWins=0, aSc=0, bSc=0;
+            let aR1=0,aR2=0,aR3=0,aR4=0, bR1=0,bR2=0,bR3=0,bR4=0;
+            const h2hHistory = [];
+            sessions.forEach(s => {
+              const sMembers = s.members.map(Number);
+              if (!sMembers.includes(h2hA) || !sMembers.includes(h2hB)) return;
+              s.rounds.forEach(r => {
+                const rPlayers = r.players.map(Number);
+                if (!rPlayers.includes(h2hA) || !rPlayers.includes(h2hB)) return;
+                const va = N(r.scores[sidA] ?? r.scores[h2hA]);
+                const vb = N(r.scores[sidB] ?? r.scores[h2hB]);
+                togames++;
+                aSc += va; bSc += vb;
+                if (va > vb) aWins++; else if (vb > va) bWins++;
+                const sorted = [...rPlayers].sort((x,y)=>N(r.scores[String(y)]??r.scores[y])-N(r.scores[String(x)]??r.scores[x]));
+                const rankA = sorted.indexOf(h2hA)+1, rankB = sorted.indexOf(h2hB)+1;
+                if(rankA===1)aR1++; else if(rankA===2)aR2++; else if(rankA===3)aR3++; else aR4++;
+                if(rankB===1)bR1++; else if(rankB===2)bR2++; else if(rankB===3)bR3++; else bR4++;
+                h2hHistory.push({ date:s.date, va, vb, rankA, rankB });
+              });
+            });
+            h2hStats = { mA, mB, togames, aWins, bWins, aSc, bSc, aR1,aR2,aR3,aR4, bR1,bR2,bR3,bR4, history:h2hHistory };
+          }
           const sortTh = (k, label) => (
             <th key={k} onClick={()=>handleSort(k)} style={{color:sortKey===k?"#e74c3c":"#666",fontWeight:400,padding:"5px 4px",textAlign:"right",borderBottom:"1px solid rgba(255,255,255,0.1)",cursor:"pointer",whiteSpace:"nowrap",userSelect:"none",fontSize:10}}>
               {label}{sortKey===k?(sortAsc?"↑":"↓"):""}
@@ -1853,7 +1891,7 @@ export default function App() {
           return (
             <>
               <div style={{display:"flex",gap:4,marginBottom:10,flexWrap:"wrap"}}>
-                {[["summary","📊 概要"],["lifetime","🏆 生涯成績"],["h2h","⚔️ 対人成績"],["yakuman","🀄 役満"],["highscore","👑 最高点"],["chip","💰 チップ王"],["sotoba","🏇 外馬"]].map(([v,l])=>(
+                {[["summary","📊 概要"],["lifetime","🏆 生涯成績"],["h2h","⚔️ 対人成績"],["yakuman","🀄 役満"],["highscore","👑 最高点"],["chip","💰 チップ王"],["hilo","🃏 ハイ&ロー"],["sotoba","🏇 外馬"]].map(([v,l])=>(
                   <button key={v} onClick={()=>setDashSub(v)} style={{padding:"5px 12px",borderRadius:16,border:"none",cursor:"pointer",fontSize:12,fontWeight:500,
                     background:dashSub===v?"#e74c3c":v==="sotoba"&&addStep===2?"rgba(231,76,60,0.25)":"rgba(255,255,255,0.1)",
                     color:"#fff",position:"relative"}}>
@@ -2132,7 +2170,7 @@ export default function App() {
                       {members.filter(m=>m.id!==exclude).map(m=>{
                         const on = val===m.id;
                         return (
-                          <div key={m.id} onClick={()=>{setter(on?null:m.id);setLast10Mode(false);setLast10Revealed({});}}
+                          <div key={m.id} onClick={()=>{setter(on?null:m.id);setHiloMode(false);setHiloPhase("idle");setHiloCards([]);setHiloLog([]);setHiloReveal(null);}}
                             style={{borderRadius:8,padding:"6px 4px",textAlign:"center",cursor:"pointer",
                               border:on?"2px solid #e74c3c":"1px solid rgba(255,255,255,0.15)",
                               background:on?"rgba(231,76,60,0.15)":"rgba(255,255,255,0.04)"}}>
@@ -2144,38 +2182,6 @@ export default function App() {
                     </div>
                   </div>
                 );
-
-                // 対人成績計算
-                let h2hStats = null;
-                if (h2hA && h2hB) {
-                  const mA = gm(h2hA), mB = gm(h2hB);
-                  const sidA = String(h2hA), sidB = String(h2hB);
-                  let togames=0, aWins=0, bWins=0, aSc=0, bSc=0;
-                  let aR1=0,aR2=0,aR3=0,aR4=0, bR1=0,bR2=0,bR3=0,bR4=0;
-                  const history = [];
-
-                  sessions.forEach(s => {
-                    const sMembers = s.members.map(Number);
-                    if (!sMembers.includes(h2hA) || !sMembers.includes(h2hB)) return;
-                    s.rounds.forEach(r => {
-                      const rPlayers = r.players.map(Number);
-                      if (!rPlayers.includes(h2hA) || !rPlayers.includes(h2hB)) return;
-                      const va = N(r.scores[sidA] ?? r.scores[h2hA]);
-                      const vb = N(r.scores[sidB] ?? r.scores[h2hB]);
-                      togames++;
-                      aSc += va; bSc += vb;
-                      if (va > vb) aWins++; else if (vb > va) bWins++;
-                      // 順位
-                      const sorted = [...rPlayers].sort((x,y)=>N(r.scores[String(y)]??r.scores[y])-N(r.scores[String(x)]??r.scores[x]));
-                      const rankA = sorted.indexOf(h2hA)+1, rankB = sorted.indexOf(h2hB)+1;
-                      if(rankA===1)aR1++; else if(rankA===2)aR2++; else if(rankA===3)aR3++; else aR4++;
-                      if(rankB===1)bR1++; else if(rankB===2)bR2++; else if(rankB===3)bR3++; else bR4++;
-                      history.push({ date:s.date, va, vb, rankA, rankB });
-                    });
-                  });
-
-                  h2hStats = { mA, mB, togames, aWins, bWins, aSc, bSc, aR1,aR2,aR3,aR4, bR1,bR2,bR3,bR4, history };
-                }
 
                 const Bar = ({aVal, bVal, aCol="#e74c3c", bCol="#3498db"}) => {
                   const total = aVal + bVal || 1;
@@ -2242,19 +2248,6 @@ export default function App() {
                               <Bar aVal={aWins} bVal={bWins}/>
                             </div>
 
-                            {/* ランダム10戦START（バーグラフ直下） */}
-                            {history.length > 0 && (
-                              <button onClick={()=>{
-                                if(last10Mode){ setLast10Mode(false); setLast10Revealed({}); }
-                                else { setLast10Mode(true); setLast10Revealed({}); setLast10Seed(Date.now()); }
-                              }} style={{width:"100%",padding:"10px",marginBottom:12,borderRadius:8,border:"none",cursor:"pointer",
-                                fontWeight:"bold",fontSize:13,
-                                background:last10Mode?"rgba(255,255,255,0.1)":"linear-gradient(135deg,#e74c3c,#3498db)",
-                                color:"#fff"}}>
-                                {last10Mode ? "🎲 やめる" : "🎲 T.LEAGUEチンチロ START ▶"}
-                              </button>
-                            )}
-
                             {/* 着順比較 */}
                             <div style={{fontSize:11,color:"#ccc",marginBottom:6}}>📊 着順内訳</div>
                             {[["1位","#f39c12",aR1,bR1],["2位","#aaa",aR2,bR2],["3位","#888",aR3,bR3],["4位","#e74c3c",aR4,bR4]].map(([label,col,av,bv])=>(
@@ -2306,97 +2299,6 @@ export default function App() {
                             ))}
                           </div>
 
-                          {/* 過去10戦ゲームモード */}
-                          {history.length > 0 && (() => {
-                            const allHistory = [...history];
-                            const shuffled = allHistory.sort(()=>Math.random()-0.5);
-                            const last10 = shuffled.slice(0, Math.min(10, shuffled.length));
-                            const isPlaying = last10Mode;
-                            const revealed = last10Revealed;
-                            const allRevealed = last10.every((_,i)=>revealed[i]);
-                            const aWins10 = last10.filter((_,i)=>revealed[i]&&last10[i].va>last10[i].vb).length;
-                            const bWins10 = last10.filter((_,i)=>revealed[i]&&last10[i].vb>last10[i].va).length;
-                            if (!isPlaying) return null;
-                            return (
-                              <div style={{...S.card({background:"linear-gradient(135deg,rgba(231,76,60,0.08),rgba(52,152,219,0.08))",border:"1px solid rgba(255,255,255,0.15)"})}}>
-                                <div style={{fontSize:10,color:"#888",marginBottom:12}}>🀄 タップで結果をめくる</div>
-                                {/* 対戦カード */}
-                                <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
-                                  {last10.map((h,i)=>{
-                                        const isRev = !!revealed[i];
-                                        const aWin = h.va > h.vb;
-                                        return (
-                                          <div key={i} onClick={()=>!isRev&&setLast10Revealed(prev=>({...prev,[i]:true}))}
-                                            style={{borderRadius:9,overflow:"hidden",cursor:isRev?"default":"pointer",
-                                              border:`1px solid ${isRev?(aWin?"rgba(231,76,60,0.4)":"rgba(52,152,219,0.4)"):"rgba(255,255,255,0.12)"}`,
-                                              background:isRev?(aWin?"rgba(231,76,60,0.08)":"rgba(52,152,219,0.08)"):"rgba(255,255,255,0.04)"}}>
-                                            {!isRev ? (
-                                              <div style={{padding:"14px 12px",textAlign:"center"}}>
-                                                <div style={{fontSize:22}}>🀄</div>
-                                                <div style={{fontSize:11,color:"#555",marginTop:4}}>第{i+1}戦　タップでめくる</div>
-                                              </div>
-                                            ) : (
-                                              <div style={{padding:"10px 12px",display:"flex",alignItems:"center",gap:8}}>
-                                                <div style={{fontSize:11,color:"#666",width:36}}>第{i+1}戦</div>
-                                                <div style={{flex:1,textAlign:"right"}}>
-                                                  <div style={{fontSize:15,fontWeight:"bold",color:aWin?"#2ecc71":"#e74c3c"}}>{fw(h.va)}</div>
-                                                  <div style={{fontSize:9,color:"#888"}}>{RI[h.rankA-1]} {h2hStats.mA?.name}</div>
-                                                </div>
-                                                <div style={{fontSize:13,fontWeight:700,color:aWin?"#e74c3c":"#3498db",width:36,textAlign:"center"}}>
-                                                  {aWin?"勝":"負"}
-                                                </div>
-                                                <div style={{flex:1,textAlign:"left"}}>
-                                                  <div style={{fontSize:15,fontWeight:"bold",color:aWin?"#e74c3c":"#2ecc71"}}>{fw(h.vb)}</div>
-                                                  <div style={{fontSize:9,color:"#888"}}>{RI[h.rankB-1]} {h2hStats.mB?.name}</div>
-                                                </div>
-                                              </div>
-                                            )}
-                                          </div>
-                                        );
-                                      })}
-                                </div>
-
-                                {/* 全部めくったら結果発表 */}
-                                {allRevealed && (
-                                  <div style={{background:"rgba(255,255,255,0.06)",borderRadius:10,padding:14,textAlign:"center"}}>
-                                    <div style={{fontSize:13,color:"#ccc",marginBottom:10}}>🏁 過去{last10.length}戦の結果</div>
-                                    <div style={{display:"flex",justifyContent:"space-around",alignItems:"center"}}>
-                                      <div style={{textAlign:"center"}}>
-                                        <Av m={h2hStats.mA} sz={44}/>
-                                        <div style={{fontSize:13,fontWeight:600,marginTop:5}}>{h2hStats.mA?.name}</div>
-                                        <div style={{fontSize:28,fontWeight:"bold",color:aWins10>=bWins10?"#2ecc71":"#e74c3c",marginTop:4}}>{aWins10}勝</div>
-                                      </div>
-                                      <div style={{fontSize:18,color:"#555"}}>vs</div>
-                                      <div style={{textAlign:"center"}}>
-                                        <Av m={h2hStats.mB} sz={44}/>
-                                        <div style={{fontSize:13,fontWeight:600,marginTop:5}}>{h2hStats.mB?.name}</div>
-                                        <div style={{fontSize:28,fontWeight:"bold",color:bWins10>=aWins10?"#2ecc71":"#e74c3c",marginTop:4}}>{bWins10}勝</div>
-                                      </div>
-                                    </div>
-                                    {aWins10 !== bWins10 && (
-                                      <div style={{marginTop:12,fontSize:16,fontWeight:700,color:"#ffd700"}}>
-                                        🏆 {aWins10>bWins10?h2hStats.mA?.name:h2hStats.mB?.name} の勝ち！
-                                      </div>
-                                    )}
-                                    {aWins10 === bWins10 && (
-                                      <div style={{marginTop:12,fontSize:16,fontWeight:700,color:"#aaa"}}>🤝 引き分け！</div>
-                                    )}
-                                    <button onClick={()=>{setLast10Mode(false);setLast10Revealed({});}}
-                                      style={{marginTop:14,padding:"8px 20px",borderRadius:8,border:"none",background:"rgba(255,255,255,0.1)",color:"#aaa",cursor:"pointer",fontSize:12}}>
-                                      閉じる
-                                    </button>
-                                  </div>
-                                )}
-
-                                {/* 進捗 */}
-                                {!allRevealed && (
-                                  <div style={{textAlign:"center",fontSize:11,color:"#666"}}>
-                                    {Object.keys(revealed).length} / {last10.length} めくり済み
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })()}
                         </>
                       );
                     })()}
@@ -2541,6 +2443,229 @@ export default function App() {
                             </div>
                           </div>
                         ))}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+
+              {/* ハイ&ロー サブタブ */}
+              {dashSub==="hilo" && (()=>{
+                const h2hHistory = h2hStats?.history || [];
+                const mA = h2hStats?.mA, mB = h2hStats?.mB;
+                const hasPlayers = h2hA && h2hB;
+                const hasHistory = h2hHistory.length >= 2;
+
+                const startGame = () => {
+                  // 選んだ2人のh2h履歴のscoreをランダムシャッフルしてカードに
+                  const shuffled = [...h2hHistory].sort(()=>Math.random()-0.5).slice(0,11);
+                  const cards = shuffled.map(h=>h.va);
+                  setHiloCards(cards);
+                  setHiloCardIdx(0);
+                  setHiloScoreA(0); setHiloScoreB(0);
+                  setHiloLog([]); setHiloReveal(null);
+                  setHiloRound(0); setHiloSubTurn("senko");
+                  setHiloMode(true); setHiloPhase("decide");
+                };
+
+                const resetGame = () => {
+                  setHiloMode(false); setHiloPhase("idle");
+                  setHiloCards([]); setHiloCardIdx(0);
+                  setHiloScoreA(0); setHiloScoreB(0);
+                  setHiloLog([]); setHiloReveal(null);
+                };
+
+                const totalRounds = Math.min(5, Math.floor((hiloCards.length-1)/2));
+                const isDone = hiloRound >= totalRounds;
+                const curCard = hiloCards[hiloCardIdx];
+
+                const handlePred = (pred) => {
+                  const nextIdx = hiloCardIdx + 1;
+                  if(nextIdx >= hiloCards.length) return;
+                  const nextCard = hiloCards[nextIdx];
+                  const isHigh = nextCard > curCard;
+                  const isLow  = nextCard < curCard;
+                  const isSame = nextCard === curCard;
+                  const correct = isSame ? false : (pred==="high" ? isHigh : isLow);
+                  const who = hiloSubTurn==="senko" ? hiloSenko : (hiloSenko==="a"?"b":"a");
+                  const newLog = [...hiloLog, {round:hiloRound, who, pred, correct, prev:curCard, next:nextCard}];
+                  let newScoreA = hiloScoreA, newScoreB = hiloScoreB;
+                  if(correct){ if(who==="a") newScoreA++; else newScoreB++; }
+                  setHiloLog(newLog);
+                  setHiloScoreA(newScoreA); setHiloScoreB(newScoreB);
+                  setHiloReveal({pred, correct, prev:curCard, next:nextCard, isSame});
+                  setTimeout(()=>{
+                    setHiloReveal(null);
+                    setHiloCardIdx(nextIdx);
+                    if(hiloSubTurn==="senko"){
+                      setHiloSubTurn("koko");
+                    } else {
+                      const nextRound = hiloRound+1;
+                      if(nextRound >= totalRounds) setHiloPhase("result");
+                      else { setHiloRound(nextRound); setHiloSubTurn("senko"); }
+                    }
+                  }, 1400);
+                };
+
+                const currentWho = hiloSubTurn==="senko" ? hiloSenko : (hiloSenko==="a"?"b":"a");
+                const currentMem = currentWho==="a" ? mA : mB;
+
+                return (
+                  <>
+                    <div style={{fontSize:13,fontWeight:600,color:"#f39c12",marginBottom:10}}>🃏 T.LEAGUEハイ＆ロー</div>
+
+                    {/* 2人選択 */}
+                    {!hasPlayers && (
+                      <div style={{textAlign:"center",padding:24,color:"#555",fontSize:12}}>
+                        <div style={{fontSize:36,marginBottom:8}}>🃏</div>
+                        「対人成績」タブで対戦する2人を選んでください
+                      </div>
+                    )}
+
+                    {hasPlayers && !hasHistory && (
+                      <div style={{textAlign:"center",padding:24,color:"#555",fontSize:12}}>
+                        この2人の対戦履歴が2件以上ないと遊べません
+                      </div>
+                    )}
+
+                    {hasPlayers && hasHistory && (
+                      <div style={{...S.card({background:"linear-gradient(135deg,rgba(231,76,60,0.06),rgba(243,156,18,0.06))",border:"1px solid rgba(243,156,18,0.3)"})}}>
+                        <div style={{textAlign:"center",fontSize:12,fontWeight:700,color:"#f39c12",marginBottom:10}}>
+                          {mA?.name} vs {mB?.name}
+                          <span style={{fontSize:10,color:"#666",fontWeight:400,marginLeft:8}}>({h2hHistory.length}戦のデータ使用)</span>
+                        </div>
+
+                        {/* 未開始 */}
+                        {!hiloMode && (
+                          <button onClick={startGame}
+                            style={{width:"100%",padding:"14px",borderRadius:10,border:"none",cursor:"pointer",
+                              background:"linear-gradient(135deg,#e74c3c,#f39c12)",color:"#fff",fontWeight:"bold",fontSize:15}}>
+                            🃏 START ▶
+                          </button>
+                        )}
+
+                        {/* 先攻後攻決め */}
+                        {hiloMode && hiloPhase==="decide" && (
+                          <div style={{textAlign:"center",padding:"10px 0"}}>
+                            <div style={{fontSize:12,color:"#888",marginBottom:14}}>先攻・後攻をランダムで決めます</div>
+                            <div style={{display:"flex",justifyContent:"center",gap:16,marginBottom:16}}>
+                              <div style={{textAlign:"center"}}>
+                                <Av m={mA} sz={40}/>
+                                <div style={{fontSize:11,marginTop:4,color:"#e74c3c"}}>{mA?.name}</div>
+                              </div>
+                              <div style={{fontSize:20,color:"#555",alignSelf:"center"}}>vs</div>
+                              <div style={{textAlign:"center"}}>
+                                <Av m={mB} sz={40}/>
+                                <div style={{fontSize:11,marginTop:4,color:"#3498db"}}>{mB?.name}</div>
+                              </div>
+                            </div>
+                            <button onClick={()=>{ setHiloSenko(Math.random()<0.5?"a":"b"); setHiloPhase("playing"); }}
+                              style={{padding:"12px 28px",borderRadius:10,border:"none",cursor:"pointer",
+                                background:"linear-gradient(135deg,#e74c3c,#f39c12)",color:"#fff",fontWeight:"bold",fontSize:14}}>
+                              🎲 ランダム決定
+                            </button>
+                          </div>
+                        )}
+
+                        {/* ゲーム中 */}
+                        {hiloMode && hiloPhase==="playing" && !isDone && (
+                          <>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,padding:"6px 10px",background:"rgba(0,0,0,0.2)",borderRadius:8}}>
+                              <div style={{textAlign:"center"}}>
+                                <div style={{fontSize:9,color:"#888",marginBottom:2}}>{mA?.name}{hiloSenko==="a"?" 👑先攻":""}</div>
+                                <div style={{fontSize:22,fontWeight:"bold",color:hiloScoreA>=hiloScoreB?"#2ecc71":"#e74c3c"}}>{hiloScoreA}pt</div>
+                              </div>
+                              <div style={{fontSize:10,color:"#555"}}>第{hiloRound+1}ラウンド</div>
+                              <div style={{textAlign:"center"}}>
+                                <div style={{fontSize:9,color:"#888",marginBottom:2}}>{mB?.name}{hiloSenko==="b"?" 👑先攻":""}</div>
+                                <div style={{fontSize:22,fontWeight:"bold",color:hiloScoreB>=hiloScoreA?"#2ecc71":"#e74c3c"}}>{hiloScoreB}pt</div>
+                              </div>
+                            </div>
+
+                            <div style={{textAlign:"center",marginBottom:14}}>
+                              <div style={{fontSize:10,color:"#888",marginBottom:6}}>{mA?.name}のスコア（現在のカード）</div>
+                              <div style={{display:"inline-block",background:"rgba(255,255,255,0.1)",border:"2px solid rgba(243,156,18,0.6)",borderRadius:12,padding:"12px 28px"}}>
+                                <div style={{fontSize:32,fontWeight:"bold",color:curCard>=0?"#2ecc71":"#e74c3c"}}>{curCard>=0?"+":""}{curCard}</div>
+                              </div>
+                            </div>
+
+                            {hiloReveal && (
+                              <div style={{textAlign:"center",marginBottom:12,padding:"10px",background:hiloReveal.correct?"rgba(46,204,113,0.15)":"rgba(231,76,60,0.15)",borderRadius:8,border:`1px solid ${hiloReveal.correct?"rgba(46,204,113,0.4)":"rgba(231,76,60,0.4)"}`}}>
+                                <div style={{fontSize:20}}>{hiloReveal.correct?"✅":"❌"}</div>
+                                <div style={{fontSize:13,fontWeight:"bold",color:hiloReveal.correct?"#2ecc71":"#e74c3c"}}>
+                                  {hiloReveal.isSame?"引き分け（同値）":hiloReveal.correct?"正解！":"ハズレ"}
+                                </div>
+                                <div style={{fontSize:11,color:"#888",marginTop:2}}>
+                                  次のカード：<span style={{color:hiloReveal.next>=hiloReveal.prev?"#2ecc71":"#e74c3c",fontWeight:"bold"}}>{hiloReveal.next>=0?"+":""}{hiloReveal.next}</span>
+                                  <span style={{marginLeft:6}}>{hiloReveal.next>hiloReveal.prev?"▲HIGH":hiloReveal.next<hiloReveal.prev?"▼LOW":"→SAME"}</span>
+                                </div>
+                              </div>
+                            )}
+
+                            {!hiloReveal && (
+                              <>
+                                <div style={{textAlign:"center",marginBottom:10}}>
+                                  <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:4}}>
+                                    <Av m={currentMem} sz={22}/>
+                                    <span style={{fontSize:12,color:"#ccc"}}>{currentMem?.name}</span>
+                                    <span style={{fontSize:10,color:"#888"}}>（{hiloSubTurn==="senko"?"先攻":"後攻"}）</span>
+                                  </div>
+                                  <div style={{fontSize:11,color:"#888"}}>次のカードは？</div>
+                                </div>
+                                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                                  <button onClick={()=>handlePred("high")}
+                                    style={{padding:"18px 0",borderRadius:10,border:"2px solid rgba(46,204,113,0.5)",background:"rgba(46,204,113,0.15)",color:"#2ecc71",fontWeight:"bold",fontSize:20,cursor:"pointer"}}>
+                                    ▲ HIGH
+                                  </button>
+                                  <button onClick={()=>handlePred("low")}
+                                    style={{padding:"18px 0",borderRadius:10,border:"2px solid rgba(231,76,60,0.5)",background:"rgba(231,76,60,0.15)",color:"#e74c3c",fontWeight:"bold",fontSize:20,cursor:"pointer"}}>
+                                    ▼ LOW
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </>
+                        )}
+
+                        {/* 結果発表 */}
+                        {hiloMode && (hiloPhase==="result"||isDone) && (
+                          <div style={{textAlign:"center",padding:"10px 0"}}>
+                            <div style={{fontSize:13,color:"#ccc",marginBottom:14}}>🏁 ゲーム終了！</div>
+                            <div style={{display:"flex",justifyContent:"space-around",marginBottom:16}}>
+                              <div style={{textAlign:"center"}}>
+                                <Av m={mA} sz={44}/>
+                                <div style={{fontSize:12,fontWeight:600,marginTop:4}}>{mA?.name}</div>
+                                <div style={{fontSize:11,color:"#888"}}>{hiloSenko==="a"?"👑先攻":"後攻"}</div>
+                                <div style={{fontSize:30,fontWeight:"bold",color:hiloScoreA>hiloScoreB?"#2ecc71":"#e74c3c",marginTop:4}}>{hiloScoreA}pt</div>
+                              </div>
+                              <div style={{fontSize:18,color:"#555",alignSelf:"center"}}>vs</div>
+                              <div style={{textAlign:"center"}}>
+                                <Av m={mB} sz={44}/>
+                                <div style={{fontSize:12,fontWeight:600,marginTop:4}}>{mB?.name}</div>
+                                <div style={{fontSize:11,color:"#888"}}>{hiloSenko==="b"?"👑先攻":"後攻"}</div>
+                                <div style={{fontSize:30,fontWeight:"bold",color:hiloScoreB>hiloScoreA?"#2ecc71":"#e74c3c",marginTop:4}}>{hiloScoreB}pt</div>
+                              </div>
+                            </div>
+                            {hiloScoreA!==hiloScoreB && <div style={{fontSize:18,fontWeight:700,color:"#ffd700",marginBottom:12}}>🏆 {hiloScoreA>hiloScoreB?mA?.name:mB?.name} の勝ち！</div>}
+                            {hiloScoreA===hiloScoreB && <div style={{fontSize:16,fontWeight:700,color:"#aaa",marginBottom:12}}>🤝 引き分け！</div>}
+                            <div style={{textAlign:"left",marginBottom:12}}>
+                              {hiloLog.map((l,i)=>(
+                                <div key={i} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,0.05)",fontSize:10}}>
+                                  <span style={{color:"#555",width:52}}>R{l.round+1} {l.who==="a"?mA?.name:mB?.name}</span>
+                                  <span style={{color:l.pred==="high"?"#2ecc71":"#e74c3c",fontWeight:"bold",width:36}}>{l.pred==="high"?"▲HIGH":"▼LOW"}</span>
+                                  <span style={{color:"#555"}}>{l.prev>=0?"+":""}{l.prev}→{l.next>=0?"+":""}{l.next}</span>
+                                  <span style={{marginLeft:"auto"}}>{l.correct?"✅":"❌"}</span>
+                                </div>
+                              ))}
+                            </div>
+                            <div style={{display:"flex",gap:8}}>
+                              <button onClick={startGame} style={{flex:1,padding:"8px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#e74c3c,#f39c12)",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:"bold"}}>もう一度</button>
+                              <button onClick={resetGame} style={{flex:1,padding:"8px",borderRadius:8,border:"none",background:"rgba(255,255,255,0.1)",color:"#aaa",cursor:"pointer",fontSize:12}}>閉じる</button>
+                            </div>
+                          </div>
+                        )}
+
+                        {hiloMode && <button onClick={resetGame} style={{marginTop:10,width:"100%",padding:"6px",borderRadius:6,border:"none",background:"rgba(255,255,255,0.06)",color:"#555",cursor:"pointer",fontSize:10}}>🃏 やめる</button>}
                       </div>
                     )}
                   </>
