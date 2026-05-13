@@ -10,11 +10,13 @@ const SCORE_RATES = [
   { label:"0.5レート（1000点=50円）", val:50 },
   { label:"0.3レート（1000点=30円）", val:30 },
 ];
+const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ", "池袋カクレマ", "池袋PSJ北口"];
 
 // 更新履歴 - 新しい機能は必ず今日の日付で追加してください
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-13", features:[
+    "ルール設定に闘牌場所プルダウンを追加（LIVE・履歴に表示）",
     "ルール設定に終了予定時間を追加（LIVE画面に表示）",
     "対局開始時に開始時間を自動記録、保存時に終了時間を自動記録",
     "対戦履歴に開始・終了時間を表示",
@@ -335,7 +337,7 @@ export default function App() {
   const [members, setMembers] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [lr, setLr] = useState({ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:30, chipRate:50 });
+  const [lr, setLr] = useState({ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:30, chipRate:50, venue:"" });
   const [lb, setLb] = useState(null);
   const [calY, setCalY] = useState(new Date().getFullYear());
   const [calM, setCalM] = useState(new Date().getMonth());
@@ -351,7 +353,7 @@ export default function App() {
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   };
   const [addDate, setAddDate] = useState(today());
-  const [addRules, setAddRules] = useState({ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:30, chipRate:50 });
+  const [addRules, setAddRules] = useState({ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:30, chipRate:50, venue:"" });
   const [addSel, setAddSel] = useState([]);
   const [addRounds, setAddRounds] = useState([]);
   const [draftId, setDraftId] = useState(null); // Supabaseのdraft ID
@@ -1502,10 +1504,13 @@ export default function App() {
       {/* LIVE途中経過パネル */}
       {addStep===2 && showLivePanel && (
         <div style={{background:"linear-gradient(135deg,rgba(231,76,60,0.2),rgba(192,57,43,0.15))",border:"2px solid rgba(231,76,60,0.6)",borderBottom:"3px solid #e74c3c",padding:"14px 14px"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               <span style={{width:10,height:10,borderRadius:"50%",background:"#e74c3c",display:"inline-block",animation:"pulse 1s infinite",boxShadow:"0 0 6px #e74c3c"}}/>
-              <div style={{fontSize:15,fontWeight:800,color:"#e74c3c",letterSpacing:2}}>LIVE 途中経過</div>
+              <div>
+                <div style={{fontSize:15,fontWeight:800,color:"#e74c3c",letterSpacing:2}}>LIVE 途中経過</div>
+                {addRules.venue && <div style={{fontSize:10,color:"#888",marginTop:1}}>📍 {addRules.venue}</div>}
+              </div>
             </div>
             <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>
               <div style={{fontSize:12,color:"#aaa",background:"rgba(0,0,0,0.3)",padding:"2px 10px",borderRadius:10}}>{addRounds.length}半荘終了</div>
@@ -3230,6 +3235,9 @@ export default function App() {
                             🕐 {s.rules.startTime||"?"} 〜 {s.rules.endTime||"?"}
                           </span>
                         )}
+                        {s.rules?.venue && (
+                          <span style={{fontSize:9,color:"#888"}}>📍 {s.rules.venue}</span>
+                        )}
                         <span style={{fontSize:10,color:"#555"}}>{rL}</span>
                         {hasBashiro && (
                           <span
@@ -3392,6 +3400,13 @@ export default function App() {
                     style={{...S.inp({maxWidth:120})}}
                     placeholder="例: 21:30"/>
                   {addEndTimePlan && <div style={{fontSize:9,color:"#7fb9e0",marginTop:3}}>LIVE画面に表示されます</div>}
+                </div>
+                <div style={{marginBottom:10}}>
+                  <div style={{fontSize:11,color:"#888",marginBottom:3}}>闘牌場所（任意）</div>
+                  <select value={addRules.venue||""} onChange={e=>setAddRules(r=>({...r,venue:e.target.value}))} style={S.sel()}>
+                    <option value="">未選択</option>
+                    {VENUES.map(v=><option key={v} value={v}>{v}</option>)}
+                  </select>
                 </div>
                 <div style={{background:"rgba(52,152,219,0.08)",border:"1px solid rgba(52,152,219,0.2)",borderRadius:7,padding:8,marginBottom:10,fontSize:11,color:"#888"}}>
                   💡 順位点を直接入力<br/>
