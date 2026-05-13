@@ -15,6 +15,9 @@ const SCORE_RATES = [
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-13", features:[
+    "ルール設定に終了予定時間を追加（LIVE画面に表示）",
+    "対局開始時に開始時間を自動記録、保存時に終了時間を自動記録",
+    "対戦履歴に開始・終了時間を表示",
     "設定タブのアプリにする方法にURLコピーボタンを追加",
   ]},
   { date:"2026-05-12", features:[
@@ -342,6 +345,7 @@ export default function App() {
   const [mfPhoto, setMfPhoto] = useState(null);
 
   const [addStep, setAddStep] = useState(0);
+  const [addEndTimePlan, setAddEndTimePlan] = useState(""); // 終了予定時間（表示のみ・DB保存なし）
   const today = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -798,6 +802,9 @@ export default function App() {
   }
 
   function startAdd() {
+    const now = new Date();
+    const startTime = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
+    setAddRules(prev => ({...prev, startTime}));
     setAddStep(2);
     setRpSc(Object.fromEntries(addSel.map(id=>[id,""])));
     setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes([]); setRpOpenRiichi([]); setRpDealIn([]); setRpAutoId(null); setRpActive(null);
@@ -807,11 +814,13 @@ export default function App() {
   async function saveSession() {
     if (isSaving) return; // 二重送信防止
     setIsSaving(true);
+    const now = new Date();
+    const endTime = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
     const chips={}, bashiro={};
     addSel.forEach(id => { chips[id]=N(addChips[id]); bashiro[id]=N(addBashiro[id]); });
     const newSess = {
       date: addDate,
-      rules: {...addRules, uma: addRules.uma.map(Number)},
+      rules: {...addRules, uma: addRules.uma.map(Number), endTime},
       members: [...addSel],
       rounds: addRounds,
       chips,
@@ -1498,7 +1507,13 @@ export default function App() {
               <span style={{width:10,height:10,borderRadius:"50%",background:"#e74c3c",display:"inline-block",animation:"pulse 1s infinite",boxShadow:"0 0 6px #e74c3c"}}/>
               <div style={{fontSize:15,fontWeight:800,color:"#e74c3c",letterSpacing:2}}>LIVE 途中経過</div>
             </div>
-            <div style={{fontSize:12,color:"#aaa",background:"rgba(0,0,0,0.3)",padding:"2px 10px",borderRadius:10}}>{addRounds.length}半荘終了</div>
+            <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>
+              <div style={{fontSize:12,color:"#aaa",background:"rgba(0,0,0,0.3)",padding:"2px 10px",borderRadius:10}}>{addRounds.length}半荘終了</div>
+              <div style={{display:"flex",gap:6}}>
+                {addRules.startTime && <div style={{fontSize:10,color:"#888"}}>🕐 {addRules.startTime}〜</div>}
+                {addEndTimePlan && <div style={{fontSize:10,color:"#f39c12"}}>予定 {addEndTimePlan}終了</div>}
+              </div>
+            </div>
           </div>
           {(() => {
             const totals = {};
@@ -3210,6 +3225,11 @@ export default function App() {
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:isOpen?10:0}}>
                       <div onClick={()=>setHistOpen(prev=>({...prev,[s.id]:!isOpen}))} style={{cursor:"pointer",flex:1,display:"flex",alignItems:"center",gap:6}}>
                         <span style={{fontWeight:500,fontSize:12,color:"#ccc"}}>📅 {s.date}（{s.rounds.length}半荘）</span>
+                        {(s.rules?.startTime || s.rules?.endTime) && (
+                          <span style={{fontSize:10,color:"#666"}}>
+                            🕐 {s.rules.startTime||"?"} 〜 {s.rules.endTime||"?"}
+                          </span>
+                        )}
                         <span style={{fontSize:10,color:"#555"}}>{rL}</span>
                         {hasBashiro && (
                           <span
@@ -3365,6 +3385,13 @@ export default function App() {
                 <div style={{marginBottom:10}}>
                   <div style={{fontSize:11,color:"#888",marginBottom:3}}>チップレート（円/枚）</div>
                   <input type="text" inputMode="decimal" value={addRules.chipRate} onChange={e=>setAddRules(r=>({...r,chipRate:N(e.target.value)}))} style={S.inp()}/>
+                </div>
+                <div style={{marginBottom:10}}>
+                  <div style={{fontSize:11,color:"#888",marginBottom:3}}>終了予定時間（任意）</div>
+                  <input type="time" value={addEndTimePlan} onChange={e=>setAddEndTimePlan(e.target.value)}
+                    style={{...S.inp({maxWidth:120})}}
+                    placeholder="例: 21:30"/>
+                  {addEndTimePlan && <div style={{fontSize:9,color:"#7fb9e0",marginTop:3}}>LIVE画面に表示されます</div>}
                 </div>
                 <div style={{background:"rgba(52,152,219,0.08)",border:"1px solid rgba(52,152,219,0.2)",borderRadius:7,padding:8,marginBottom:10,fontSize:11,color:"#888"}}>
                   💡 順位点を直接入力<br/>
