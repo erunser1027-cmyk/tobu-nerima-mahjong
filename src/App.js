@@ -893,6 +893,7 @@ export default function App() {
     await deleteDraft();
     setAddStep(0); setAddRules({...lr}); setAddSel([]); setAddRounds([]);
     setAddDate(today());
+    setAddEndTimePlan("");
     setRpSc({}); setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes({}); setRpOpenRiichi([]); setRpDealIn([]); setAddChips({}); setAddBashiro({});
     setRpActive(null); setChipActive(null); setAddErr(""); setBashiroTotal("");
     setDraftId(null);
