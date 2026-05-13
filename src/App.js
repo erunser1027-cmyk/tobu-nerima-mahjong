@@ -14,6 +14,9 @@ const SCORE_RATES = [
 // 更新履歴 - 新しい機能は必ず今日の日付で追加してください
 // 今日: 2026-05-11
 const CHANGELOG = [
+  { date:"2026-05-13", features:[
+    "設定タブのアプリにする方法にURLコピーボタンを追加",
+  ]},
   { date:"2026-05-12", features:[
     "生涯成績テーブルに月間MVP1位回数を追加（👑月MVP列・ソート対応）",
     "外馬モードに1位・4位のオッズ表示追加（直近10半荘の成績から自動計算）",
@@ -1670,8 +1673,15 @@ export default function App() {
                 <div style={{fontSize:11,color:"#ccc",lineHeight:1.6}}>
                   <div style={{marginBottom:12}}>
                     <div style={{fontSize:12,fontWeight:600,color:"#7fb9e0",marginBottom:6}}>📱 iPhone（Safari）</div>
+                    <div style={{fontSize:10,color:"#aaa",marginBottom:6,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                      <span>1. Safariでこのページを開く</span>
+                      <button onClick={()=>{
+                        navigator.clipboard.writeText("https://tleague.nerima-night-crew.com").then(()=>showToast("success","✅ URLをコピーしました"));
+                      }} style={{fontSize:9,padding:"3px 8px",borderRadius:5,border:"1px solid rgba(52,152,219,0.4)",background:"rgba(52,152,219,0.12)",color:"#7fb9e0",cursor:"pointer",whiteSpace:"nowrap"}}>
+                        🔗 URLコピー
+                      </button>
+                    </div>
                     <div style={{fontSize:10,color:"#aaa",marginBottom:4}}>
-                      1. Safariでこのページを開く<br/>
                       2. 画面下部の <span style={{color:"#3498db",fontWeight:"bold"}}>共有ボタン □↑</span> をタップ<br/>
                       3. 「<span style={{color:"#3498db",fontWeight:"bold"}}>ホーム画面に追加</span>」を選択<br/>
                       4. 右上の「<span style={{color:"#3498db",fontWeight:"bold"}}>追加</span>」をタップ
@@ -1683,8 +1693,15 @@ export default function App() {
 
                   <div>
                     <div style={{fontSize:12,fontWeight:600,color:"#7fb9e0",marginBottom:6}}>🤖 Android（Chrome）</div>
+                    <div style={{fontSize:10,color:"#aaa",marginBottom:6,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                      <span>1. Chromeでこのページを開く</span>
+                      <button onClick={()=>{
+                        navigator.clipboard.writeText("https://tleague.nerima-night-crew.com").then(()=>showToast("success","✅ URLをコピーしました"));
+                      }} style={{fontSize:9,padding:"3px 8px",borderRadius:5,border:"1px solid rgba(52,152,219,0.4)",background:"rgba(52,152,219,0.12)",color:"#7fb9e0",cursor:"pointer",whiteSpace:"nowrap"}}>
+                        🔗 URLコピー
+                      </button>
+                    </div>
                     <div style={{fontSize:10,color:"#aaa",marginBottom:4}}>
-                      1. Chromeでこのページを開く<br/>
                       2. 画面右上の <span style={{color:"#3498db",fontWeight:"bold"}}>メニュー ⋮</span> をタップ<br/>
                       3. 「<span style={{color:"#3498db",fontWeight:"bold"}}>ホーム画面に追加</span>」を選択<br/>
                       4. 「<span style={{color:"#3498db",fontWeight:"bold"}}>追加</span>」をタップ
