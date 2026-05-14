@@ -15,6 +15,10 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 更新履歴 - 新しい機能は必ず今日の日付で追加してください
 // 今日: 2026-05-11
 const CHANGELOG = [
+  { date:"2026-05-14", features:[
+    "闘牌場所のデフォルトをサクセスに変更",
+    "終了予定時間に✕クリアボタンを追加（iOSのブラウザ標準ボタンが動作しない問題を解消）",
+  ]},
   { date:"2026-05-13", features:[
     "ルール設定に闘牌場所プルダウンを追加（LIVE・履歴に表示）",
     "ルール設定に終了予定時間を追加（LIVE画面に表示）",
@@ -337,7 +341,7 @@ export default function App() {
   const [members, setMembers] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [lr, setLr] = useState({ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:30, chipRate:50, venue:"" });
+  const [lr, setLr] = useState({ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:30, chipRate:50, venue:"サクセス" });
   const [lb, setLb] = useState(null);
   const [calY, setCalY] = useState(new Date().getFullYear());
   const [calM, setCalM] = useState(new Date().getMonth());
@@ -353,7 +357,7 @@ export default function App() {
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   };
   const [addDate, setAddDate] = useState(today());
-  const [addRules, setAddRules] = useState({ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:30, chipRate:50, venue:"" });
+  const [addRules, setAddRules] = useState({ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:30, chipRate:50, venue:"サクセス" });
   const [addSel, setAddSel] = useState([]);
   const [addRounds, setAddRounds] = useState([]);
   const [draftId, setDraftId] = useState(null); // Supabaseのdraft ID
@@ -482,9 +486,10 @@ export default function App() {
       .then(({data})=>{ if(data) setPredictions(data); });
   },[]);
 
-  // 半荘が確定されたとき自動採点
+  // 半荘が確定されたとき自動採点＋予想入力をリセット
   useEffect(()=>{
     if(addRounds.length === 0) return;
+    setPredFirst(null); setPredLast(null); // 次の半荘の予想入力をリセット
     const lastRound = addRounds[addRounds.length - 1];
     const roundIndex = addRounds.length - 1;
     const sorted = [...lastRound.players].sort((a,b)=>N(lastRound.scores[String(b)]??lastRound.scores[b])-N(lastRound.scores[String(a)]??lastRound.scores[a]));
