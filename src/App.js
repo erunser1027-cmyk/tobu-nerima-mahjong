@@ -3397,11 +3397,17 @@ export default function App() {
                 </div>
                 <div style={{marginBottom:10}}>
                   <div style={{fontSize:11,color:"#888",marginBottom:3}}>終了予定時間（任意）</div>
-                  <input type="time" value={addEndTimePlan}
-                    onChange={e=>setAddEndTimePlan(e.target.value)}
-                    onInput={e=>setAddEndTimePlan(e.target.value)}
-                    style={{...S.inp({maxWidth:120})}}
-                    placeholder="例: 21:30"/>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <input type="time" value={addEndTimePlan}
+                      onChange={e=>setAddEndTimePlan(e.target.value)}
+                      style={{...S.inp({maxWidth:120}),WebkitAppearance:"none"}}/>
+                    {addEndTimePlan && (
+                      <button onClick={()=>setAddEndTimePlan("")}
+                        style={{padding:"6px 10px",borderRadius:6,border:"1px solid rgba(255,255,255,0.2)",background:"rgba(255,255,255,0.08)",color:"#aaa",cursor:"pointer",fontSize:11,whiteSpace:"nowrap"}}>
+                        ✕ クリア
+                      </button>
+                    )}
+                  </div>
                   {addEndTimePlan && <div style={{fontSize:9,color:"#7fb9e0",marginTop:3}}>LIVE画面に表示されます</div>}
                 </div>
                 <div style={{marginBottom:10}}>
