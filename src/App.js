@@ -3397,7 +3397,9 @@ export default function App() {
                 </div>
                 <div style={{marginBottom:10}}>
                   <div style={{fontSize:11,color:"#888",marginBottom:3}}>終了予定時間（任意）</div>
-                  <input type="time" value={addEndTimePlan} onChange={e=>setAddEndTimePlan(e.target.value)}
+                  <input type="time" value={addEndTimePlan}
+                    onChange={e=>setAddEndTimePlan(e.target.value)}
+                    onInput={e=>setAddEndTimePlan(e.target.value)}
                     style={{...S.inp({maxWidth:120})}}
                     placeholder="例: 21:30"/>
                   {addEndTimePlan && <div style={{fontSize:9,color:"#7fb9e0",marginTop:3}}>LIVE画面に表示されます</div>}
