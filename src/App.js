@@ -16,6 +16,7 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-14", features:[
+    "ゴミ箱機能追加（削除した対局・メンバーを30日間保管、復活・完全削除が可能）",
     "闘牌場所のデフォルトをサクセスに変更",
     "終了予定時間に✕クリアボタンを追加（iOSのブラウザ標準ボタンが動作しない問題を解消）",
   ]},
@@ -380,6 +381,8 @@ export default function App() {
   const [toast, setToast] = useState(null); // {type:"error"|"success", msg:string}
   const [isSaving, setIsSaving] = useState(false);
   const [memberDeleteStep, setMemberDeleteStep] = useState({});
+  const [trashSessions, setTrashSessions] = useState([]);
+  const [trashMembers, setTrashMembers] = useState([]);
   const [auditModal, setAuditModal] = useState(null); // {action:"delete"|"edit", label, onConfirm}
   const [auditWho, setAuditWho] = useState(null);
   const [auditLog, setAuditLog] = useState([]);
@@ -523,6 +526,17 @@ export default function App() {
       .then(({data})=>{ if(data) setAuditLog(data); });
   },[]);
 
+  // ゴミ箱ロード＋30日超の自動完全削除
+  useEffect(()=>{
+    const thirtyDaysAgo = new Date(Date.now() - 30*24*60*60*1000).toISOString();
+    supabase.from("sessions").delete().lt("deleted_at", thirtyDaysAgo).not("deleted_at","is",null);
+    supabase.from("members").delete().lt("deleted_at", thirtyDaysAgo).not("deleted_at","is",null);
+    supabase.from("sessions").select("*").not("deleted_at","is",null).order("deleted_at",{ascending:false})
+      .then(({data})=>{ if(data) setTrashSessions(data); });
+    supabase.from("members").select("*").not("deleted_at","is",null).order("deleted_at",{ascending:false})
+      .then(({data})=>{ if(data) setTrashMembers(data); });
+  },[]);
+
   // 今月表示時にconfettiを1回だけ発火
   useEffect(()=>{
     if (period === "month" && mvpIds.length > 0 && !confettiShown) {
@@ -624,8 +638,8 @@ export default function App() {
     async function fetchData() {
       setLoading(true);
       const [{ data: mData }, { data: sData }] = await Promise.all([
-        supabase.from("members").select("*").order("id"),
-        supabase.from("sessions").select("*").order("created_at"),
+        supabase.from("members").select("*").is("deleted_at", null).order("id"),
+        supabase.from("sessions").select("*").is("deleted_at", null).order("created_at"),
       ]);
       if (mData) setMembers(mData);
       if (sData) setSessions(sData);
@@ -636,10 +650,10 @@ export default function App() {
     // リアルタイム購読
     const channel = supabase.channel("db-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "members" }, () => {
-        supabase.from("members").select("*").order("id").then(({ data }) => { if (data) setMembers(data); });
+        supabase.from("members").select("*").is("deleted_at", null).order("id").then(({ data }) => { if (data) setMembers(data); });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => {
-        supabase.from("sessions").select("*").order("created_at").then(({ data }) => { if (data) setSessions(data); });
+        supabase.from("sessions").select("*").is("deleted_at", null).order("created_at").then(({ data }) => { if (data) setSessions(data); });
       })
       .subscribe();
 
@@ -853,13 +867,15 @@ export default function App() {
 
   async function deleteSession(id, memberName) {
     try {
-      const { error } = await supabase.from("sessions").delete().eq("id", id);
+      const now = new Date().toISOString();
+      const { error } = await supabase.from("sessions").update({deleted_at: now}).eq("id", id);
       if (error) throw error;
       const s = sessions.find(s=>s.id===id);
-      await writeAuditLog(memberName, "削除", `${s?.date||id} の対局を削除`);
+      await writeAuditLog(memberName, "削除", `${s?.date||id} の対局をゴミ箱へ移動`);
+      setTrashSessions(prev=>[{...s, deleted_at:now}, ...prev]);
       setSessions(p => p.filter(s => s.id !== id));
       setHistOpen(prev => { const n={...prev}; delete n[id]; return n; });
-      showToast("success", "🗑 削除しました");
+      showToast("success", "🗑 ゴミ箱に移動しました（30日後に自動削除）");
     } catch (e) {
       console.error("deleteSession error:", e);
       showToast("error", "⚠️ 削除に失敗しました");
@@ -1761,6 +1777,75 @@ export default function App() {
                 </button>
               </div>
             </div>
+
+            {/* ゴミ箱セクション */}
+            {(trashSessions.length > 0 || trashMembers.length > 0) && (
+              <div style={{marginTop:8,marginBottom:8}}>
+                <div style={{padding:"8px 10px",background:"rgba(255,255,255,0.04)",borderRadius:8}}>
+                  <div style={{fontSize:12,fontWeight:500,color:"#ccc",marginBottom:8}}>🗑 ゴミ箱</div>
+                  <div style={{fontSize:9,color:"#555",marginBottom:10}}>削除から30日後に自動完全削除されます</div>
+
+                  {/* 削除済みセッション */}
+                  {trashSessions.map(s=>{
+                    const daysLeft = Math.max(0, 30 - Math.floor((Date.now()-new Date(s.deleted_at).getTime())/(1000*60*60*24)));
+                    return (
+                      <div key={s.id} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:11,color:"#aaa"}}>📅 {s.date}（{s.rounds?.length||0}半荘）</div>
+                          <div style={{fontSize:9,color:"#555"}}>残り{daysLeft}日で完全削除</div>
+                        </div>
+                        <button onClick={async()=>{
+                          await supabase.from("sessions").update({deleted_at:null}).eq("id",s.id);
+                          setSessions(prev=>[...prev,{...s,deleted_at:null}].sort((a,b)=>a.created_at>b.created_at?1:-1));
+                          setTrashSessions(prev=>prev.filter(x=>x.id!==s.id));
+                          showToast("success","✅ 対局データを復活しました");
+                        }} style={{fontSize:10,padding:"3px 8px",borderRadius:5,border:"1px solid rgba(46,204,113,0.4)",background:"rgba(46,204,113,0.1)",color:"#2ecc71",cursor:"pointer",whiteSpace:"nowrap"}}>
+                          ↩ 復活
+                        </button>
+                        <button onClick={async()=>{
+                          if(!window.confirm(`${s.date}の対局を完全削除しますか？\n元に戻せません。`)) return;
+                          await supabase.from("sessions").delete().eq("id",s.id);
+                          setTrashSessions(prev=>prev.filter(x=>x.id!==s.id));
+                          showToast("success","🗑 完全削除しました");
+                        }} style={{fontSize:10,padding:"3px 8px",borderRadius:5,border:"1px solid rgba(231,76,60,0.4)",background:"rgba(231,76,60,0.1)",color:"#e74c3c",cursor:"pointer",whiteSpace:"nowrap"}}>
+                          完全削除
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                  {/* 削除済みメンバー */}
+                  {trashMembers.map(m=>{
+                    const daysLeft = Math.max(0, 30 - Math.floor((Date.now()-new Date(m.deleted_at).getTime())/(1000*60*60*24)));
+                    return (
+                      <div key={m.id} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
+                        <Av m={m} sz={22}/>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:11,color:"#aaa"}}>{m.name}</div>
+                          <div style={{fontSize:9,color:"#555"}}>残り{daysLeft}日で完全削除</div>
+                        </div>
+                        <button onClick={async()=>{
+                          await supabase.from("members").update({deleted_at:null}).eq("id",m.id);
+                          setMembers(prev=>[...prev,{...m,deleted_at:null}].sort((a,b)=>a.id-b.id));
+                          setTrashMembers(prev=>prev.filter(x=>x.id!==m.id));
+                          showToast("success","✅ メンバーを復活しました");
+                        }} style={{fontSize:10,padding:"3px 8px",borderRadius:5,border:"1px solid rgba(46,204,113,0.4)",background:"rgba(46,204,113,0.1)",color:"#2ecc71",cursor:"pointer",whiteSpace:"nowrap"}}>
+                          ↩ 復活
+                        </button>
+                        <button onClick={async()=>{
+                          if(!window.confirm(`${m.name}を完全削除しますか？\n元に戻せません。`)) return;
+                          await supabase.from("members").delete().eq("id",m.id);
+                          setTrashMembers(prev=>prev.filter(x=>x.id!==m.id));
+                          showToast("success","🗑 完全削除しました");
+                        }} style={{fontSize:10,padding:"3px 8px",borderRadius:5,border:"1px solid rgba(231,76,60,0.4)",background:"rgba(231,76,60,0.1)",color:"#e74c3c",cursor:"pointer",whiteSpace:"nowrap"}}>
+                          完全削除
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* 操作ログセクション */}
             {auditLog.length > 0 && (
@@ -3843,9 +3928,12 @@ export default function App() {
                       <div style={{display:"flex",gap:4,alignItems:"center"}}>
                         <span style={{fontSize:10,color:"#e74c3c"}}>本当に良いですか？</span>
                         <button style={S.bs({color:"#e74c3c",fontSize:11})} onClick={async()=>{
-                          await supabase.from("members").delete().eq("id", m.id);
+                          const now = new Date().toISOString();
+                          await supabase.from("members").update({deleted_at: now}).eq("id", m.id);
+                          setTrashMembers(prev=>[{...m, deleted_at:now}, ...prev]);
                           setMembers(ms=>ms.filter(x=>x.id!==m.id));
                           setMemberDeleteStep(p=>({...p,[m.id]:0}));
+                          showToast("success","🗑 ゴミ箱に移動しました（30日後に自動削除）");
                         }}>削除する</button>
                         <button style={S.bs({fontSize:11})} onClick={()=>setMemberDeleteStep(p=>({...p,[m.id]:0}))}>いいえ</button>
                       </div>
