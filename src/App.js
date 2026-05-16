@@ -16,6 +16,8 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-14", features:[
+    "競馬レース機能：レースを「BGM的に流れる演出」に調整（1周120秒、ゴール意識を排除）",
+    "競馬レース機能：楕円トラックの周回アニメ実装（強さベース＋出遅れ・大逃げ・追い上げ）",
     "競馬レース機能：馬券購入UI実装（単勝・馬連・三連単・四連単、5分間の購入受付）",
     "競馬レース機能：オッズ計算ロジック実装（強さスコア・単勝・馬連・三連単・四連単）",
     "競馬レース機能の準備（既存の1位・最下位予想を撤去、race_betsテーブル接続）",
@@ -327,6 +329,152 @@ function Av({ m, sz }) {
 }
 
 // Confetti紙吹雪コンポーネント
+// ========================================================
+// 競馬レース：楕円トラックアニメーション
+// ========================================================
+function RaceTrack({ playingMembers, strengthMap, mySelection, betType }) {
+  // 各馬の位置（0〜1の周回進度、1で1周）
+  const [positions, setPositions] = useState(() =>
+    playingMembers.map(() => 0)
+  );
+  // 各馬の現在の速度倍率（基本ペース + ランダム変動）
+  const speedRefs = useRef(playingMembers.map(() => 1.0));
+  // 各馬の「ドラマイベント」状態
+  const eventRefs = useRef(playingMembers.map(() => ({type:"normal", until:0})));
+
+  // 基本速度：強さに応じた倍率（強い馬ほど速い）
+  // 1周120秒 → 毎フレーム16ms で 1/(120*60) ずつ進む基本進度
+  const baseProgressPerFrame = 1 / (120 * 60);
+
+  useEffect(() => {
+    let raf;
+    let lastTime = performance.now();
+    const tick = (now) => {
+      const dt = Math.min(50, now - lastTime);
+      lastTime = now;
+      setPositions(prev => prev.map((p, i) => {
+        const m = playingMembers[i];
+        const strength = strengthMap?.[m?.id]?.strength || 30;
+        // 強さに応じた基本速度倍率（50を基準、強いほど速い）
+        const baseSpd = 0.85 + (strength / 100) * 0.3; // 0.85〜1.15程度
+
+        // ドラマイベント管理
+        const ev = eventRefs.current[i];
+        if (now > ev.until) {
+          // 5%の確率でドラマイベント発生
+          const r = Math.random();
+          if (r < 0.01) {
+            // 出遅れ・スタミナ切れ（5秒間 速度0.4倍）
+            eventRefs.current[i] = {type:"slow", until: now + 5000};
+          } else if (r < 0.02) {
+            // 大逃げ（4秒間 速度1.6倍）
+            eventRefs.current[i] = {type:"dash", until: now + 4000};
+          } else if (r < 0.03) {
+            // 追い上げ（3秒間 速度1.4倍）
+            eventRefs.current[i] = {type:"chase", until: now + 3000};
+          } else {
+            eventRefs.current[i] = {type:"normal", until: now + 1000};
+          }
+        }
+
+        // 速度修飾
+        let evMod = 1.0;
+        if (ev.type === "slow") evMod = 0.4;
+        else if (ev.type === "dash") evMod = 1.6;
+        else if (ev.type === "chase") evMod = 1.4;
+
+        // 小さな揺らぎ
+        const jitter = 0.92 + Math.random() * 0.16;
+
+        const totalSpd = baseSpd * evMod * jitter;
+        speedRefs.current[i] = totalSpd;
+
+        // 進度更新（dtを考慮、16msあたり1フレーム基準）
+        const advance = baseProgressPerFrame * totalSpd * (dt / 16);
+        return (p + advance) % 1;
+      }));
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playingMembers, strengthMap, baseProgressPerFrame]);
+
+  // 楕円トラック：cx=140, cy=70, rx=110, ry=45
+  const cx = 140, cy = 70, rx = 110, ry = 45;
+  // 馬を異なる半径のレーン上に配置（内側〜外側 4レーン）
+  const laneOffsets = [0, 7, 14, 21];
+
+  // 自分が賭けた馬のID
+  const myHorseIds = betType ? mySelection : [];
+
+  return (
+    <div style={{
+      background:"linear-gradient(180deg, rgba(46,139,87,0.2), rgba(46,139,87,0.4))",
+      border:"1px solid rgba(255,255,255,0.15)", borderRadius:10,
+      padding:"8px", marginBottom:10, position:"relative", overflow:"hidden"
+    }}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4,padding:"0 4px"}}>
+        <div style={{fontSize:10,color:"#aaa"}}>🏇 レース実況中継</div>
+        <div style={{fontSize:9,color:"#888",display:"flex",alignItems:"center",gap:4}}>
+          <span style={{width:5,height:5,borderRadius:"50%",background:"#e74c3c",animation:"pulse 1.5s infinite"}}/>
+          LIVE
+        </div>
+      </div>
+      <svg viewBox="0 0 280 140" style={{width:"100%",height:"auto",display:"block"}}>
+        {/* 楕円トラック（外） */}
+        <ellipse cx={cx} cy={cy} rx={rx+24} ry={ry+24}
+          fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="1"/>
+        {/* 楕円トラック（内） */}
+        <ellipse cx={cx} cy={cy} rx={rx-4} ry={ry-4}
+          fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="1"/>
+        {/* レーン線（4本） */}
+        {laneOffsets.map((o, i) => (
+          <ellipse key={i} cx={cx} cy={cy} rx={rx+o} ry={ry+o}
+            fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="0.5" strokeDasharray="2,2"/>
+        ))}
+
+        {/* 馬 */}
+        {playingMembers.map((m, i) => {
+          // 0=スタートライン（楕円の右端）から時計回り風（実は反時計回り）
+          const angle = positions[i] * Math.PI * 2 - Math.PI/2; // 上から開始
+          const horseRx = rx + laneOffsets[i];
+          const horseRy = ry + laneOffsets[i];
+          const x = cx + horseRx * Math.cos(angle);
+          const y = cy + horseRy * Math.sin(angle);
+          const colors = ["#e74c3c","#3498db","#2ecc71","#f1c40f"];
+          const isMine = myHorseIds.includes(m.id);
+          const ev = eventRefs.current[i];
+          return (
+            <g key={m.id} transform={`translate(${x},${y})`}>
+              {/* 自分の馬は光るリング */}
+              {isMine && (
+                <circle cx="0" cy="0" r="9"
+                  fill="none" stroke="#ffd700" strokeWidth="1.2"
+                  opacity="0.8">
+                  <animate attributeName="r" values="9;12;9" dur="1.2s" repeatCount="indefinite"/>
+                  <animate attributeName="opacity" values="0.9;0.3;0.9" dur="1.2s" repeatCount="indefinite"/>
+                </circle>
+              )}
+              <circle cx="0" cy="0" r="7" fill={colors[i]} stroke="#fff" strokeWidth="1"/>
+              <text x="0" y="2.5" fontSize="7" fill="#fff" textAnchor="middle" fontWeight="bold">{i+1}</text>
+              {/* イベント表示 */}
+              {ev.type === "dash" && (
+                <text x="0" y="-9" fontSize="6" fill="#f39c12" textAnchor="middle">💨</text>
+              )}
+              {ev.type === "chase" && (
+                <text x="0" y="-9" fontSize="6" fill="#3498db" textAnchor="middle">⚡</text>
+              )}
+              {ev.type === "slow" && (
+                <text x="0" y="-9" fontSize="6" fill="#888" textAnchor="middle">💤</text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 function Confetti() {
   const pieces = Array.from({length:38}, (_,i)=>i);
   const colors = ["#e74c3c","#f1c40f","#2ecc71","#3498db","#e67e22","#9b59b6","#fff","#ff69b4"];
@@ -3094,6 +3242,14 @@ export default function App() {
                     {/* LIVE中・4人参加・馬券UI */}
                     {isLive && playingMembers.length === 4 && (
                       <>
+                        {/* レーストラック */}
+                        <RaceTrack
+                          playingMembers={playingMembers}
+                          strengthMap={strengthMap}
+                          mySelection={myBet?.bet_selection || raceSelection}
+                          betType={myBet?.bet_type || raceBetType}
+                        />
+
                         {/* レース情報ヘッダー */}
                         <div style={{...S.card({background:"linear-gradient(135deg,rgba(231,76,60,0.08),rgba(243,156,18,0.08))",border:"1px solid rgba(231,76,60,0.3)"}),padding:"10px 12px",marginBottom:10}}>
                           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
