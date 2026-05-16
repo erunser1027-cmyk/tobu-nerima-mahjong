@@ -16,6 +16,7 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-14", features:[
+    "競馬レース機能：フィニッシュ掲示板・写真判定演出・馬券的中ランキング実装",
     "競馬レース機能：レースを「BGM的に流れる演出」に調整（1周120秒、ゴール意識を排除）",
     "競馬レース機能：楕円トラックの周回アニメ実装（強さベース＋出遅れ・大逃げ・追い上げ）",
     "競馬レース機能：馬券購入UI実装（単勝・馬連・三連単・四連単、5分間の購入受付）",
@@ -3216,6 +3217,50 @@ export default function App() {
                   showToast("success", "🎫 馬券を購入しました！");
                 };
 
+                // ===========================================
+                // フィニッシュ掲示板：直前の半荘結果
+                // ===========================================
+                let finishBoard = null;
+                if (addRounds.length > 0) {
+                  const lastRound = addRounds[addRounds.length - 1];
+                  const lastIdx = addRounds.length - 1;
+                  const sorted = [...lastRound.players].sort((a,b)=>N(lastRound.scores[String(b)]??lastRound.scores[b])-N(lastRound.scores[String(a)]??lastRound.scores[a]));
+                  const finishResults = sorted.map((pid, idx) => ({
+                    rank: idx+1,
+                    member: gm(Number(pid)),
+                    score: N(lastRound.scores[String(pid)]??lastRound.scores[pid]),
+                    horseNum: addSel.map(Number).indexOf(Number(pid)) + 1,
+                  }));
+                  // 1-2位の差
+                  const gap12 = finishResults.length >= 2 ? Math.abs(finishResults[0].score - finishResults[1].score) : 9999;
+                  const photoFinish = gap12 <= 1000;
+                  // この半荘の馬券（自分の）
+                  const lastBet = raceSelf
+                    ? raceBets.find(b=>b.session_date===addDate && b.round_index===lastIdx && b.bettor_id===raceSelf)
+                    : null;
+                  finishBoard = { finishResults, photoFinish, gap12, lastBet, lastIdx };
+                }
+
+                // ===========================================
+                // 馬券的中ランキング（全データ）
+                // ===========================================
+                const betRanking = {};
+                members.forEach(m => { betRanking[m.id] = { name:m.name, total:0, hits:0, sumPayout:0 }; });
+                raceBets.forEach(b => {
+                  if (b.is_hit === null) return;
+                  if (!betRanking[b.bettor_id]) return;
+                  betRanking[b.bettor_id].total++;
+                  if (b.is_hit) {
+                    betRanking[b.bettor_id].hits++;
+                    betRanking[b.bettor_id].sumPayout += Number(b.payout || 0);
+                  }
+                });
+                const rankingList = Object.entries(betRanking)
+                  .map(([id, v]) => ({ id: Number(id), ...v }))
+                  .filter(v => v.total > 0)
+                  .sort((a, b) => b.sumPayout - a.sumPayout);
+
+
                 return (
                   <>
                     <div style={{fontSize:13,fontWeight:600,color:"#e74c3c",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
@@ -3249,6 +3294,52 @@ export default function App() {
                           mySelection={myBet?.bet_selection || raceSelection}
                           betType={myBet?.bet_type || raceBetType}
                         />
+
+                        {/* 🏁 前回半荘のフィニッシュ掲示板 */}
+                        {finishBoard && (
+                          <div style={{...S.card({background:"linear-gradient(135deg,rgba(241,196,15,0.1),rgba(231,76,60,0.08))",border:"1px solid rgba(241,196,15,0.4)"}),padding:"12px",marginBottom:10}}>
+                            <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:8}}>
+                              <span style={{fontSize:18}}>🏁</span>
+                              <span style={{fontSize:13,fontWeight:"bold",color:"#f1c40f"}}>第{finishBoard.lastIdx+1}レース 結果</span>
+                              {finishBoard.photoFinish && (
+                                <span style={{fontSize:9,padding:"2px 6px",background:"rgba(231,76,60,0.3)",color:"#fff",borderRadius:6,border:"1px solid rgba(231,76,60,0.6)",fontWeight:"bold",animation:"pulse 1s infinite"}}>📸 写真判定</span>
+                              )}
+                            </div>
+                            {finishBoard.photoFinish && (
+                              <div style={{fontSize:9,color:"#e74c3c",textAlign:"center",marginBottom:6}}>
+                                1-2着の差 わずか{finishBoard.gap12}点！
+                              </div>
+                            )}
+                            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                              {finishBoard.finishResults.map((r, i) => {
+                                const rankEmoji = ["🥇","🥈","🥉","4️⃣"][i];
+                                const colors = ["#f1c40f","#bdc3c7","#cd7f32","#888"];
+                                const horseColors = ["#e74c3c","#3498db","#2ecc71","#f1c40f"];
+                                return (
+                                  <div key={r.member?.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:i===0?"rgba(241,196,15,0.12)":"rgba(255,255,255,0.04)",borderRadius:6,border:i===0?"1px solid rgba(241,196,15,0.4)":"1px solid rgba(255,255,255,0.05)"}}>
+                                    <span style={{fontSize:16}}>{rankEmoji}</span>
+                                    <div style={{width:20,height:20,borderRadius:"50%",background:horseColors[r.horseNum-1],display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:"bold",color:"#fff"}}>{r.horseNum}</div>
+                                    <Av m={r.member} sz={20}/>
+                                    <div style={{flex:1,minWidth:0,fontSize:11,color:colors[i],fontWeight:i<3?"bold":"normal",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.member?.name}</div>
+                                    <div style={{fontSize:11,color:r.score>=0?"#2ecc71":"#e74c3c",fontWeight:"bold"}}>{r.score>=0?"+":""}{r.score}</div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {/* 自分の馬券結果 */}
+                            {finishBoard.lastBet && finishBoard.lastBet.is_hit !== null && (
+                              <div style={{marginTop:10,padding:"10px",background:finishBoard.lastBet.is_hit?"rgba(46,204,113,0.15)":"rgba(231,76,60,0.1)",borderRadius:8,border:`1px solid ${finishBoard.lastBet.is_hit?"rgba(46,204,113,0.4)":"rgba(231,76,60,0.3)"}`,textAlign:"center"}}>
+                                <div style={{fontSize:18,marginBottom:4}}>{finishBoard.lastBet.is_hit?"🎉":"😢"}</div>
+                                <div style={{fontSize:13,fontWeight:"bold",color:finishBoard.lastBet.is_hit?"#2ecc71":"#e74c3c"}}>
+                                  {finishBoard.lastBet.is_hit?`🎯 的中！ 配当 ${finishBoard.lastBet.payout}倍`:"❌ ハズレ"}
+                                </div>
+                                <div style={{fontSize:10,color:"#888",marginTop:4}}>
+                                  あなたの馬券：{BET_TYPES.find(t=>t.key===finishBoard.lastBet.bet_type)?.label} / {finishBoard.lastBet.bet_selection.map(id=>gm(id)?.name).join(finishBoard.lastBet.bet_type==="umaren"?" / ":" → ")}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {/* レース情報ヘッダー */}
                         <div style={{...S.card({background:"linear-gradient(135deg,rgba(231,76,60,0.08),rgba(243,156,18,0.08))",border:"1px solid rgba(231,76,60,0.3)"}),padding:"10px 12px",marginBottom:10}}>
@@ -3398,6 +3489,38 @@ export default function App() {
                           </div>
                         )}
                       </>
+                    )}
+
+                    {/* 🏆 馬券的中ランキング（常時表示） */}
+                    <div style={{fontSize:12,fontWeight:600,color:"#ccc",marginTop:14,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+                      🏆 馬券的中ランキング
+                      <span style={{fontSize:9,color:"#666",fontWeight:400}}>（的中×オッズの合計）</span>
+                    </div>
+                    {rankingList.length === 0 ? (
+                      <div style={{textAlign:"center",padding:24,color:"#555",fontSize:11}}>まだ馬券の記録がありません</div>
+                    ) : (
+                      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                        {rankingList.map((p, i) => {
+                          const m = gm(p.id);
+                          const hitRate = p.total > 0 ? Math.round(p.hits/p.total*100) : 0;
+                          return (
+                            <div key={p.id} style={{...S.card({background:i===0?"rgba(241,196,15,0.08)":"rgba(255,255,255,0.04)",border:`1px solid ${i===0?"rgba(241,196,15,0.3)":"rgba(255,255,255,0.08)"}`}),padding:"10px 12px"}}>
+                              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                                <span style={{fontSize:16,fontWeight:"bold",color:i===0?"#f1c40f":i===1?"#bdc3c7":i===2?"#cd7f32":"#666"}}>{i<3?["🥇","🥈","🥉"][i]:`${i+1}`}</span>
+                                <Av m={m} sz={26}/>
+                                <div style={{flex:1,minWidth:0}}>
+                                  <div style={{fontSize:12,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div>
+                                  <div style={{fontSize:9,color:"#666"}}>{p.hits}/{p.total}的中 ({hitRate}%)</div>
+                                </div>
+                                <div style={{textAlign:"right"}}>
+                                  <div style={{fontSize:16,fontWeight:"bold",color:"#f1c40f"}}>{p.sumPayout.toFixed(1)}</div>
+                                  <div style={{fontSize:9,color:"#666"}}>累計配当</div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     )}
                   </>
                 );
