@@ -16,6 +16,7 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-14", features:[
+    "競馬レース機能：オッズ計算ロジック実装（強さスコア・単勝・馬連・三連単・四連単）",
     "競馬レース機能の準備（既存の1位・最下位予想を撤去、race_betsテーブル接続）",
     "ゴミ箱機能追加（削除した対局・メンバーを30日間保管、復活・完全削除が可能）",
     "闘牌場所のデフォルトをサクセスに変更",
@@ -186,6 +187,130 @@ function calcTotals(sess) {
     res[id] = { sc, chip:ch, scY, chY, seisan, ba, kati:seisan - ba };
   });
   return res;
+}
+
+// ========================================================
+// 競馬レース機能：強さスコア・オッズ計算
+// ========================================================
+
+// 各プレイヤーの強さスコアを算出（指定された4人の対局相手リストに対する相対値）
+// eslint-disable-next-line no-unused-vars
+function calcHorseStrength(sessions, members, playerIds) {
+  // playerIds: その半荘の参加者4人のID配列
+  const result = {};
+
+  playerIds.forEach(targetId => {
+    const sid = String(targetId);
+    let games = 0, r1 = 0;
+    let rankSum = 0;
+
+    // 直近10半荘の集計用
+    const recentRounds = [];
+
+    // 対戦相手との直接対決
+    const vsRecords = {}; // { opponentId: { wins, total } }
+    playerIds.forEach(opId => {
+      if (opId !== targetId) vsRecords[opId] = { wins: 0, total: 0 };
+    });
+
+    [...sessions].reverse().forEach(s => {
+      if (!s.members.map(Number).includes(targetId)) return;
+      s.rounds.forEach(r => {
+        const rPlayers = r.players.map(Number);
+        if (!rPlayers.includes(targetId)) return;
+        const sorted = [...rPlayers].sort((a, b) =>
+          N(r.scores[String(b)] ?? r.scores[b]) - N(r.scores[String(a)] ?? r.scores[a])
+        );
+        const rank = sorted.indexOf(targetId) + 1;
+        games++;
+        rankSum += rank;
+        if (rank === 1) r1++;
+
+        // 直近10半荘
+        if (recentRounds.length < 10) recentRounds.push(rank);
+
+        // 対戦相手との直接対決
+        const targetScore = N(r.scores[sid] ?? r.scores[targetId]);
+        rPlayers.forEach(opId => {
+          if (opId === targetId) return;
+          if (!vsRecords[opId]) return;
+          const opScore = N(r.scores[String(opId)] ?? r.scores[opId]);
+          vsRecords[opId].total++;
+          if (targetScore > opScore) vsRecords[opId].wins++;
+        });
+      });
+    });
+
+    const topRate = games > 0 ? (r1 / games) * 100 : 0;
+    const avgRank = games > 0 ? rankSum / games : 2.5;
+    const recentTopRate = recentRounds.length > 0
+      ? (recentRounds.filter(r => r === 1).length / recentRounds.length) * 100
+      : 0;
+    let vsWinRateAvg = 0;
+    let vsCount = 0;
+    Object.values(vsRecords).forEach(v => {
+      if (v.total > 0) {
+        vsWinRateAvg += (v.wins / v.total) * 100;
+        vsCount++;
+      }
+    });
+    if (vsCount > 0) vsWinRateAvg /= vsCount;
+
+    // 強さスコア（経験値が浅い人もある程度は出走できるよう最低保証あり）
+    const strength = Math.max(
+      10, // 最低保証
+      topRate * 1.0
+      + (4.0 - avgRank) * 10
+      + recentTopRate * 0.5
+      + vsWinRateAvg * 0.3
+    );
+
+    result[targetId] = {
+      strength,
+      games,
+      topRate,
+      avgRank,
+      recentTopRate,
+      vsWinRateAvg
+    };
+  });
+
+  return result;
+}
+
+// 単勝オッズを計算（4人の強さ比から）
+// eslint-disable-next-line no-unused-vars
+function calcTanshoOdds(strengthMap) {
+  const total = Object.values(strengthMap).reduce((s, v) => s + v.strength, 0);
+  const result = {};
+  Object.keys(strengthMap).forEach(id => {
+    const share = strengthMap[id].strength / total; // この馬が勝つ「確率」近似
+    // 100% / 確率 = オッズ。最低1.1倍、最高99.9倍
+    const raw = 1 / share;
+    result[id] = Math.max(1.1, Math.min(99.9, Math.round(raw * 10) / 10));
+  });
+  return result;
+}
+
+// 馬連オッズ：単勝オッズの組み合わせ × 1.5
+// eslint-disable-next-line no-unused-vars
+function calcUmarenOdds(idA, idB, tanshoOdds) {
+  const raw = tanshoOdds[idA] * tanshoOdds[idB] * 1.5;
+  return Math.max(2.0, Math.min(999, Math.round(raw * 10) / 10));
+}
+
+// 三連単オッズ：単勝オッズの掛け算 × 2
+// eslint-disable-next-line no-unused-vars
+function calcSanrentanOdds(id1, id2, id3, tanshoOdds) {
+  const raw = tanshoOdds[id1] * tanshoOdds[id2] * tanshoOdds[id3] * 2;
+  return Math.max(5.0, Math.min(9999, Math.round(raw * 10) / 10));
+}
+
+// 四連単オッズ：単勝オッズの掛け算 × 3
+// eslint-disable-next-line no-unused-vars
+function calcYonrentanOdds(id1, id2, id3, id4, tanshoOdds) {
+  const raw = tanshoOdds[id1] * tanshoOdds[id2] * tanshoOdds[id3] * tanshoOdds[id4] * 3;
+  return Math.max(10.0, Math.min(99999, Math.round(raw * 10) / 10));
 }
 
 function Av({ m, sz }) {
