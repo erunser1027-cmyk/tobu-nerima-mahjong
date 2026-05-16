@@ -16,6 +16,7 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-14", features:[
+    "競馬レース機能の準備（既存の1位・最下位予想を撤去、race_betsテーブル接続）",
     "ゴミ箱機能追加（削除した対局・メンバーを30日間保管、復活・完全削除が可能）",
     "闘牌場所のデフォルトをサクセスに変更",
     "終了予定時間に✕クリアボタンを追加（iOSのブラウザ標準ボタンが動作しない問題を解消）",
@@ -390,11 +391,16 @@ export default function App() {
   const [memberEditName, setMemberEditName] = useState("");
   const [editKeypadActive, setEditKeypadActive] = useState(null); // "ri-pid"
   const [dashSub, setDashSub] = useState("summary");
-  const [predictions, setPredictions] = useState([]);
-  const [predSelf, setPredSelf] = useState(null);
-  const [predFirst, setPredFirst] = useState(null);
-  const [predLast, setPredLast] = useState(null);
-  const [predSubmitting, setPredSubmitting] = useState(false);
+  // eslint-disable-next-line no-unused-vars
+  const [raceBets, setRaceBets] = useState([]);
+  // eslint-disable-next-line no-unused-vars
+  const [raceSelf, setRaceSelf] = useState(null);
+  // eslint-disable-next-line no-unused-vars
+  const [raceBetType, setRaceBetType] = useState(null);
+  // eslint-disable-next-line no-unused-vars
+  const [raceSelection, setRaceSelection] = useState([]);
+  // eslint-disable-next-line no-unused-vars
+  const [raceBetSubmitting, setRaceBetSubmitting] = useState(false);
   const [sortKey, setSortKey] = useState("sc");
   const [sortAsc, setSortAsc] = useState(false);
   const [h2hA, setH2hA] = useState(null);
@@ -483,42 +489,60 @@ export default function App() {
     }, ...prev]);
   };
 
-  // predictions 読み込み
+  // race_bets 読み込み
   useEffect(()=>{
-    supabase.from("predictions").select("*").order("created_at",{ascending:false})
-      .then(({data})=>{ if(data) setPredictions(data); });
+    supabase.from("race_bets").select("*").order("created_at",{ascending:false})
+      .then(({data})=>{ if(data) setRaceBets(data); });
   },[]);
 
-  // 半荘が確定されたとき自動採点＋予想入力をリセット
+  // 半荘が確定されたとき馬券を自動採点＋購入状態をリセット
   useEffect(()=>{
     if(addRounds.length === 0) return;
-    setPredFirst(null); setPredLast(null); // 次の半荘の予想入力をリセット
+    setRaceBetType(null); setRaceSelection([]); // 次の半荘の購入入力をリセット
     const lastRound = addRounds[addRounds.length - 1];
     const roundIndex = addRounds.length - 1;
     const sorted = [...lastRound.players].sort((a,b)=>N(lastRound.scores[String(b)]??lastRound.scores[b])-N(lastRound.scores[String(a)]??lastRound.scores[a]));
     if(sorted.length < 2) return;
-    const actualFirst = Number(sorted[0]);
-    const actualLast = Number(sorted[sorted.length-1]);
-    const toScore = predictions.filter(p=>
-      p.session_date === addDate &&
-      p.round_index === roundIndex &&
-      p.actual_first === null
+    const actualResult = sorted.map(Number); // [1位ID, 2位ID, 3位ID, 4位ID]
+    const toScore = raceBets.filter(b=>
+      b.session_date === addDate &&
+      b.round_index === roundIndex &&
+      b.is_hit === null
     );
     if(toScore.length === 0) return;
-    toScore.forEach(async p=>{
-      const correctFirst = p.pred_first === actualFirst;
-      const correctLast = p.pred_last === actualLast;
-      await supabase.from("predictions").update({
-        actual_first: actualFirst, actual_last: actualLast,
-        correct_first: correctFirst, correct_last: correctLast,
-      }).eq("id", p.id);
+    toScore.forEach(async b=>{
+      const sel = b.bet_selection;
+      let isHit = false;
+      if(b.bet_type === "tansho") {
+        // 単勝：1位が一致
+        isHit = sel[0] === actualResult[0];
+      } else if(b.bet_type === "umaren") {
+        // 馬連：1,2位の組み合わせ（順不同）
+        isHit = (sel[0]===actualResult[0] && sel[1]===actualResult[1]) ||
+                (sel[0]===actualResult[1] && sel[1]===actualResult[0]);
+      } else if(b.bet_type === "sanrentan") {
+        // 三連単：1,2,3位の順番一致
+        isHit = sel[0]===actualResult[0] && sel[1]===actualResult[1] && sel[2]===actualResult[2];
+      } else if(b.bet_type === "yonrentan") {
+        // 四連単：全順位一致
+        isHit = sel[0]===actualResult[0] && sel[1]===actualResult[1] && sel[2]===actualResult[2] && sel[3]===actualResult[3];
+      }
+      const payout = isHit ? Number(b.odds) : 0;
+      await supabase.from("race_bets").update({
+        actual_result: actualResult, is_hit: isHit, payout
+      }).eq("id", b.id);
     });
-    setPredictions(prev => prev.map(p =>
-      toScore.find(t=>t.id===p.id)
-        ? {...p, actual_first:actualFirst, actual_last:actualLast,
-            correct_first: p.pred_first===actualFirst, correct_last: p.pred_last===actualLast}
-        : p
-    ));
+    setRaceBets(prev => prev.map(b => {
+      const t = toScore.find(x=>x.id===b.id);
+      if(!t) return b;
+      const sel = b.bet_selection;
+      let isHit = false;
+      if(b.bet_type === "tansho") isHit = sel[0] === actualResult[0];
+      else if(b.bet_type === "umaren") isHit = (sel[0]===actualResult[0] && sel[1]===actualResult[1]) || (sel[0]===actualResult[1] && sel[1]===actualResult[0]);
+      else if(b.bet_type === "sanrentan") isHit = sel[0]===actualResult[0] && sel[1]===actualResult[1] && sel[2]===actualResult[2];
+      else if(b.bet_type === "yonrentan") isHit = sel[0]===actualResult[0] && sel[1]===actualResult[1] && sel[2]===actualResult[2] && sel[3]===actualResult[3];
+      return {...b, actual_result: actualResult, is_hit: isHit, payout: isHit ? Number(b.odds) : 0};
+    }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[addRounds.length]);
   useEffect(()=>{
@@ -2832,252 +2856,18 @@ export default function App() {
                 );
               })()}
 
-                            {/* 外馬モード サブタブ */}
+                            {/* 外馬モード サブタブ - 競馬レース機能 */}
               {dashSub==="sotoba" && (()=>{
-                const isLive = addStep === 2;
-                const currentRoundIndex = addRounds.length;
-                const playingMembers = addSel.map(id=>gm(id)).filter(Boolean);
-
-                // 直近10半荘からオッズ計算
-                const calcOdds = (memberId, rank) => {
-                  const recentRounds = [];
-                  [...sessions].reverse().forEach(s => {
-                    if (recentRounds.length >= 10) return;
-                    s.rounds.forEach(r => {
-                      if (recentRounds.length >= 10) return;
-                      const players = r.players.map(Number);
-                      if (!players.includes(memberId)) return;
-                      const sorted = [...players].sort((a,b)=>N(r.scores[String(b)]??r.scores[b])-N(r.scores[String(a)]??r.scores[a]));
-                      const playerRank = sorted.indexOf(memberId) + 1;
-                      recentRounds.push(playerRank);
-                    });
-                  });
-                  if (recentRounds.length === 0) return null;
-                  const count = recentRounds.filter(r=>r===rank).length;
-                  if (count === 0) return "---";
-                  const odds = (recentRounds.length / count).toFixed(1);
-                  return `${odds}倍`;
-                };
-
-                // 自分が今の半荘に対してすでに予想済みか
-                const myPred = predSelf
-                  ? predictions.find(p=>p.session_date===addDate&&p.round_index===currentRoundIndex&&p.predictor_id===predSelf)
-                  : null;
-
-                // 予想精度ランキング
-                const rankMap = {};
-                members.forEach(m=>{ rankMap[m.id]={name:m.name,total:0,firstOk:0,lastOk:0}; });
-                predictions.filter(p=>p.actual_first!==null).forEach(p=>{
-                  if(!rankMap[p.predictor_id]) return;
-                  rankMap[p.predictor_id].total++;
-                  if(p.correct_first) rankMap[p.predictor_id].firstOk++;
-                  if(p.correct_last) rankMap[p.predictor_id].lastOk++;
-                });
-                const rankList = Object.entries(rankMap)
-                  .map(([id,v])=>({id:Number(id),...v,bothOk:v.firstOk+v.lastOk,bothTotal:v.total*2}))
-                  .filter(v=>v.total>0)
-                  .sort((a,b)=>(b.bothOk/b.bothTotal)-(a.bothOk/a.bothTotal)||(b.bothOk-a.bothOk));
-
                 return (
                   <>
                     <div style={{fontSize:13,fontWeight:600,color:"#e74c3c",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
-                      🏇 外馬モード
-                      {isLive && <span style={{fontSize:10,background:"rgba(231,76,60,0.2)",color:"#e74c3c",padding:"2px 7px",borderRadius:6,border:"1px solid rgba(231,76,60,0.4)"}}>LIVE</span>}
+                      🏇 競馬レース
                     </div>
-
-                    {/* LIVE中でない場合 */}
-                    {!isLive && (
-                      <div style={{textAlign:"center",padding:40,color:"#555"}}>
-                        <div style={{fontSize:36,marginBottom:10}}>🏇</div>
-                        <div style={{fontSize:13,color:"#666"}}>対局中のみ予想できます</div>
-                        <div style={{fontSize:11,color:"#444",marginTop:6}}>LIVEが始まるとここで予想できます</div>
-                      </div>
-                    )}
-
-                    {/* LIVE中 */}
-                    {isLive && (
-                      <div style={{marginBottom:16}}>
-                        <div style={{...S.card({background:"linear-gradient(135deg,rgba(231,76,60,0.08),rgba(52,152,219,0.08))",border:"1px solid rgba(255,255,255,0.15)"}),marginBottom:10}}>
-                          <div style={{fontSize:12,color:"#ccc",marginBottom:6}}>
-                            第{currentRoundIndex+1}半荘の予想
-                          </div>
-                          <div style={{fontSize:9,color:"#555",marginBottom:10,lineHeight:1.6}}>
-                            オッズは直近10半荘の成績から計算。「---」はその順位の実績なし。
-                          </div>
-
-                          {/* あなたは？ */}
-                          {!predSelf && (
-                            <>
-                              <div style={{fontSize:11,color:"#888",marginBottom:8}}>まずあなたを選んでください</div>
-                              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
-                                {members.filter(m=>!addSel.includes(m.id)).map(m=>(
-                                  <div key={m.id} onClick={()=>setPredSelf(m.id)}
-                                    style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"8px 4px",borderRadius:8,cursor:"pointer",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)"}}>
-                                    <Av m={m} sz={28}/>
-                                    <div style={{fontSize:10,color:"#ccc"}}>{m.name}</div>
-                                  </div>
-                                ))}
-                              </div>
-                              {addSel.length > 0 && members.filter(m=>!addSel.includes(m.id)).length===0 && (
-                                <div style={{fontSize:11,color:"#666",textAlign:"center",padding:12}}>全員参加中のため外馬はいません</div>
-                              )}
-                            </>
-                          )}
-
-                          {/* 予想UI */}
-                          {predSelf && !myPred && (
-                            <>
-                              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12}}>
-                                <Av m={gm(predSelf)} sz={22}/>
-                                <span style={{fontSize:12,color:"#ccc"}}>{gm(predSelf)?.name}として予想</span>
-                                <button onClick={()=>{setPredSelf(null);setPredFirst(null);setPredLast(null);}} style={{marginLeft:"auto",fontSize:10,color:"#666",background:"none",border:"none",cursor:"pointer"}}>変更</button>
-                              </div>
-
-                              {/* 対局中メンバー */}
-                              <div style={{fontSize:11,color:"#888",marginBottom:6}}>🥇 1位予想</div>
-                              <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6,marginBottom:12}}>
-                                {playingMembers.map(m=>{
-                                  const odds1 = calcOdds(m.id, 1);
-                                  return (
-                                  <div key={m.id} onClick={()=>setPredFirst(predFirst===m.id?null:m.id)}
-                                    style={{display:"flex",alignItems:"center",gap:6,padding:"8px 10px",borderRadius:8,cursor:"pointer",
-                                      border:`1px solid ${predFirst===m.id?"#f1c40f":"rgba(255,255,255,0.1)"}`,
-                                      background:predFirst===m.id?"rgba(241,196,15,0.15)":"rgba(255,255,255,0.03)"}}>
-                                    <Av m={m} sz={22}/>
-                                    <div style={{flex:1}}>
-                                      <div style={{fontSize:12}}>{m.name}</div>
-                                      {odds1 && <div style={{fontSize:9,color:"#f1c40f"}}>🥇 {odds1}</div>}
-                                    </div>
-                                    {predFirst===m.id&&<span style={{fontSize:14}}>🥇</span>}
-                                  </div>
-                                  );
-                                })}
-                              </div>
-
-                              <div style={{fontSize:11,color:"#888",marginBottom:6}}>💀 最下位（4位）予想</div>
-                              <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6,marginBottom:14}}>
-                                {playingMembers.map(m=>{
-                                  const odds4 = calcOdds(m.id, 4);
-                                  return (
-                                  <div key={m.id} onClick={()=>m.id!==predFirst&&setPredLast(predLast===m.id?null:m.id)}
-                                    style={{display:"flex",alignItems:"center",gap:6,padding:"8px 10px",borderRadius:8,
-                                      cursor:m.id===predFirst?"not-allowed":"pointer",
-                                      opacity:m.id===predFirst?0.3:1,
-                                      border:`1px solid ${predLast===m.id?"#e74c3c":"rgba(255,255,255,0.1)"}`,
-                                      background:predLast===m.id?"rgba(231,76,60,0.15)":"rgba(255,255,255,0.03)"}}>
-                                    <Av m={m} sz={22}/>
-                                    <div style={{flex:1}}>
-                                      <div style={{fontSize:12}}>{m.name}</div>
-                                      {odds4 && <div style={{fontSize:9,color:"#e74c3c"}}>💀 {odds4}</div>}
-                                    </div>
-                                    {predLast===m.id&&<span style={{fontSize:14}}>💀</span>}
-                                  </div>
-                                  );
-                                })}
-                              </div>
-
-                              <button
-                                disabled={!predFirst||!predLast||predSubmitting}
-                                onClick={async()=>{
-                                  if(!predFirst||!predLast) return;
-                                  setPredSubmitting(true);
-                                  const {data} = await supabase.from("predictions").insert({
-                                    session_date: addDate,
-                                    round_index: currentRoundIndex,
-                                    predictor_id: predSelf,
-                                    pred_first: predFirst,
-                                    pred_last: predLast,
-                                    actual_first: null,
-                                    actual_last: null,
-                                    correct_first: null,
-                                    correct_last: null,
-                                  }).select().single();
-                                  if(data) setPredictions(prev=>[data,...prev]);
-                                  setPredFirst(null); setPredLast(null);
-                                  setPredSubmitting(false);
-                                  showToast("success","✅ 予想を送信しました！");
-                                }}
-                                style={{width:"100%",padding:"11px",borderRadius:8,border:"none",
-                                  background:(!predFirst||!predLast)?"rgba(255,255,255,0.08)":"linear-gradient(135deg,#e74c3c,#3498db)",
-                                  color:"#fff",fontWeight:"bold",fontSize:13,cursor:(!predFirst||!predLast)?"not-allowed":"pointer",
-                                  opacity:predSubmitting?0.5:1}}>
-                                {predSubmitting?"送信中...":"🏇 予想を送信"}
-                              </button>
-                            </>
-                          )}
-
-                          {/* 予想済み */}
-                          {predSelf && myPred && (
-                            <div style={{textAlign:"center",padding:12}}>
-                              <div style={{fontSize:13,color:"#2ecc71",marginBottom:8}}>✅ 第{currentRoundIndex+1}半荘の予想済み</div>
-                              <div style={{display:"flex",justifyContent:"center",gap:16,marginBottom:8}}>
-                                <div style={{textAlign:"center"}}>
-                                  <div style={{fontSize:10,color:"#888",marginBottom:3}}>🥇 1位予想</div>
-                                  <Av m={gm(myPred.pred_first)} sz={32}/>
-                                  <div style={{fontSize:11,marginTop:3}}>{gm(myPred.pred_first)?.name}</div>
-                                </div>
-                                <div style={{textAlign:"center"}}>
-                                  <div style={{fontSize:10,color:"#888",marginBottom:3}}>💀 最下位予想</div>
-                                  <Av m={gm(myPred.pred_last)} sz={32}/>
-                                  <div style={{fontSize:11,marginTop:3}}>{gm(myPred.pred_last)?.name}</div>
-                                </div>
-                              </div>
-                              {myPred.actual_first && (
-                                <div style={{fontSize:11,marginTop:6,color:"#aaa"}}>
-                                  結果：1位{myPred.correct_first?"✅":"❌"} 最下位{myPred.correct_last?"✅":"❌"}
-                                </div>
-                              )}
-                              {!myPred.actual_first && (
-                                <div style={{fontSize:10,color:"#555"}}>半荘終了後に結果が出ます</div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* 予想精度ランキング */}
-                    <div style={{fontSize:12,fontWeight:600,color:"#ccc",marginBottom:8}}>🏆 予想精度ランキング</div>
-                    {rankList.length === 0 ? (
-                      <div style={{textAlign:"center",padding:24,color:"#555",fontSize:12}}>まだ予想の記録がありません</div>
-                    ) : (
-                      <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                        {rankList.map((p,i)=>{
-                          const m = gm(p.id);
-                          const rate = p.bothTotal>0?Math.round(p.bothOk/p.bothTotal*100):0;
-                          const firstRate = p.total>0?Math.round(p.firstOk/p.total*100):0;
-                          const lastRate = p.total>0?Math.round(p.lastOk/p.total*100):0;
-                          return (
-                            <div key={p.id} style={{...S.card({background:i===0?"rgba(241,196,15,0.08)":"rgba(255,255,255,0.04)",border:`1px solid ${i===0?"rgba(241,196,15,0.3)":"rgba(255,255,255,0.08)"}`}),padding:"10px 12px"}}>
-                              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
-                                <span style={{fontSize:16}}>{RI[i]||`${i+1}`}</span>
-                                <Av m={m} sz={28}/>
-                                <div style={{flex:1}}>
-                                  <div style={{fontSize:12,fontWeight:500}}>{p.name}</div>
-                                  <div style={{fontSize:10,color:"#666"}}>{p.total}半荘予想</div>
-                                </div>
-                                <div style={{textAlign:"right"}}>
-                                  <div style={{fontSize:18,fontWeight:"bold",color:rate>=50?"#2ecc71":"#e74c3c"}}>{rate}%</div>
-                                  <div style={{fontSize:9,color:"#666"}}>総合的中率</div>
-                                </div>
-                              </div>
-                              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-                                <div style={{background:"rgba(241,196,15,0.08)",borderRadius:6,padding:"5px 8px",textAlign:"center"}}>
-                                  <div style={{fontSize:10,color:"#888"}}>🥇 1位的中</div>
-                                  <div style={{fontSize:14,fontWeight:"bold",color:"#f1c40f"}}>{firstRate}%</div>
-                                  <div style={{fontSize:9,color:"#555"}}>{p.firstOk}/{p.total}</div>
-                                </div>
-                                <div style={{background:"rgba(231,76,60,0.08)",borderRadius:6,padding:"5px 8px",textAlign:"center"}}>
-                                  <div style={{fontSize:10,color:"#888"}}>💀 最下位的中</div>
-                                  <div style={{fontSize:14,fontWeight:"bold",color:"#e74c3c"}}>{lastRate}%</div>
-                                  <div style={{fontSize:9,color:"#555"}}>{p.lastOk}/{p.total}</div>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                    <div style={{textAlign:"center",padding:40,color:"#555"}}>
+                      <div style={{fontSize:48,marginBottom:10}}>🏇</div>
+                      <div style={{fontSize:13,color:"#888"}}>競馬レース機能を準備中...</div>
+                      <div style={{fontSize:10,color:"#444",marginTop:6}}>フェーズ2でオッズ計算を実装します</div>
+                    </div>
                   </>
                 );
               })()}
