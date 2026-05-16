@@ -16,6 +16,7 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-14", features:[
+    "競馬レース機能：馬券購入UI実装（単勝・馬連・三連単・四連単、5分間の購入受付）",
     "競馬レース機能：オッズ計算ロジック実装（強さスコア・単勝・馬連・三連単・四連単）",
     "競馬レース機能の準備（既存の1位・最下位予想を撤去、race_betsテーブル接続）",
     "ゴミ箱機能追加（削除した対局・メンバーを30日間保管、復活・完全削除が可能）",
@@ -194,7 +195,6 @@ function calcTotals(sess) {
 // ========================================================
 
 // 各プレイヤーの強さスコアを算出（指定された4人の対局相手リストに対する相対値）
-// eslint-disable-next-line no-unused-vars
 function calcHorseStrength(sessions, members, playerIds) {
   // playerIds: その半荘の参加者4人のID配列
   const result = {};
@@ -279,7 +279,6 @@ function calcHorseStrength(sessions, members, playerIds) {
 }
 
 // 単勝オッズを計算（4人の強さ比から）
-// eslint-disable-next-line no-unused-vars
 function calcTanshoOdds(strengthMap) {
   const total = Object.values(strengthMap).reduce((s, v) => s + v.strength, 0);
   const result = {};
@@ -293,21 +292,18 @@ function calcTanshoOdds(strengthMap) {
 }
 
 // 馬連オッズ：単勝オッズの組み合わせ × 1.5
-// eslint-disable-next-line no-unused-vars
 function calcUmarenOdds(idA, idB, tanshoOdds) {
   const raw = tanshoOdds[idA] * tanshoOdds[idB] * 1.5;
   return Math.max(2.0, Math.min(999, Math.round(raw * 10) / 10));
 }
 
 // 三連単オッズ：単勝オッズの掛け算 × 2
-// eslint-disable-next-line no-unused-vars
 function calcSanrentanOdds(id1, id2, id3, tanshoOdds) {
   const raw = tanshoOdds[id1] * tanshoOdds[id2] * tanshoOdds[id3] * 2;
   return Math.max(5.0, Math.min(9999, Math.round(raw * 10) / 10));
 }
 
 // 四連単オッズ：単勝オッズの掛け算 × 3
-// eslint-disable-next-line no-unused-vars
 function calcYonrentanOdds(id1, id2, id3, id4, tanshoOdds) {
   const raw = tanshoOdds[id1] * tanshoOdds[id2] * tanshoOdds[id3] * tanshoOdds[id4] * 3;
   return Math.max(10.0, Math.min(99999, Math.round(raw * 10) / 10));
@@ -518,14 +514,12 @@ export default function App() {
   const [dashSub, setDashSub] = useState("summary");
   // eslint-disable-next-line no-unused-vars
   const [raceBets, setRaceBets] = useState([]);
-  // eslint-disable-next-line no-unused-vars
   const [raceSelf, setRaceSelf] = useState(null);
-  // eslint-disable-next-line no-unused-vars
   const [raceBetType, setRaceBetType] = useState(null);
-  // eslint-disable-next-line no-unused-vars
   const [raceSelection, setRaceSelection] = useState([]);
-  // eslint-disable-next-line no-unused-vars
   const [raceBetSubmitting, setRaceBetSubmitting] = useState(false);
+  const [raceStartTimes, setRaceStartTimes] = useState({}); // { [round_index]: timestamp_ms }
+  const [, setRaceNowTick] = useState(0); // 5分タイマー更新用ダミーstate
   const [sortKey, setSortKey] = useState("sc");
   const [sortAsc, setSortAsc] = useState(false);
   const [h2hA, setH2hA] = useState(null);
@@ -619,6 +613,20 @@ export default function App() {
     supabase.from("race_bets").select("*").order("created_at",{ascending:false})
       .then(({data})=>{ if(data) setRaceBets(data); });
   },[]);
+
+  // 半荘ごとにレース開始時刻を記録（外馬タブを開いた瞬間に半荘が始まればその時刻を起点に5分カウント）
+  useEffect(()=>{
+    if(addStep !== 2) return;
+    const ri = addRounds.length;
+    setRaceStartTimes(prev => prev[ri] ? prev : {...prev, [ri]: Date.now()});
+  },[addStep, addRounds.length]);
+
+  // 5分カウントダウン更新用（1秒ごと再レンダリング）
+  useEffect(()=>{
+    if(addStep !== 2) return;
+    const t = setInterval(()=>setRaceNowTick(n=>n+1), 1000);
+    return ()=>clearInterval(t);
+  },[addStep]);
 
   // 半荘が確定されたとき馬券を自動採点＋購入状態をリセット
   useEffect(()=>{
@@ -2981,18 +2989,260 @@ export default function App() {
                 );
               })()}
 
-                            {/* 外馬モード サブタブ - 競馬レース機能 */}
+              {/* 外馬モード サブタブ - 競馬レース機能 */}
               {dashSub==="sotoba" && (()=>{
+                const isLive = addStep === 2;
+                const currentRoundIndex = addRounds.length;
+                const playingMembers = addSel.map(id=>gm(id)).filter(Boolean);
+
+                // 馬券種類の定義
+                const BET_TYPES = [
+                  { key:"tansho",    label:"単勝",    desc:"1位を当てる", picks:1 },
+                  { key:"umaren",    label:"馬連",    desc:"1・2位（順不同）", picks:2 },
+                  { key:"sanrentan", label:"三連単",  desc:"1〜3位を順番通り", picks:3 },
+                  { key:"yonrentan", label:"四連単",  desc:"全順位を順番通り", picks:4 },
+                ];
+
+                // 強さスコア・単勝オッズを計算（参加者がいるときだけ）
+                let strengthMap = null, tanshoOdds = null;
+                if(isLive && playingMembers.length === 4) {
+                  strengthMap = calcHorseStrength(sessions, members, addSel.map(Number));
+                  tanshoOdds = calcTanshoOdds(strengthMap);
+                }
+
+                // 馬券購入の締切判定（レース開始から5分以内）
+                const raceStarted = raceStartTimes[currentRoundIndex] || null;
+                const elapsedMs = raceStarted ? (Date.now() - raceStarted) : 0;
+                const remainSec = raceStarted ? Math.max(0, 300 - Math.floor(elapsedMs/1000)) : 300;
+                const bettingOpen = remainSec > 0;
+                const remainMin = Math.floor(remainSec/60);
+                const remainSecMod = remainSec % 60;
+
+                // 自分が今の半荘に対してすでに購入済みか
+                const myBet = raceSelf
+                  ? raceBets.find(b=>b.session_date===addDate&&b.round_index===currentRoundIndex&&b.bettor_id===raceSelf)
+                  : null;
+
+                // 現在選択中の馬券種類に対する選択数チェック
+                const currentBetTypeDef = BET_TYPES.find(t=>t.key===raceBetType);
+                const requiredPicks = currentBetTypeDef?.picks || 0;
+                const selectionsValid = raceSelection.length === requiredPicks;
+
+                // 選択中のオッズ計算
+                let currentOdds = null;
+                if(selectionsValid && tanshoOdds) {
+                  if(raceBetType==="tansho")   currentOdds = tanshoOdds[raceSelection[0]];
+                  else if(raceBetType==="umaren")    currentOdds = calcUmarenOdds(raceSelection[0], raceSelection[1], tanshoOdds);
+                  else if(raceBetType==="sanrentan") currentOdds = calcSanrentanOdds(raceSelection[0], raceSelection[1], raceSelection[2], tanshoOdds);
+                  else if(raceBetType==="yonrentan") currentOdds = calcYonrentanOdds(raceSelection[0], raceSelection[1], raceSelection[2], raceSelection[3], tanshoOdds);
+                }
+
+                // 馬の追加・削除
+                const toggleHorse = (id) => {
+                  if(!currentBetTypeDef) return;
+                  if(raceSelection.includes(id)) {
+                    setRaceSelection(raceSelection.filter(x=>x!==id));
+                  } else if(raceSelection.length < requiredPicks) {
+                    setRaceSelection([...raceSelection, id]);
+                  }
+                };
+
+                // 購入処理
+                const submitBet = async () => {
+                  if(!raceSelf || !raceBetType || !selectionsValid || !currentOdds) return;
+                  setRaceBetSubmitting(true);
+                  const {data} = await supabase.from("race_bets").insert({
+                    session_date: addDate,
+                    round_index: currentRoundIndex,
+                    bettor_id: raceSelf,
+                    bet_type: raceBetType,
+                    bet_selection: raceSelection,
+                    odds: currentOdds,
+                    actual_result: null,
+                    is_hit: null,
+                    payout: null,
+                  }).select().single();
+                  if(data) setRaceBets(prev=>[data, ...prev]);
+                  setRaceBetType(null); setRaceSelection([]);
+                  setRaceBetSubmitting(false);
+                  showToast("success", "🎫 馬券を購入しました！");
+                };
+
                 return (
                   <>
                     <div style={{fontSize:13,fontWeight:600,color:"#e74c3c",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
                       🏇 競馬レース
+                      {isLive && <span style={{fontSize:10,background:"rgba(231,76,60,0.2)",color:"#e74c3c",padding:"2px 7px",borderRadius:6,border:"1px solid rgba(231,76,60,0.4)"}}>LIVE</span>}
                     </div>
-                    <div style={{textAlign:"center",padding:40,color:"#555"}}>
-                      <div style={{fontSize:48,marginBottom:10}}>🏇</div>
-                      <div style={{fontSize:13,color:"#888"}}>競馬レース機能を準備中...</div>
-                      <div style={{fontSize:10,color:"#444",marginTop:6}}>フェーズ2でオッズ計算を実装します</div>
-                    </div>
+
+                    {/* LIVE中でない場合 */}
+                    {!isLive && (
+                      <div style={{textAlign:"center",padding:40,color:"#555"}}>
+                        <div style={{fontSize:36,marginBottom:10}}>🏇</div>
+                        <div style={{fontSize:13,color:"#666"}}>LIVE中のみ馬券を購入できます</div>
+                        <div style={{fontSize:11,color:"#444",marginTop:6}}>対局が始まるとここにレースが表示されます</div>
+                      </div>
+                    )}
+
+                    {/* LIVE中：4人参加していない場合 */}
+                    {isLive && playingMembers.length !== 4 && (
+                      <div style={{textAlign:"center",padding:24,color:"#555",fontSize:12}}>
+                        4人対局のみ競馬レースが楽しめます（現在{playingMembers.length}人）
+                      </div>
+                    )}
+
+                    {/* LIVE中・4人参加・馬券UI */}
+                    {isLive && playingMembers.length === 4 && (
+                      <>
+                        {/* レース情報ヘッダー */}
+                        <div style={{...S.card({background:"linear-gradient(135deg,rgba(231,76,60,0.08),rgba(243,156,18,0.08))",border:"1px solid rgba(231,76,60,0.3)"}),padding:"10px 12px",marginBottom:10}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                            <div style={{fontSize:12,fontWeight:700,color:"#f39c12"}}>第{currentRoundIndex+1}レース</div>
+                            {bettingOpen ? (
+                              <div style={{fontSize:10,color:"#2ecc71"}}>
+                                🟢 受付中（残り{remainMin}:{String(remainSecMod).padStart(2,"0")}）
+                              </div>
+                            ) : (
+                              <div style={{fontSize:10,color:"#e74c3c",fontWeight:700}}>🔴 締切</div>
+                            )}
+                          </div>
+                          {/* 出走馬一覧（強さスコア表示は無し、オッズだけ） */}
+                          <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:4,marginTop:8}}>
+                            {playingMembers.map((m,i)=>{
+                              const horseNum = i+1;
+                              const od = tanshoOdds?.[m.id];
+                              return (
+                                <div key={m.id} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",background:"rgba(0,0,0,0.2)",borderRadius:6}}>
+                                  <div style={{width:22,height:22,borderRadius:"50%",background:["#e74c3c","#3498db","#2ecc71","#f1c40f"][i],display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:"bold",color:"#fff"}}>{horseNum}</div>
+                                  <Av m={m} sz={20}/>
+                                  <div style={{flex:1,minWidth:0,fontSize:11,color:"#ccc",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.name}</div>
+                                  {od && <div style={{fontSize:11,color:"#f1c40f",fontWeight:"bold"}}>{od}倍</div>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* あなたは？ */}
+                        {!raceSelf && bettingOpen && (
+                          <div style={{...S.card({background:"rgba(255,255,255,0.04)"}),marginBottom:10}}>
+                            <div style={{fontSize:11,color:"#888",marginBottom:8}}>馬券を買うあなたを選んでください</div>
+                            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
+                              {members.filter(m=>!addSel.includes(m.id)).map(m=>(
+                                <div key={m.id} onClick={()=>setRaceSelf(m.id)}
+                                  style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"8px 4px",borderRadius:8,cursor:"pointer",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)"}}>
+                                  <Av m={m} sz={28}/>
+                                  <div style={{fontSize:10,color:"#ccc"}}>{m.name}</div>
+                                </div>
+                              ))}
+                            </div>
+                            {members.filter(m=>!addSel.includes(m.id)).length===0 && (
+                              <div style={{fontSize:11,color:"#666",textAlign:"center",padding:12}}>全員参加中のため馬券を買える人がいません</div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* 馬券購入UI */}
+                        {raceSelf && !myBet && bettingOpen && (
+                          <div style={{...S.card({background:"rgba(255,255,255,0.04)"}),marginBottom:10}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12}}>
+                              <Av m={gm(raceSelf)} sz={22}/>
+                              <span style={{fontSize:12,color:"#ccc"}}>{gm(raceSelf)?.name}として購入</span>
+                              <button onClick={()=>{setRaceSelf(null);setRaceBetType(null);setRaceSelection([]);}} style={{marginLeft:"auto",fontSize:10,color:"#666",background:"none",border:"none",cursor:"pointer"}}>変更</button>
+                            </div>
+
+                            {/* 馬券種類選択 */}
+                            <div style={{fontSize:11,color:"#888",marginBottom:6}}>馬券の種類</div>
+                            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6,marginBottom:12}}>
+                              {BET_TYPES.map(t=>(
+                                <div key={t.key} onClick={()=>{setRaceBetType(t.key);setRaceSelection([]);}}
+                                  style={{padding:"8px 10px",borderRadius:8,cursor:"pointer",textAlign:"center",
+                                    border:`1px solid ${raceBetType===t.key?"#f1c40f":"rgba(255,255,255,0.1)"}`,
+                                    background:raceBetType===t.key?"rgba(241,196,15,0.15)":"rgba(255,255,255,0.03)"}}>
+                                  <div style={{fontSize:13,fontWeight:"bold",color:raceBetType===t.key?"#f1c40f":"#ccc"}}>{t.label}</div>
+                                  <div style={{fontSize:9,color:"#666",marginTop:2}}>{t.desc}</div>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* 馬選択 */}
+                            {raceBetType && (
+                              <>
+                                <div style={{fontSize:11,color:"#888",marginBottom:6}}>
+                                  {currentBetTypeDef.label}：{requiredPicks}頭選択
+                                  {raceBetType !== "umaren" && requiredPicks > 1 && <span style={{color:"#f39c12",marginLeft:4}}>※順番通り</span>}
+                                  {raceBetType === "umaren" && <span style={{color:"#666",marginLeft:4}}>※順不同</span>}
+                                </div>
+                                <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6,marginBottom:12}}>
+                                  {playingMembers.map((m,i)=>{
+                                    const horseNum = i+1;
+                                    const selIdx = raceSelection.indexOf(m.id);
+                                    const isSelected = selIdx !== -1;
+                                    return (
+                                      <div key={m.id} onClick={()=>toggleHorse(m.id)}
+                                        style={{display:"flex",alignItems:"center",gap:6,padding:"8px 10px",borderRadius:8,cursor:"pointer",position:"relative",
+                                          border:`1px solid ${isSelected?"#f1c40f":"rgba(255,255,255,0.1)"}`,
+                                          background:isSelected?"rgba(241,196,15,0.15)":"rgba(255,255,255,0.03)"}}>
+                                        <div style={{width:22,height:22,borderRadius:"50%",background:["#e74c3c","#3498db","#2ecc71","#f1c40f"][i],display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:"bold",color:"#fff"}}>{horseNum}</div>
+                                        <Av m={m} sz={20}/>
+                                        <div style={{flex:1,minWidth:0,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.name}</div>
+                                        {isSelected && raceBetType !== "umaren" && (
+                                          <div style={{fontSize:10,color:"#f1c40f",fontWeight:"bold"}}>{selIdx+1}着</div>
+                                        )}
+                                        {isSelected && raceBetType === "umaren" && (
+                                          <div style={{fontSize:13,color:"#f1c40f"}}>✓</div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+
+                                {/* オッズ表示と購入ボタン */}
+                                {selectionsValid && currentOdds && (
+                                  <div style={{textAlign:"center",marginBottom:8,padding:"8px",background:"rgba(241,196,15,0.1)",borderRadius:8,border:"1px solid rgba(241,196,15,0.3)"}}>
+                                    <div style={{fontSize:10,color:"#888"}}>予想配当</div>
+                                    <div style={{fontSize:20,fontWeight:"bold",color:"#f1c40f"}}>{currentOdds}倍</div>
+                                  </div>
+                                )}
+                                <button
+                                  disabled={!selectionsValid || raceBetSubmitting}
+                                  onClick={submitBet}
+                                  style={{width:"100%",padding:"11px",borderRadius:8,border:"none",
+                                    background:(!selectionsValid)?"rgba(255,255,255,0.08)":"linear-gradient(135deg,#e74c3c,#f39c12)",
+                                    color:"#fff",fontWeight:"bold",fontSize:13,cursor:(!selectionsValid)?"not-allowed":"pointer",
+                                    opacity:raceBetSubmitting?0.5:1}}>
+                                  {raceBetSubmitting?"購入中...":"🎫 馬券を購入"}
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        )}
+
+                        {/* 締切後・購入なし */}
+                        {raceSelf && !myBet && !bettingOpen && (
+                          <div style={{textAlign:"center",padding:14,color:"#e74c3c",fontSize:12,background:"rgba(231,76,60,0.08)",borderRadius:8,marginBottom:10}}>
+                            🔴 馬券の購入受付は締め切られました
+                          </div>
+                        )}
+
+                        {/* 購入済み表示 */}
+                        {raceSelf && myBet && (
+                          <div style={{...S.card({background:"rgba(241,196,15,0.08)",border:"1px solid rgba(241,196,15,0.3)"}),marginBottom:10}}>
+                            <div style={{textAlign:"center",fontSize:12,color:"#f1c40f",marginBottom:8}}>🎫 購入済み</div>
+                            <div style={{fontSize:11,textAlign:"center",color:"#ccc",marginBottom:6}}>
+                              {BET_TYPES.find(t=>t.key===myBet.bet_type)?.label}：
+                              {myBet.bet_selection.map(id=>gm(id)?.name).join(myBet.bet_type==="umaren"?" / ":" → ")}
+                            </div>
+                            <div style={{textAlign:"center",fontSize:18,fontWeight:"bold",color:"#f1c40f"}}>{myBet.odds}倍</div>
+                            {myBet.is_hit !== null && (
+                              <div style={{textAlign:"center",marginTop:8,fontSize:13,fontWeight:"bold",color:myBet.is_hit?"#2ecc71":"#e74c3c"}}>
+                                {myBet.is_hit?`🎉 的中！ 配当${myBet.payout}倍`:"❌ ハズレ"}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
                   </>
                 );
               })()}
