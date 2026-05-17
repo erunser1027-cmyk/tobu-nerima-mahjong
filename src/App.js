@@ -16,6 +16,9 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-14", features:[
+    "馬券購入受付時間を変更（外馬は結果確定まで、対局メンバーは10分以内）",
+    "LIVEバッジのバグ修正（保存後も消えない問題を解消）",
+    "競馬レースが対局中に表示されないバグ修正（LIVE判定を緩和）",
     "競馬レース機能：フィニッシュ掲示板・写真判定演出・馬券的中ランキング実装",
     "競馬レース機能：レースを「BGM的に流れる演出」に調整（1周120秒、ゴール意識を排除）",
     "競馬レース機能：楕円トラックの周回アニメ実装（強さベース＋出遅れ・大逃げ・追い上げ）",
@@ -1813,8 +1816,8 @@ export default function App() {
           <div style={{fontSize:9,color:"#e74c3c",fontWeight:600,lineHeight:1.2}}>東武練馬Tリーグ</div>
           <div style={{fontSize:12,fontWeight:500,lineHeight:1.2}}>麻雀スコア表</div>
         </div>
-        {/* LIVE バッジ */}
-        {(addStep === 2 || sessions.some(s => s.date === today())) && (
+        {/* LIVE バッジ：実際にLIVE対局中(addStep===2)のみ表示 */}
+        {addStep === 2 && (
           <div style={{display:"flex",alignItems:"center",gap:5,padding:"5px 12px",borderRadius:16,background:"rgba(231,76,60,0.25)",border:"2px solid rgba(231,76,60,0.7)",cursor:addStep===2?"pointer":"default",boxShadow:"0 0 12px rgba(231,76,60,0.4)"}}
             onClick={()=>{ if(addStep===2) setShowLivePanel(p=>!p); }}>
             <span style={{width:10,height:10,borderRadius:"50%",background:"#e74c3c",display:"inline-block",animation:"pulse 1s infinite",boxShadow:"0 0 6px #e74c3c"}}/>
@@ -3140,7 +3143,8 @@ export default function App() {
 
               {/* 外馬モード サブタブ - 競馬レース機能 */}
               {dashSub==="sotoba" && (()=>{
-                const isLive = addStep === 2;
+                // 対局中（メンバー選択後〜確認画面まで）はLIVE扱い
+                const isLive = addStep >= 2 && addStep <= 3 && addSel.length === 4;
                 const currentRoundIndex = addRounds.length;
                 const playingMembers = addSel.map(id=>gm(id)).filter(Boolean);
 
@@ -3159,10 +3163,16 @@ export default function App() {
                   tanshoOdds = calcTanshoOdds(strengthMap);
                 }
 
-                // 馬券購入の締切判定（レース開始から5分以内）
+                // 馬券購入の締切判定
+                // 外馬（対局していない人）: 半荘結果が保存されるまで購入可能（時間制限なし）
+                // 対局メンバー: 10分以内
                 const raceStarted = raceStartTimes[currentRoundIndex] || null;
                 const elapsedMs = raceStarted ? (Date.now() - raceStarted) : 0;
-                const remainSec = raceStarted ? Math.max(0, 300 - Math.floor(elapsedMs/1000)) : 300;
+                const isSelfPlaying = raceSelf && addSel.map(Number).includes(Number(raceSelf));
+                const limitSec = isSelfPlaying ? 600 : null; // 対局者は600秒(10分)、外馬は制限なし
+                const remainSec = limitSec !== null
+                  ? (raceStarted ? Math.max(0, limitSec - Math.floor(elapsedMs/1000)) : limitSec)
+                  : 999;
                 const bettingOpen = remainSec > 0;
                 const remainMin = Math.floor(remainSec/60);
                 const remainSecMod = remainSec % 60;
@@ -3347,7 +3357,10 @@ export default function App() {
                             <div style={{fontSize:12,fontWeight:700,color:"#f39c12"}}>第{currentRoundIndex+1}レース</div>
                             {bettingOpen ? (
                               <div style={{fontSize:10,color:"#2ecc71"}}>
-                                🟢 受付中（残り{remainMin}:{String(remainSecMod).padStart(2,"0")}）
+                                🟢 受付中
+                                {isSelfPlaying
+                                  ? `（残り${remainMin}:${String(remainSecMod).padStart(2,"0")}）`
+                                  : "（結果確定まで）"}
                               </div>
                             ) : (
                               <div style={{fontSize:10,color:"#e74c3c",fontWeight:700}}>🔴 締切</div>
