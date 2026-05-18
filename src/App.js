@@ -732,7 +732,9 @@ export default function App() {
   const [mfPhoto, setMfPhoto] = useState(null);
 
   const [addStep, setAddStep] = useState(0);
-  const [rpSkenbans, setRpSkenbans] = useState([]); // 現半荘の抜け番IDsの配列（複数対応）
+  const [rpSkenbans, setRpSkenbans] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("tleague_rp_skenbans") || "[]"); } catch { return []; }
+  });
   const [addEndTimePlan, setAddEndTimePlan] = useState(""); // 終了予定時間（表示のみ・DB保存なし）
   const today = () => {
     const d = new Date();
@@ -773,7 +775,9 @@ export default function App() {
   const [dashSub, setDashSub] = useState("summary");
   // eslint-disable-next-line no-unused-vars
   const [raceBets, setRaceBets] = useState([]);
-  const [raceSelf, setRaceSelf] = useState(null);
+  const [raceSelf, setRaceSelf] = useState(() => {
+    try { const v = localStorage.getItem("tleague_race_self"); return v ? JSON.parse(v) : null; } catch { return null; }
+  });
   const [raceBetType, setRaceBetType] = useState(null);
   const [raceSelection, setRaceSelection] = useState([]);
   const [raceBetSubmitting, setRaceBetSubmitting] = useState(false);
@@ -886,6 +890,23 @@ export default function App() {
     localStorage.removeItem("tleague_race_chips");
     localStorage.removeItem("tleague_race_chips_delta");
   },[]);
+
+  // 抜け番選択をlocalStorageに永続化（アプリを閉じても抜け番選択を復元）
+  useEffect(()=>{
+    localStorage.setItem("tleague_rp_skenbans", JSON.stringify(rpSkenbans));
+  },[rpSkenbans]);
+
+  // 外馬の選択ユーザーを永続化
+  useEffect(()=>{
+    if (raceSelf === null) localStorage.removeItem("tleague_race_self");
+    else localStorage.setItem("tleague_race_self", JSON.stringify(raceSelf));
+  },[raceSelf]);
+
+  // 対局が初期化された(addStep=0)らrpSkenbansもクリア
+  useEffect(()=>{
+    if (addStep === 0 && rpSkenbans.length > 0) setRpSkenbans([]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[addStep]);
 
   // 半荘ごとにレース開始時刻を記録（外馬タブを開いた瞬間に半荘が始まればその時刻を起点に5分カウント）
   useEffect(()=>{
@@ -1082,6 +1103,28 @@ export default function App() {
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => {
         supabase.from("sessions").select("*").is("deleted_at", null).order("created_at").then(({ data }) => { if (data) setSessions(data); });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "drafts" }, () => {
+        // LIVE状態の即時同期：他デバイスでLIVE開始/終了/進行が即時反映
+        supabase.from("drafts").select("*").order("updated_at",{ascending:false}).limit(1).single().then(({data}) => {
+          if (data) {
+            // 自分が編集していない場合のみ反映
+            if (!draftId || draftId !== data.id) {
+              setAddDate(data.date);
+              setAddRules(data.rules);
+              setAddSel(data.members);
+              setAddStep(data.step);
+              setAddRounds(data.rounds || []);
+              setDraftId(data.id);
+            }
+          }
+        });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "race_bets" }, () => {
+        // 外馬投票の即時同期
+        supabase.from("race_bets").select("*").order("created_at",{ascending:false}).then(({data}) => {
+          if (data) { setRaceBets(data); raceBetsRef.current = data; }
+        });
       })
       .subscribe();
 
@@ -1988,9 +2031,20 @@ export default function App() {
           </div>
         )}
         <div style={{marginLeft:"auto",display:"flex",gap:3,flexWrap:"wrap",justifyContent:"flex-end"}}>
-          {[["dashboard","📊"],["calendar","🗓"],["history","📅"],["skull","💀"],["add","➕"],["members","👥"]].map(([t,l])=>(
-            <button key={t} onClick={()=>setTab(t)} style={S.nav(tab===t)}>{l}</button>
-          ))}
+          {[["dashboard","📊"],["calendar","🗓"],["history","📅"],["skull","💀"],["sotoba","🏇"],["add","➕"],["members","👥"]].map(([t,l])=>{
+            const isActive = t==="sotoba"
+              ? (tab==="dashboard" && dashSub==="sotoba")
+              : (tab===t && !(t==="dashboard" && dashSub==="sotoba"));
+            return (
+              <button key={t} onClick={()=>{
+                if(t==="sotoba"){ setTab("dashboard"); setDashSub("sotoba"); }
+                else { setTab(t); if(t==="dashboard" && dashSub==="sotoba") setDashSub("summary"); }
+              }} style={S.nav(isActive)}>
+                {t==="sotoba" && addStep===2 && <span style={{position:"absolute",marginLeft:14,marginTop:-8,width:7,height:7,borderRadius:"50%",background:"#e74c3c",animation:"pulse 1s infinite",display:"inline-block"}}/>}
+                {l}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -2490,12 +2544,11 @@ export default function App() {
           return (
             <>
               <div style={{display:"flex",gap:4,marginBottom:10,flexWrap:"wrap"}}>
-                {[["summary","📊 概要"],["lifetime","🏆 生涯成績"],["h2h","⚔️ 対人成績"],["yakuman","🀄 役満"],["highscore","👑 最高点"],["chip","💰 チップ王"],["hilo","🃏 ハイ&ロー"],["sotoba","🏇 外馬"]].map(([v,l])=>(
+                {[["summary","📊 概要"],["lifetime","🏆 生涯成績"],["h2h","⚔️ 対人成績"],["yakuman","🀄 役満"],["highscore","👑 最高点"],["chip","💰 チップ王"],["hilo","🃏 ハイ&ロー"]].map(([v,l])=>(
                   <button key={v} onClick={()=>setDashSub(v)} style={{padding:"5px 12px",borderRadius:16,border:"none",cursor:"pointer",fontSize:12,fontWeight:500,
-                    background:dashSub===v?"#e74c3c":v==="sotoba"&&addStep===2?"rgba(231,76,60,0.25)":"rgba(255,255,255,0.1)",
+                    background:dashSub===v?"#e74c3c":"rgba(255,255,255,0.1)",
                     color:"#fff",position:"relative"}}>
                     {l}
-                    {v==="sotoba"&&addStep===2&&<span style={{position:"absolute",top:-3,right:-3,width:7,height:7,borderRadius:"50%",background:"#e74c3c",animation:"pulse 1s infinite"}}/>}
                   </button>
                 ))}
               </div>
@@ -3511,7 +3564,9 @@ export default function App() {
                         ✓ 対局メンバー（その日参加 + 対局）= <span style={{color:"#f39c12",fontWeight:600}}>10分制限</span><br/>
                         ✓ 抜け番メンバー（その日参加 + 非対局）= <span style={{color:"#f39c12",fontWeight:600}}>10分制限</span><br/>
                         ✓ 外馬（参加していない人）= <span style={{color:"#2ecc71",fontWeight:600}}>時間無制限</span><br/>
-                        <span style={{marginTop:4,display:"block",fontSize:9,color:"#666"}}>💡 生涯参加半荘数がチップ。勝つと払い戻し、負けるとチップ消費</span>
+                        ✓ <span style={{color:"#e74c3c",fontWeight:600}}>1半荘につき1種類の馬券のみ購入可能</span><br/>
+                        <span style={{marginTop:4,display:"block",fontSize:9,color:"#999"}}>💡 <span style={{color:"#f1c40f"}}>チップは生涯の半荘参加数で貯まる</span>（参加するほど増える）</span>
+                        <span style={{display:"block",fontSize:9,color:"#999"}}>💡 的中で配当倍率分のチップ払い戻し、ハズレで賭けチップ消費</span>
                       </div>
                     </div>
 
