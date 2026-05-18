@@ -502,25 +502,22 @@ function RaceTrack({ playingMembers, strengthMap, mySelection, betType }) {
 
         {/* ゴールライン（楕円コース中央下を縦に貫く） */}
         {(() => {
-          const gx = cx;                  // x=140 中央
-          const gTop = cy + ry - 32;      // 内側レーンより少し上
-          const gBot = cy + ry + 14;      // 外側レーンより少し下
-          const lineW = 6;                // 市松1マスの高さ
-          const squareW = 5;              // 市松1マスの幅（縦線の太さ）
-          const squares = Math.ceil((gBot - gTop) / lineW);
+          const gx = cx;                    // x=140 中央
+          // cy=70, ry=45 → 楕円の最下端=115、外側レーン(offset=21)の最下端=136
+          const gTop = cy + ry + 2;         // コース内側下端より少し下
+          const gBot = cy + ry + 30;        // 外側レーンを確実に越える
+          const lineH = 6;
+          const lineW = 5;
+          const squares = Math.ceil((gBot - gTop) / lineH);
           return (
             <g>
-              {/* 縦に並ぶ市松模様 */}
               {Array.from({length: squares}).map((_, i) => (
                 <rect key={i}
-                  x={gx - squareW / 2} y={gTop + i * lineW}
-                  width={squareW} height={lineW}
+                  x={gx - lineW / 2} y={gTop + i * lineH}
+                  width={lineW} height={lineH}
                   fill={i % 2 === 0 ? "#fff" : "#222"}
                   opacity="0.95"/>
               ))}
-              {/* GOALテキスト（下端） */}
-              <text x={gx} y={gBot + 9} fontSize="7" fill="#FFD700"
-                textAnchor="middle" fontWeight="bold">GOAL</text>
             </g>
           );
         })()}
@@ -784,7 +781,10 @@ export default function App() {
   const [racePersonHistory, setRacePersonHistory] = useState(null); // 個人履歴表示対象ID
   const [raceStartTimes, setRaceStartTimes] = useState({}); // { [round_index]: timestamp_ms }
   const [, setRaceNowTick] = useState(0); // 5分タイマー更新用ダミーstate
-  const [raceChips, setRaceChips] = useState({}); // { member_id: chips } - 生涯参加数をチップに見立てる
+  const [raceChips, setRaceChips] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("tleague_race_chips") || "{}"); } catch { return {}; }
+  });
+  const raceBetsRef = useRef([]);
   const [showGoalScene, setShowGoalScene] = useState(false); // 写真判定ゴールシーン展開
   const [sortKey, setSortKey] = useState("sc");
   const [sortAsc, setSortAsc] = useState(false);
@@ -877,8 +877,18 @@ export default function App() {
   // race_bets 読み込み
   useEffect(()=>{
     supabase.from("race_bets").select("*").order("created_at",{ascending:false})
-      .then(({data})=>{ if(data) setRaceBets(data); });
+      .then(({data})=>{ if(data) { setRaceBets(data); raceBetsRef.current = data; } });
   },[]);
+
+  // raceBetsRefを常に最新に保つ
+  useEffect(()=>{ raceBetsRef.current = raceBets; },[raceBets]);
+
+  // raceChipsをlocalStorageに永続化
+  useEffect(()=>{
+    if(Object.keys(raceChips).length > 0) {
+      localStorage.setItem("tleague_race_chips", JSON.stringify(raceChips));
+    }
+  },[raceChips]);
 
   // 半荘ごとにレース開始時刻を記録（外馬タブを開いた瞬間に半荘が始まればその時刻を起点に5分カウント）
   useEffect(()=>{
@@ -897,51 +907,55 @@ export default function App() {
   // 半荘が確定されたとき馬券を自動採点＋購入状態をリセット
   useEffect(()=>{
     if(addRounds.length === 0) return;
-    setRaceBetType(null); setRaceSelection([]); // 次の半荘の購入入力をリセット
+    setRaceBetType(null); setRaceSelection([]); setRaceBetAmount(1);
     const lastRound = addRounds[addRounds.length - 1];
     const roundIndex = addRounds.length - 1;
     const sorted = [...lastRound.players].sort((a,b)=>N(lastRound.scores[String(b)]??lastRound.scores[b])-N(lastRound.scores[String(a)]??lastRound.scores[a]));
     if(sorted.length < 2) return;
-    const actualResult = sorted.map(Number); // [1位ID, 2位ID, 3位ID, 4位ID]
-    const toScore = raceBets.filter(b=>
+    const actualResult = sorted.map(Number);
+    // 常に最新のraceBetsをrefから取得（クロージャ問題を回避）
+    const currentBets = raceBetsRef.current;
+    const toScore = currentBets.filter(b=>
       b.session_date === addDate &&
       b.round_index === roundIndex &&
       b.is_hit === null
     );
     if(toScore.length === 0) return;
-    toScore.forEach(async b=>{
-      const sel = b.bet_selection;
-      let isHit = false;
-      if(b.bet_type === "tansho") {
-        // 単勝：1位が一致
-        isHit = sel[0] === actualResult[0];
-      } else if(b.bet_type === "umaren") {
-        // 馬連：1,2位の組み合わせ（順不同）
-        isHit = (sel[0]===actualResult[0] && sel[1]===actualResult[1]) ||
-                (sel[0]===actualResult[1] && sel[1]===actualResult[0]);
-      } else if(b.bet_type === "sanrentan") {
-        // 三連単：1,2,3位の順番一致
-        isHit = sel[0]===actualResult[0] && sel[1]===actualResult[1] && sel[2]===actualResult[2];
-      } else if(b.bet_type === "yonrentan") {
-        // 四連単：全順位一致
-        isHit = sel[0]===actualResult[0] && sel[1]===actualResult[1] && sel[2]===actualResult[2] && sel[3]===actualResult[3];
-      }
-      const payout = isHit ? Number(b.odds) : 0;
-      await supabase.from("race_bets").update({
-        actual_result: actualResult, is_hit: isHit, payout
-      }).eq("id", b.id);
-    });
-    setRaceBets(prev => prev.map(b => {
-      const t = toScore.find(x=>x.id===b.id);
-      if(!t) return b;
+
+    const scored = toScore.map(b => {
       const sel = b.bet_selection;
       let isHit = false;
       if(b.bet_type === "tansho") isHit = sel[0] === actualResult[0];
-      else if(b.bet_type === "umaren") isHit = (sel[0]===actualResult[0] && sel[1]===actualResult[1]) || (sel[0]===actualResult[1] && sel[1]===actualResult[0]);
-      else if(b.bet_type === "sanrentan") isHit = sel[0]===actualResult[0] && sel[1]===actualResult[1] && sel[2]===actualResult[2];
-      else if(b.bet_type === "yonrentan") isHit = sel[0]===actualResult[0] && sel[1]===actualResult[1] && sel[2]===actualResult[2] && sel[3]===actualResult[3];
-      return {...b, actual_result: actualResult, is_hit: isHit, payout: isHit ? Number(b.odds) : 0};
+      else if(b.bet_type === "umaren") isHit = (sel[0]===actualResult[0]&&sel[1]===actualResult[1])||(sel[0]===actualResult[1]&&sel[1]===actualResult[0]);
+      else if(b.bet_type === "sanrentan") isHit = sel[0]===actualResult[0]&&sel[1]===actualResult[1]&&sel[2]===actualResult[2];
+      else if(b.bet_type === "yonrentan") isHit = sel[0]===actualResult[0]&&sel[1]===actualResult[1]&&sel[2]===actualResult[2]&&sel[3]===actualResult[3];
+      const payout = isHit ? Number(b.odds) : 0;
+      return {...b, actual_result: actualResult, is_hit: isHit, payout};
+    });
+
+    // ローカル即時反映（ランキングもここで更新される）
+    setRaceBets(prev => prev.map(b => {
+      const s = scored.find(x=>x.id===b.id);
+      return s ? s : b;
     }));
+
+    // 的中チップ即時加算
+    setRaceChips(prev => {
+      const next = {...prev};
+      scored.forEach(b => {
+        if(b.is_hit) {
+          next[b.bettor_id] = (next[b.bettor_id] ?? 0) + Math.round((b.payout - 1) * (b.bet_amount || 1));
+        }
+      });
+      return next;
+    });
+
+    // Supabase非同期更新
+    scored.forEach(async b => {
+      await supabase.from("race_bets").update({
+        actual_result: b.actual_result, is_hit: b.is_hit, payout: b.payout
+      }).eq("id", b.id);
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[addRounds.length]);
   useEffect(()=>{
@@ -3529,7 +3543,9 @@ export default function App() {
                             {/* ゴールシーン：タップで展開、差額に応じた距離感 */}
                             {showGoalScene && (()=>{
                               const maxScore = finishBoard.finishResults[0]?.score ?? 0;
-                              const maxGap = Math.max(finishBoard.gap12 * 2, 3000);
+                              const lastScore = finishBoard.finishResults[finishBoard.finishResults.length-1]?.score ?? 0;
+                              // 1位と最下位の差でスケール（差が大きいほど各馬が広がる）
+                              const maxGap = Math.max(maxScore - lastScore, 500);
                               const trackW = 260, goalX = 240;
                               const horseColors = ["#e74c3c","#3498db","#2ecc71","#f1c40f"];
                               return (
