@@ -16,6 +16,8 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-05-11
 const CHANGELOG = [
   { date:"2026-05-14", features:[
+    "バグ修正：アプリを閉じてもLIVEモードが復元されるように修正（ドラフト保存にステップ情報を追加）",
+    "バグ修正：LIVE中に外馬モードが表示されない問題を修正",
     "馬券購入受付時間を変更（外馬は結果確定まで、対局メンバーは10分以内）",
     "LIVEバッジのバグ修正（保存後も消えない問題を解消）",
     "競馬レースが対局中に表示されないバグ修正（LIVE判定を緩和）",
@@ -872,7 +874,8 @@ export default function App() {
           setAddRules(data.rules);
           setAddSel(data.members);
           setAddRounds(data.rounds);
-          setAddStep(data.rounds.length>0?2:0);
+          // 保存されたstepを使う。なければ従来ロジックで推定
+          setAddStep(data.step ?? (data.rounds.length>0 ? 2 : (data.members?.length>0 ? 2 : 0)));
           return;
         } else if(data) {
           await supabase.from("drafts").delete().eq("id",data.id);
@@ -891,7 +894,7 @@ export default function App() {
             setAddRules(draft.rules);
             setAddSel(draft.members);
             setAddRounds(draft.rounds);
-            setAddStep(draft.rounds.length>0?2:0);
+            setAddStep(draft.step ?? (draft.rounds.length>0 ? 2 : (draft.members?.length>0 ? 2 : 0)));
             showToast("success", "📦 ローカル保存から復元しました");
           } else {
             localStorage.removeItem("tleague_draft_backup");
@@ -904,10 +907,10 @@ export default function App() {
     loadDraft();
   },[]);
 
-  // 半荘確定のたびにSupabaseに下書き保存
-  async function saveDraft(date, rules, sel, rounds){
-    if(rounds.length===0) return;
-    const payload = { date, rules, members:sel, rounds, updated_at: new Date().toISOString() };
+  // 対局状態が変化するたびにSupabaseに下書き保存
+  async function saveDraft(date, rules, sel, step, rounds){
+    if(sel.length === 0) return; // メンバー未選択は保存しない
+    const payload = { date, rules, members:sel, rounds, step, updated_at: new Date().toISOString() };
     
     // localStorage にバックアップ（オフライン時の保険）
     try {
@@ -1075,7 +1078,7 @@ export default function App() {
           setAddRounds(prev=>prev.map((rr,idx)=>idx!==ri?rr:{
             ...rr, photos:{...rr.photos,[id]:[...(rr.photos?.[id]||[]),d].slice(0,3)}
           }));
-          saveDraft(addDate, addRules, addSel, addRounds.map((rr,idx)=>idx!==ri?rr:{
+          saveDraft(addDate, addRules, addSel, addStep, addRounds.map((rr,idx)=>idx!==ri?rr:{
             ...rr, photos:{...rr.photos,[id]:[...(rr.photos?.[id]||[]),d].slice(0,3)}
           }));
         }
@@ -1118,7 +1121,7 @@ export default function App() {
       return; // 持ち点入力待ち
     }
     
-    saveDraft(addDate, addRules, addSel, newRounds);
+    saveDraft(addDate, addRules, addSel, addStep, newRounds);
 
     // 役満演出
     if (rpYakuman.length > 0) {
@@ -1134,11 +1137,14 @@ export default function App() {
   function startAdd() {
     const now = new Date();
     const startTime = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
-    setAddRules(prev => ({...prev, startTime}));
+    const newRules = {...addRules, startTime};
+    setAddRules(newRules);
     setAddStep(2);
     setRpSc(Object.fromEntries(addSel.map(id=>[id,""])));
     setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes([]); setRpOpenRiichi([]); setRpDealIn([]); setRpAutoId(null); setRpActive(null);
     setAddRounds([]); setAddChips({}); setAddBashiro({}); setAddErr("");
+    // 対局開始時点でドラフト保存（アプリを閉じても復元できるように）
+    saveDraft(addDate, newRules, addSel, 2, []);
   }
 
   async function saveSession() {
@@ -1291,7 +1297,7 @@ export default function App() {
               if(!window.confirm(`第${ri+1}半荘を削除しますか？\nこの操作は取り消せません。`)) return;
               const updated = addRounds.filter((_,i)=>i!==ri);
               setAddRounds(updated);
-              saveDraft(addDate,addRules,addSel,updated);
+              saveDraft(addDate,addRules,addSel,addStep,updated);
               setEditRoundIndex(null);
             }} style={S.bs({fontSize:11,color:"#e74c3c"})}>
               🗑️ 削除
@@ -1424,7 +1430,7 @@ export default function App() {
             })}
             <button onClick={()=>{
               setEditRoundIndex(null);
-              saveDraft(addDate, addRules, addSel, addRounds);
+              saveDraft(addDate, addRules, addSel, addStep, addRounds);
             }} style={{...S.br({width:"100%",marginTop:6,fontSize:12})}}>✅ 保存して閉じる</button>
           </div>
         )}
@@ -1457,7 +1463,7 @@ export default function App() {
                   if(!highScoreInput||highScoreInput<25000){alert("正しい持ち点を入力してください");return;}
                   const updated = addRounds.map((r,i)=>i===highScoreModal.roundIndex?{...r,highScore:{playerId:highScoreModal.playerId,rawScore:parseInt(highScoreInput)}}:r);
                   setAddRounds(updated);
-                  saveDraft(addDate,addRules,addSel,updated);
+                  saveDraft(addDate,addRules,addSel,addStep,updated);
                   setHighScoreModal(null);
                   // フォームをリセット
                   setRpSc(Object.fromEntries(addSel.map(id=>[id,""])));
@@ -1471,7 +1477,7 @@ export default function App() {
                   setAddErr("");
                 }} style={{...S.br({flex:1,fontSize:13})}}>✅ 記録する</button>
                 <button onClick={()=>{
-                  saveDraft(addDate,addRules,addSel,addRounds);
+                  saveDraft(addDate,addRules,addSel,addStep,addRounds);
                   setHighScoreModal(null);
                   // フォームをリセット
                   setRpSc(Object.fromEntries(addSel.map(id=>[id,""])));
@@ -3144,7 +3150,7 @@ export default function App() {
               {/* 外馬モード サブタブ - 競馬レース機能 */}
               {dashSub==="sotoba" && (()=>{
                 // 対局中（メンバー選択後〜確認画面まで）はLIVE扱い
-                const isLive = addStep >= 2 && addStep <= 3 && addSel.length === 4;
+                const isLive = (addStep === 2 || addStep === 3) && addSel.length > 0;
                 const currentRoundIndex = addRounds.length;
                 const playingMembers = addSel.map(id=>gm(id)).filter(Boolean);
 
