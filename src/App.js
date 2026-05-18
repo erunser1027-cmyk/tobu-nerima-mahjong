@@ -781,9 +781,7 @@ export default function App() {
   const [racePersonHistory, setRacePersonHistory] = useState(null); // 個人履歴表示対象ID
   const [raceStartTimes, setRaceStartTimes] = useState({}); // { [round_index]: timestamp_ms }
   const [, setRaceNowTick] = useState(0); // 5分タイマー更新用ダミーstate
-  const [raceChips, setRaceChips] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("tleague_race_chips_delta") || "{}"); } catch { return {}; }
-  }); // { member_id: delta } - 生涯参加数からの増減分のみ保存
+  // raceBetsRef：採点useEffect内でクロージャ問題を防ぐため、常に最新のraceBetsを参照
   const raceBetsRef = useRef([]);
   const [showGoalScene, setShowGoalScene] = useState(false); // 写真判定ゴールシーン展開
   const [sortKey, setSortKey] = useState("sc");
@@ -883,10 +881,11 @@ export default function App() {
   // raceBetsRefを常に最新に保つ
   useEffect(()=>{ raceBetsRef.current = raceBets; },[raceBets]);
 
-  // raceChips(delta)をlocalStorageに永続化
+  // 古いlocalStorageキーをクリーンアップ（過去の絶対値データを除去）
   useEffect(()=>{
-    localStorage.setItem("tleague_race_chips_delta", JSON.stringify(raceChips));
-  },[raceChips]);
+    localStorage.removeItem("tleague_race_chips");
+    localStorage.removeItem("tleague_race_chips_delta");
+  },[]);
 
   // 半荘ごとにレース開始時刻を記録（外馬タブを開いた瞬間に半荘が始まればその時刻を起点に5分カウント）
   useEffect(()=>{
@@ -931,25 +930,11 @@ export default function App() {
       return {...b, actual_result: actualResult, is_hit: isHit, payout};
     });
 
-    // ローカル即時反映（ランキングもここで更新される）
+    // ローカル即時反映（raceBetsが更新されればチップもランキングも自動計算される）
     setRaceBets(prev => prev.map(b => {
       const s = scored.find(x=>x.id===b.id);
       return s ? s : b;
     }));
-
-    // 的中チップをdeltaに加算（0.5以上繰り上げ）
-    setRaceChips(prev => {
-      const next = {...prev};
-      scored.forEach(b => {
-        if(b.is_hit && b.payout > 0) {
-          const profit = Math.ceil((b.payout - 1) * (b.bet_amount || 1) - 0.5 + 0.5);
-          // 0.5以上繰り上げ = Math.round
-          const rounded = Math.round((b.payout - 1) * (b.bet_amount || 1));
-          next[b.bettor_id] = (next[b.bettor_id] || 0) + rounded;
-        }
-      });
-      return next;
-    });
 
     // Supabase非同期更新
     scored.forEach(async b => {
@@ -1320,15 +1305,7 @@ export default function App() {
       });
       if(allScored.length > 0) {
         setRaceBets(prev => prev.map(b => { const s=allScored.find(x=>x.id===b.id); return s?s:b; }));
-        setRaceChips(prev => {
-          const next = {...prev};
-          allScored.forEach(b => {
-            if(b.is_hit && b.payout > 0) {
-              next[b.bettor_id] = (next[b.bettor_id] || 0) + Math.round((b.payout-1)*(b.bet_amount||1));
-            }
-          });
-          return next;
-        });
+        // raceBetsが更新されればチップ・ランキング全て自動計算される
       }
 
       setLr({...addRules, uma:addRules.uma.map(Number)});
@@ -1352,25 +1329,11 @@ export default function App() {
       if (error) throw error;
       const s = sessions.find(s=>s.id===id);
 
-      // 削除された対局の馬券を無効化 → チップ返却（deltaを元に戻す）
+      // 削除された対局の馬券をrace_betsから完全削除
+      // → currentChips計算から除外され、消費・配当が自動的に無効化される
       const deletedBets = raceBetsRef.current.filter(b => b.session_date === s?.date);
       if (deletedBets.length > 0) {
-        setRaceChips(prev => {
-          const next = {...prev};
-          deletedBets.forEach(b => {
-            const consumed = b.bet_amount || 1;
-            // 消費したチップを返却（deltaに加算）
-            next[b.bettor_id] = (next[b.bettor_id] || 0) + consumed;
-            // 的中で得た配当分はdeltaから引く
-            if (b.is_hit && b.payout > 0) {
-              next[b.bettor_id] -= Math.round((b.payout - 1) * consumed);
-            }
-          });
-          return next;
-        });
-        await supabase.from("race_bets")
-          .update({ is_hit: null, payout: null, actual_result: null })
-          .eq("session_date", s?.date);
+        await supabase.from("race_bets").delete().eq("session_date", s?.date);
         setRaceBets(prev => prev.filter(b => b.session_date !== s?.date));
         raceBetsRef.current = raceBetsRef.current.filter(b => b.session_date !== s?.date);
       }
@@ -3432,11 +3395,7 @@ export default function App() {
                   }).select().single();
                   if(data) {
                     setRaceBets(prev=>[data, ...prev]);
-                    // チップ消費をdeltaから引く（リアルタイム即時反映）
-                    setRaceChips(prev => ({
-                      ...prev,
-                      [raceSelf]: (prev[raceSelf] || 0) - raceBetAmount
-                    }));
+                    // raceBetsが更新されればcurrentChipsで自動計算される
                   }
                   setRaceBetType(null); setRaceSelection([]); setRaceBetAmount(1);
                   setRaceBetSubmitting(false);
@@ -3486,17 +3445,31 @@ export default function App() {
                   .filter(v => v.total > 0)
                   .sort((a, b) => b.sumPayout - a.sumPayout);
 
-                // チップ計算：生涯参加半荘数 = ベースチップ、賭けの増減はdeltaとして加算
+                // チップ計算：生涯半荘参加数（ダッシュボードと同じ計算式）
                 const memberChips = {};
                 members.forEach(m => {
                   const memberRounds = sessions
                     .filter(s => (s.members || []).map(Number).includes(Number(m.id)))
                     .reduce((sum, s) => sum + (s.rounds?.length || 0), 0);
-                  memberChips[m.id] = Math.max(10, memberRounds);
+                  memberChips[m.id] = memberRounds; // ベース = 生涯半荘数
                 });
-                // currentChips = ベース（生涯半荘数）+ delta（外馬増減分）
-                // 半荘が増えれば自動的にベースも増え、外馬の増減はdeltaで管理
-                const currentChips = (id) => memberChips[id] + (raceChips[id] || 0);
+
+                // 保有コイン = 生涯半荘数 - 消費 + 払い戻し
+                // race_bets から動的に計算（localStorage 不使用 / 二重加算なし）
+                const currentChips = (id) => {
+                  const base = memberChips[id] || 0;
+                  const myBets = raceBets.filter(b => b.bettor_id === id);
+                  let delta = 0;
+                  myBets.forEach(b => {
+                    const amount = b.bet_amount || 1;
+                    delta -= amount; // 賭けたら必ず消費
+                    if (b.is_hit && b.payout > 0) {
+                      // 払い戻し = odds倍率 × 賭け額（小数0.5以上繰り上げ）
+                      delta += Math.round(Number(b.payout) * amount);
+                    }
+                  });
+                  return base + delta;
+                };
 
 
                 return (
@@ -3840,29 +3813,61 @@ export default function App() {
                         {raceSelf && myBet && (
                           <div style={{...S.card({background:"rgba(241,196,15,0.08)",border:"1px solid rgba(241,196,15,0.3)"}),marginBottom:10}}>
                             {/* チップ残高 */}
-                            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
-                              <div style={{fontSize:10,color:"#f1c40f",background:"rgba(241,196,15,0.15)",borderRadius:6,padding:"2px 8px"}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                              <div style={{fontSize:11,color:"#ccc"}}>
+                                <Av m={gm(raceSelf)} sz={20}/> <span style={{marginLeft:4}}>{gm(raceSelf)?.name}</span>
+                              </div>
+                              <div style={{fontSize:11,color:"#f1c40f",background:"rgba(241,196,15,0.15)",borderRadius:6,padding:"3px 10px",fontWeight:600}}>
                                 🪙 保有チップ：{currentChips(raceSelf)}
                               </div>
                             </div>
-                            <div style={{textAlign:"center",fontSize:12,color:"#f1c40f",marginBottom:8}}>🎫 購入済み</div>
-                            <div style={{fontSize:11,textAlign:"center",color:"#ccc",marginBottom:6}}>
-                              {BET_TYPES.find(t=>t.key===myBet.bet_type)?.label}：
-                              {myBet.bet_selection.map(id=>gm(id)?.name).join(myBet.bet_type==="umaren"?" / ":" → ")}
+                            <div style={{textAlign:"center",fontSize:12,color:"#f1c40f",marginBottom:8}}>🎫 購入内容</div>
+
+                            {/* 購入内容詳細 */}
+                            <div style={{background:"rgba(0,0,0,0.3)",borderRadius:8,padding:"10px 12px",marginBottom:8}}>
+                              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#888",marginBottom:4}}>
+                                <span>馬券種</span>
+                                <span style={{color:"#fff",fontWeight:600}}>{BET_TYPES.find(t=>t.key===myBet.bet_type)?.label}</span>
+                              </div>
+                              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#888",marginBottom:4}}>
+                                <span>選択</span>
+                                <span style={{color:"#fff"}}>{myBet.bet_selection.map(id=>gm(id)?.name).join(myBet.bet_type==="umaren"?" / ":" → ")}</span>
+                              </div>
+                              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#888",marginBottom:4}}>
+                                <span>賭けチップ</span>
+                                <span style={{color:"#f1c40f",fontWeight:600}}>🪙 {myBet.bet_amount || 1} 枚</span>
+                              </div>
+                              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#888",marginBottom:4}}>
+                                <span>オッズ</span>
+                                <span style={{color:"#f1c40f",fontWeight:600}}>{myBet.odds} 倍</span>
+                              </div>
+                              {/* 当たった時の配当予測 */}
+                              {myBet.is_hit === null && (
+                                <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginTop:6,paddingTop:6,borderTop:"1px dashed rgba(255,255,255,0.15)"}}>
+                                  <span style={{color:"#2ecc71"}}>🎯 的中時の払い戻し</span>
+                                  <span style={{color:"#2ecc71",fontWeight:"bold"}}>🪙 {Math.round(Number(myBet.odds) * (myBet.bet_amount || 1))} 枚</span>
+                                </div>
+                              )}
                             </div>
-                            <div style={{textAlign:"center",fontSize:18,fontWeight:"bold",color:"#f1c40f"}}>{myBet.odds}倍</div>
+
+                            {/* 結果演出 */}
                             {myBet.is_hit !== null && (
                               myBet.is_hit ? (
-                                <div style={{textAlign:"center",marginTop:10,padding:"10px 8px",background:"rgba(46,204,113,0.12)",borderRadius:8,border:"1px solid rgba(46,204,113,0.4)"}}>
-                                  <div style={{fontSize:24,marginBottom:4,animation:"pulse 1s infinite"}}>🎉</div>
-                                  <div style={{fontSize:14,fontWeight:"bold",color:"#2ecc71"}}>的中！</div>
-                                  <div style={{fontSize:12,color:"#f1c40f",marginTop:4}}>配当 {myBet.payout}倍</div>
-                                  <div style={{fontSize:10,color:"#2ecc71",marginTop:4}}>🪙 チップ払い戻し済み</div>
+                                <div style={{textAlign:"center",marginTop:10,padding:"14px 8px",background:"rgba(46,204,113,0.15)",borderRadius:8,border:"1px solid rgba(46,204,113,0.5)"}}>
+                                  <div style={{fontSize:32,marginBottom:4,animation:"pulse 1s infinite"}}>🎉</div>
+                                  <div style={{fontSize:16,fontWeight:"bold",color:"#2ecc71",marginBottom:6}}>🎯 的中！</div>
+                                  <div style={{fontSize:14,color:"#f1c40f",fontWeight:600}}>
+                                    🪙 +{Math.round(Number(myBet.payout) * (myBet.bet_amount || 1))} 枚 払い戻し！
+                                  </div>
+                                  <div style={{fontSize:10,color:"#888",marginTop:6}}>
+                                    純利益: +{Math.round(Number(myBet.payout) * (myBet.bet_amount || 1)) - (myBet.bet_amount || 1)} 枚
+                                  </div>
                                 </div>
                               ) : (
-                                <div style={{textAlign:"center",marginTop:8,fontSize:13,fontWeight:"bold",color:"#e74c3c"}}>
-                                  ❌ ハズレ
-                                  <div style={{fontSize:10,color:"#888",marginTop:4}}>チップ消費済み</div>
+                                <div style={{textAlign:"center",marginTop:8,padding:"10px",background:"rgba(231,76,60,0.1)",borderRadius:8,border:"1px solid rgba(231,76,60,0.3)"}}>
+                                  <div style={{fontSize:24,marginBottom:4}}>😢</div>
+                                  <div style={{fontSize:13,fontWeight:"bold",color:"#e74c3c"}}>❌ ハズレ</div>
+                                  <div style={{fontSize:10,color:"#888",marginTop:4}}>🪙 -{myBet.bet_amount || 1} 枚 消費</div>
                                 </div>
                               )
                             )}
