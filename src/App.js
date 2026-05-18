@@ -13,8 +13,13 @@ const SCORE_RATES = [
 const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ", "池袋カクレマ", "池袋PSJ北口"];
 
 // 更新履歴 - 新しい機能は必ず今日の日付で追加してください
-// 今日: 2026-05-11
+// 今日: 2026-05-18
 const CHANGELOG = [
+  { date:"2026-05-18", features:[
+    "外馬機能：5人以上参加時に対応（各半荘開始時に抜け番をタップして選択）",
+    "抜け番選択UI追加（5人以上の場合のみ表示、タップで簡単選択）",
+    "外馬レース機能：抜け番を除いた4人をベースに動作するように修正",
+  ]},
   { date:"2026-05-14", features:[
     "バグ修正：アプリを閉じてもLIVEモードが復元されるように修正（ドラフト保存にステップ情報を追加）",
     "バグ修正：LIVE中に外馬モードが表示されない問題を修正",
@@ -628,6 +633,7 @@ export default function App() {
   const [mfPhoto, setMfPhoto] = useState(null);
 
   const [addStep, setAddStep] = useState(0);
+  const [rpSkenban, setRpSkenban] = useState(null); // 現半荘の抜け番ID
   const [addEndTimePlan, setAddEndTimePlan] = useState(""); // 終了予定時間（表示のみ・DB保存なし）
   const today = () => {
     const d = new Date();
@@ -1131,7 +1137,7 @@ export default function App() {
       setTimeout(() => setYakumanCelebration(null), 4000);
     }
     setRpSc(Object.fromEntries(addSel.map(id=>[id,""])));
-    setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes({}); setRpOpenRiichi([]); setRpDealIn([]); setRpAutoId(null); setRpActive(null); setAddErr("");
+    setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes({}); setRpOpenRiichi([]); setRpDealIn([]); setRpAutoId(null); setRpActive(null); setRpSkenban(null); setAddErr("");
   }
 
   function startAdd() {
@@ -1141,7 +1147,7 @@ export default function App() {
     setAddRules(newRules);
     setAddStep(2);
     setRpSc(Object.fromEntries(addSel.map(id=>[id,""])));
-    setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes([]); setRpOpenRiichi([]); setRpDealIn([]); setRpAutoId(null); setRpActive(null);
+    setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes([]); setRpOpenRiichi([]); setRpDealIn([]); setRpAutoId(null); setRpActive(null); setRpSkenban(null);
     setAddRounds([]); setAddChips({}); setAddBashiro({}); setAddErr("");
     // 対局開始時点でドラフト保存（アプリを閉じても復元できるように）
     saveDraft(addDate, newRules, addSel, 2, []);
@@ -3152,7 +3158,9 @@ export default function App() {
                 // 対局中（メンバー選択後〜確認画面まで）はLIVE扱い
                 const isLive = (addStep === 2 || addStep === 3) && addSel.length > 0;
                 const currentRoundIndex = addRounds.length;
-                const playingMembers = addSel.map(id=>gm(id)).filter(Boolean);
+                const playingMembers = rpSkenban 
+                  ? addSel.filter(id => id !== rpSkenban).map(id => gm(id)).filter(Boolean)
+                  : addSel.map(id => gm(id)).filter(Boolean);
 
                 // 馬券種類の定義
                 const BET_TYPES = [
@@ -3164,7 +3172,7 @@ export default function App() {
 
                 // 強さスコア・単勝オッズを計算（参加者がいるときだけ）
                 let strengthMap = null, tanshoOdds = null;
-                if(isLive && playingMembers.length === 4) {
+                if(isLive && playingMembers.length === 4 && rpSkenban !== null) {
                   strengthMap = calcHorseStrength(sessions, members, addSel.map(Number));
                   tanshoOdds = calcTanshoOdds(strengthMap);
                 }
@@ -3294,7 +3302,7 @@ export default function App() {
                     )}
 
                     {/* LIVE中：4人参加していない場合 */}
-                    {isLive && playingMembers.length !== 4 && (
+                    {isLive && (playingMembers.length !== 4 || rpSkenban === null) && (
                       <div style={{textAlign:"center",padding:24,color:"#555",fontSize:12}}>
                         4人対局のみ競馬レースが楽しめます（現在{playingMembers.length}人）
                       </div>
@@ -4040,22 +4048,57 @@ export default function App() {
                 <div style={S.card({borderColor:"rgba(231,76,60,0.4)"})}>
                   <div style={{fontSize:12,color:"#ccc",marginBottom:8}}>第{addRounds.length+1}半荘</div>
                   {(() => {
-                    const filledCount = addSel.filter(id=>String(rpSc[id]||"").trim()!=="").length;
+                    const filledCount = rpSkenban 
+                      ? addSel.filter(id => id !== rpSkenban && String(rpSc[id]||"").trim()!=="").length 
+                      : addSel.filter(id=>String(rpSc[id]||"").trim()!=="").length;
+                    
+                    // 抜け番選択UIを表示（5人以上かつ抜け番がまだ決まっていない場合）
+                    if (addSel.length >= 5 && rpSkenban === null) {
+                      return (
+                        <>
+                          <div style={{fontSize:10,color:"#f39c12",marginBottom:8,background:"rgba(243,156,18,0.08)",borderRadius:6,padding:6}}>
+                            🎯 この半荘で参加しないメンバーをタップしてください<br/>
+                            <span style={{fontSize:9,color:"#666"}}>（{addSel.length}人中4人が対局）</span>
+                          </div>
+                          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:10}}>
+                            {addSel.map(id => {
+                              const m = gm(id);
+                              if (!m) return null;
+                              return (
+                                <div key={id} onClick={() => setRpSkenban(id)}
+                                  style={{borderRadius:9,padding:"12px 6px",textAlign:"center",cursor:"pointer",
+                                    border:"2px solid rgba(243,156,18,0.5)",background:"rgba(243,156,18,0.08)",
+                                    transition:"all 0.2s"}}>
+                                  <Av m={m} sz={36}/>
+                                  <div style={{fontSize:11,marginTop:4,color:"#fff",fontWeight:500}}>{m.name}</div>
+                                  <div style={{fontSize:10,color:"#f39c12",marginTop:2}}>抜け番</div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </>
+                      );
+                    }
+
+                    // 点数入力画面（抜け番が決まった後、または5人未満の場合）
                     return (
                       <>
                         <div style={{fontSize:10,color:"#7fb9e0",marginBottom:8,background:"rgba(52,152,219,0.08)",borderRadius:6,padding:6}}>
-                          📌 対局した4人の順位点を入力（空欄=抜け番）<br/>
+                          📌 対局した4人の順位点を入力{rpSkenban && ` (抜け番: ${gm(rpSkenban)?.name})`}<br/>
                           <span style={{fontSize:9,color:"#666"}}>3人入力で残り1人を自動計算（空欄が1人のとき）</span>
                         </div>
                         <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:8}}>
-                          {addSel.map(id=>{
+                          {addSel.filter(id => id !== rpSkenban).map(id=>{
                             const m=gm(id); if(!m) return null;
                             const v=String(rpSc[id]||"");
                             const isAuto=rpAutoId===id;
                             const hasV=v.trim()!=="";
                             const isActive=rpActive===id;
                             const ph=rpPhotos[id]||[];
-                            const othersFilled = addSel.filter(oid => oid !== id && String(rpSc[oid]||"").trim() !== "").length === 3;
+                            const playingMembers = rpSkenban 
+                              ? addSel.filter(mid => mid !== rpSkenban)
+                              : addSel;
+                            const othersFilled = playingMembers.filter(oid => oid !== id && String(rpSc[oid]||"").trim() !== "").length === 3;
                             const showAutoBtn = !hasV && othersFilled;
                             return (
                               <div key={id} style={{borderRadius:9,background:hasV?"rgba(255,255,255,0.05)":"rgba(255,255,255,0.02)",border:`2px solid ${isActive?"#e74c3c":isAuto?"rgba(52,152,219,0.5)":hasV?"rgba(255,255,255,0.2)":"rgba(255,255,255,0.07)"}`,padding:8}}>
