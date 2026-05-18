@@ -782,8 +782,8 @@ export default function App() {
   const [raceStartTimes, setRaceStartTimes] = useState({}); // { [round_index]: timestamp_ms }
   const [, setRaceNowTick] = useState(0); // 5分タイマー更新用ダミーstate
   const [raceChips, setRaceChips] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("tleague_race_chips") || "{}"); } catch { return {}; }
-  });
+    try { return JSON.parse(localStorage.getItem("tleague_race_chips_delta") || "{}"); } catch { return {}; }
+  }); // { member_id: delta } - 生涯参加数からの増減分のみ保存
   const raceBetsRef = useRef([]);
   const [showGoalScene, setShowGoalScene] = useState(false); // 写真判定ゴールシーン展開
   const [sortKey, setSortKey] = useState("sc");
@@ -883,11 +883,9 @@ export default function App() {
   // raceBetsRefを常に最新に保つ
   useEffect(()=>{ raceBetsRef.current = raceBets; },[raceBets]);
 
-  // raceChipsをlocalStorageに永続化
+  // raceChips(delta)をlocalStorageに永続化
   useEffect(()=>{
-    if(Object.keys(raceChips).length > 0) {
-      localStorage.setItem("tleague_race_chips", JSON.stringify(raceChips));
-    }
+    localStorage.setItem("tleague_race_chips_delta", JSON.stringify(raceChips));
   },[raceChips]);
 
   // 半荘ごとにレース開始時刻を記録（外馬タブを開いた瞬間に半荘が始まればその時刻を起点に5分カウント）
@@ -939,12 +937,15 @@ export default function App() {
       return s ? s : b;
     }));
 
-    // 的中チップ即時加算
+    // 的中チップをdeltaに加算（0.5以上繰り上げ）
     setRaceChips(prev => {
       const next = {...prev};
       scored.forEach(b => {
-        if(b.is_hit) {
-          next[b.bettor_id] = (next[b.bettor_id] ?? 0) + Math.round((b.payout - 1) * (b.bet_amount || 1));
+        if(b.is_hit && b.payout > 0) {
+          const profit = Math.ceil((b.payout - 1) * (b.bet_amount || 1) - 0.5 + 0.5);
+          // 0.5以上繰り上げ = Math.round
+          const rounded = Math.round((b.payout - 1) * (b.bet_amount || 1));
+          next[b.bettor_id] = (next[b.bettor_id] || 0) + rounded;
         }
       });
       return next;
@@ -1293,15 +1294,37 @@ export default function App() {
       if (error) throw error;
       if (data) setSessions(p => [...p, data]);
 
-      // 今日の全半荘の馬券の払い戻しをチップに反映
-      const todayBets = raceBets.filter(b => b.session_date === addDate && b.is_hit !== null);
-      if (todayBets.length > 0) {
+      // saveSession時に全半荘の未採点馬券を確実に採点してランキング反映
+      const currentBetsSnap = raceBetsRef.current;
+      const allScored = [];
+      addRounds.forEach((round, roundIndex) => {
+        const sorted = [...round.players].sort((a,b)=>N(round.scores[String(b)]??round.scores[b])-N(round.scores[String(a)]??round.scores[a]));
+        if(sorted.length < 2) return;
+        const actualResult = sorted.map(Number);
+        const toScore = currentBetsSnap.filter(b =>
+          b.session_date === addDate &&
+          b.round_index === roundIndex &&
+          b.is_hit === null
+        );
+        toScore.forEach(b => {
+          const sel = b.bet_selection;
+          let isHit = false;
+          if(b.bet_type==="tansho") isHit = sel[0]===actualResult[0];
+          else if(b.bet_type==="umaren") isHit=(sel[0]===actualResult[0]&&sel[1]===actualResult[1])||(sel[0]===actualResult[1]&&sel[1]===actualResult[0]);
+          else if(b.bet_type==="sanrentan") isHit=sel[0]===actualResult[0]&&sel[1]===actualResult[1]&&sel[2]===actualResult[2];
+          else if(b.bet_type==="yonrentan") isHit=sel[0]===actualResult[0]&&sel[1]===actualResult[1]&&sel[2]===actualResult[2]&&sel[3]===actualResult[3];
+          const payout = isHit ? Number(b.odds) : 0;
+          allScored.push({...b, actual_result: actualResult, is_hit: isHit, payout});
+          supabase.from("race_bets").update({actual_result:actualResult,is_hit:isHit,payout}).eq("id",b.id);
+        });
+      });
+      if(allScored.length > 0) {
+        setRaceBets(prev => prev.map(b => { const s=allScored.find(x=>x.id===b.id); return s?s:b; }));
         setRaceChips(prev => {
           const next = {...prev};
-          todayBets.forEach(b => {
-            if (b.is_hit && b.payout) {
-              const base = next[b.bettor_id] ?? 0;
-              next[b.bettor_id] = base + Math.round((b.payout - 1) * (b.bet_amount || 1));
+          allScored.forEach(b => {
+            if(b.is_hit && b.payout > 0) {
+              next[b.bettor_id] = (next[b.bettor_id] || 0) + Math.round((b.payout-1)*(b.bet_amount||1));
             }
           });
           return next;
@@ -1329,27 +1352,27 @@ export default function App() {
       if (error) throw error;
       const s = sessions.find(s=>s.id===id);
 
-      // 削除された対局の馬券を無効化 → チップ返却
-      const deletedBets = raceBets.filter(b => b.session_date === s?.date);
+      // 削除された対局の馬券を無効化 → チップ返却（deltaを元に戻す）
+      const deletedBets = raceBetsRef.current.filter(b => b.session_date === s?.date);
       if (deletedBets.length > 0) {
         setRaceChips(prev => {
           const next = {...prev};
           deletedBets.forEach(b => {
-            // 消費したチップを返却
             const consumed = b.bet_amount || 1;
-            next[b.bettor_id] = (next[b.bettor_id] ?? 0) + consumed;
-            // 的中で得た払い戻し分は減算
-            if (b.is_hit && b.payout) {
+            // 消費したチップを返却（deltaに加算）
+            next[b.bettor_id] = (next[b.bettor_id] || 0) + consumed;
+            // 的中で得た配当分はdeltaから引く
+            if (b.is_hit && b.payout > 0) {
               next[b.bettor_id] -= Math.round((b.payout - 1) * consumed);
             }
           });
           return next;
         });
-        // Supabase上でも無効化
         await supabase.from("race_bets")
           .update({ is_hit: null, payout: null, actual_result: null })
           .eq("session_date", s?.date);
         setRaceBets(prev => prev.filter(b => b.session_date !== s?.date));
+        raceBetsRef.current = raceBetsRef.current.filter(b => b.session_date !== s?.date);
       }
 
       await writeAuditLog(memberName, "削除", `${s?.date||id} の対局をゴミ箱へ移動`);
@@ -3409,10 +3432,10 @@ export default function App() {
                   }).select().single();
                   if(data) {
                     setRaceBets(prev=>[data, ...prev]);
-                    // リアルタイムでチップ減算
+                    // チップ消費をdeltaから引く（リアルタイム即時反映）
                     setRaceChips(prev => ({
                       ...prev,
-                      [raceSelf]: (prev[raceSelf] ?? currentChips(raceSelf)) - raceBetAmount
+                      [raceSelf]: (prev[raceSelf] || 0) - raceBetAmount
                     }));
                   }
                   setRaceBetType(null); setRaceSelection([]); setRaceBetAmount(1);
@@ -3463,7 +3486,7 @@ export default function App() {
                   .filter(v => v.total > 0)
                   .sort((a, b) => b.sumPayout - a.sumPayout);
 
-                // チップ計算：各メンバーの生涯参加半荘数 = チップ
+                // チップ計算：生涯参加半荘数 = ベースチップ、賭けの増減はdeltaとして加算
                 const memberChips = {};
                 members.forEach(m => {
                   const memberRounds = sessions
@@ -3471,8 +3494,9 @@ export default function App() {
                     .reduce((sum, s) => sum + (s.rounds?.length || 0), 0);
                   memberChips[m.id] = Math.max(10, memberRounds);
                 });
-                // 現在の持ちチップ（raceChipsに上書きがあればそちらを優先）
-                const currentChips = (id) => raceChips[id] ?? memberChips[id] ?? 10;
+                // currentChips = ベース（生涯半荘数）+ delta（外馬増減分）
+                // 半荘が増えれば自動的にベースも増え、外馬の増減はdeltaで管理
+                const currentChips = (id) => memberChips[id] + (raceChips[id] || 0);
 
 
                 return (
