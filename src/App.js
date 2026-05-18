@@ -3339,7 +3339,7 @@ export default function App() {
 
                 // 自分が今の半荘に対してすでに購入済みか
                 const myBet = raceSelf
-                  ? raceBets.find(b=>b.session_date===addDate&&b.round_index===currentRoundIndex&&b.bettor_id===raceSelf)
+                  ? raceBets.find(b=>b.session_date===addDate&&b.round_index===currentRoundIndex&&Number(b.bettor_id)===Number(raceSelf))
                   : null;
 
                 // 現在選択中の馬券種類に対する選択数チェック
@@ -3373,7 +3373,7 @@ export default function App() {
                   const alreadyBet = raceBets.find(b =>
                     b.session_date === addDate &&
                     b.round_index === currentRoundIndex &&
-                    b.bettor_id === raceSelf
+                    Number(b.bettor_id) === Number(raceSelf)
                   );
                   if (alreadyBet) { showToast("error", "⚠️ この半荘ではすでに馬券を購入済みです"); return; }
                   const myChips = currentChips(raceSelf);
@@ -3421,7 +3421,7 @@ export default function App() {
                   const photoFinish = gap12 <= 1000;
                   // この半荘の馬券（自分の）
                   const lastBet = raceSelf
-                    ? raceBets.find(b=>b.session_date===addDate && b.round_index===lastIdx && b.bettor_id===raceSelf)
+                    ? raceBets.find(b=>b.session_date===addDate && b.round_index===lastIdx && Number(b.bettor_id)===Number(raceSelf))
                     : null;
                   finishBoard = { finishResults, photoFinish, gap12, lastBet, lastIdx };
                 }
@@ -3433,11 +3433,12 @@ export default function App() {
                 members.forEach(m => { betRanking[m.id] = { name:m.name, total:0, hits:0, sumPayout:0 }; });
                 raceBets.forEach(b => {
                   if (b.is_hit === null) return;
-                  if (!betRanking[b.bettor_id]) return;
-                  betRanking[b.bettor_id].total++;
+                  const bid = Number(b.bettor_id);
+                  if (!betRanking[bid]) return;
+                  betRanking[bid].total++;
                   if (b.is_hit) {
-                    betRanking[b.bettor_id].hits++;
-                    betRanking[b.bettor_id].sumPayout += Number(b.payout || 0);
+                    betRanking[bid].hits++;
+                    betRanking[bid].sumPayout += Number(b.payout || 0) * (b.bet_amount || 1);
                   }
                 });
                 const rankingList = Object.entries(betRanking)
@@ -3445,20 +3446,27 @@ export default function App() {
                   .filter(v => v.total > 0)
                   .sort((a, b) => b.sumPayout - a.sumPayout);
 
-                // チップ計算：生涯半荘参加数（ダッシュボードと同じ計算式）
+                // チップ計算：ダッシュボードと完全に同じ計算式
+                // = その人が実際に対局した半荘数（r.scoresにその人のスコアがあるもの）
                 const memberChips = {};
                 members.forEach(m => {
-                  const memberRounds = sessions
-                    .filter(s => (s.members || []).map(Number).includes(Number(m.id)))
-                    .reduce((sum, s) => sum + (s.rounds?.length || 0), 0);
-                  memberChips[m.id] = memberRounds; // ベース = 生涯半荘数
+                  const sid = String(m.id);
+                  let games = 0;
+                  sessions.forEach(s => {
+                    if (!(s.members || []).map(Number).includes(Number(m.id))) return;
+                    (s.rounds || []).forEach(r => {
+                      const v = r.scores?.[sid] ?? r.scores?.[m.id];
+                      if (v != null) games++;
+                    });
+                  });
+                  memberChips[m.id] = games;
                 });
 
                 // 保有コイン = 生涯半荘数 - 消費 + 払い戻し
                 // race_bets から動的に計算（localStorage 不使用 / 二重加算なし）
                 const currentChips = (id) => {
                   const base = memberChips[id] || 0;
-                  const myBets = raceBets.filter(b => b.bettor_id === id);
+                  const myBets = raceBets.filter(b => Number(b.bettor_id) === Number(id));
                   let delta = 0;
                   myBets.forEach(b => {
                     const amount = b.bet_amount || 1;
@@ -3661,7 +3669,7 @@ export default function App() {
                               {members.map(m=>{
                                 const isAttendee = addSel.map(Number).includes(Number(m.id));
                                 const myCurrentChips = currentChips(m.id);
-                                const myBets = raceBets.filter(b => b.bettor_id === m.id);
+                                const myBets = raceBets.filter(b => Number(b.bettor_id) === Number(m.id));
                                 const myHits = myBets.filter(b => b.is_hit);
                                 return (
                                   <div key={m.id}
