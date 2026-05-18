@@ -3470,7 +3470,7 @@ export default function App() {
                             {bettingOpen ? (
                               <div style={{fontSize:10,color:"#2ecc71"}}>
                                 🟢 受付中
-                                {isSelfPlaying
+                                {isSelfInAttendance
                                   ? `（残り${remainMin}:${String(remainSecMod).padStart(2,"0")}）`
                                   : "（結果確定まで）"}
                               </div>
@@ -4146,8 +4146,8 @@ export default function App() {
                 <div style={S.card({borderColor:"rgba(231,76,60,0.4)"})}>
                   <div style={{fontSize:12,color:"#ccc",marginBottom:8}}>第{addRounds.length+1}半荘</div>
                   {(() => {
-                    const filledCount = rpSkenban 
-                      ? addSel.filter(id => id !== rpSkenban && String(rpSc[id]||"").trim()!=="").length 
+                    const filledCount = rpSkenbans.length > 0
+                      ? addSel.filter(id => !rpSkenbans.includes(id) && String(rpSc[id]||"").trim()!=="").length 
                       : addSel.filter(id=>String(rpSc[id]||"").trim()!=="").length;
                     
                     // 抜け番選択UIを表示（5人以上かつ対局メンバー4人が確定していない場合）
