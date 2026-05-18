@@ -19,14 +19,15 @@ const CHANGELOG = [
     "外馬機能：5人以上参加時に対応（各半荘開始時に抜け番をタップして複数選択）",
     "抜け番複数選択UI追加（4人が確定するまで選択可能、6人以上時は2人以上の抜け番選択に対応）",
     "競馬場背景のイラスト化（スタンド・観客・太陽・雲・フェンス等をSVGで実装）",
-    "ゴール板イラスト追加（楕円トラック下中央に市松模様ゴール板を設置）",
+    "ゴール板：縦の市松模様をコース中央下から上に表示するよう修正",
     "馬の着順リアルタイム表示（レース中に1着〜4着の順位を表示）",
     "外馬参加者の修正：全メンバーが馬券購入可能に（対局者・抜け番・外馬すべて対応）",
-    "馬券選択画面に⏱10分制限バッジを追加（参加メンバーのみ表示）",
-    "チップ保有数を馬券選択画面と購入済み画面に常時表示",
-    "当たり演出を追加（🎉アニメーション・チップ払い戻し表示）",
-    "1レース1馬券のみに制限（同一人物の2重購入を防止）",
-    "オッズ上限を修正（馬連15倍・三連単25倍・四連単35倍、幾何平均ベース計算）",
+    "チップ自由入力：賭けチップ枚数を1〜保有数の範囲でスライダー入力可能に",
+    "チップリアルタイム減算：馬券購入時に即時チップ消費",
+    "払い戻し即時反映：半荘保存時に的中チップを即時加算",
+    "削除時チップ返却：対局削除時に消費チップを自動返却・馬券無効化",
+    "個人外馬履歴：メンバータップで獲得・消費チップ履歴を表示",
+    "外馬タブ白画面バグ修正（render中setState禁止）",
     "投票時間制限：参加メンバー全員（対局者+抜け番）= 10分制限、外馬 = 無制限",
     "外馬ルール表記追加",
   ]},
@@ -499,28 +500,27 @@ function RaceTrack({ playingMembers, strengthMap, mySelection, betType }) {
             fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="0.5" strokeDasharray="2,2"/>
         ))}
 
-        {/* ゴールゲート（楕円コース下中央を縦に貫く） */}
+        {/* ゴールライン（楕円コース中央下を縦に貫く） */}
         {(() => {
-          // 楕円の下端中央を通過地点とする
-          const gx = cx;         // x=140 中央
-          const gTop = cy + ry - 28; // コース上端（内側レーン）
-          const gBot = cy + ry + 12; // コース下端（外側レーン）
-          const pw = 3; // ポール幅
-          const pOff = 30; // ポール左右の間隔
+          const gx = cx;                  // x=140 中央
+          const gTop = cy + ry - 32;      // 内側レーンより少し上
+          const gBot = cy + ry + 14;      // 外側レーンより少し下
+          const lineW = 6;                // 市松1マスの高さ
+          const squareW = 5;              // 市松1マスの幅（縦線の太さ）
+          const squares = Math.ceil((gBot - gTop) / lineW);
           return (
             <g>
-              {/* 左ポール */}
-              <rect x={gx - pOff - pw} y={gTop} width={pw} height={gBot - gTop} fill="#FFD700" rx="1"/>
-              {/* 右ポール */}
-              <rect x={gx + pOff} y={gTop} width={pw} height={gBot - gTop} fill="#FFD700" rx="1"/>
-              {/* 横断幕（ポール上部に市松模様・縦向き） */}
-              {[0,1,2,3].map(i=>(
-                <rect key={`ca${i}`} x={gx-pOff} y={gTop + i*7} width={pOff*2} height={7}
-                  fill={i%2===0?"#fff":"#111"} opacity="0.92"/>
+              {/* 縦に並ぶ市松模様 */}
+              {Array.from({length: squares}).map((_, i) => (
+                <rect key={i}
+                  x={gx - squareW / 2} y={gTop + i * lineW}
+                  width={squareW} height={lineW}
+                  fill={i % 2 === 0 ? "#fff" : "#222"}
+                  opacity="0.95"/>
               ))}
-              {/* GOAL文字 */}
-              <text x={gx} y={gTop + 16} fontSize="8" fill="#e74c3c" textAnchor="middle" fontWeight="bold"
-                style={{textShadow:"0 0 4px #000"}}>GOAL</text>
+              {/* GOALテキスト（下端） */}
+              <text x={gx} y={gBot + 9} fontSize="7" fill="#FFD700"
+                textAnchor="middle" fontWeight="bold">GOAL</text>
             </g>
           );
         })()}
@@ -780,6 +780,8 @@ export default function App() {
   const [raceBetType, setRaceBetType] = useState(null);
   const [raceSelection, setRaceSelection] = useState([]);
   const [raceBetSubmitting, setRaceBetSubmitting] = useState(false);
+  const [raceBetAmount, setRaceBetAmount] = useState(1); // 賭けチップ枚数
+  const [racePersonHistory, setRacePersonHistory] = useState(null); // 個人履歴表示対象ID
   const [raceStartTimes, setRaceStartTimes] = useState({}); // { [round_index]: timestamp_ms }
   const [, setRaceNowTick] = useState(0); // 5分タイマー更新用ダミーstate
   const [raceChips, setRaceChips] = useState({}); // { member_id: chips } - 生涯参加数をチップに見立てる
@@ -1276,6 +1278,22 @@ export default function App() {
       const { data, error } = await supabase.from("sessions").insert(newSess).select().single();
       if (error) throw error;
       if (data) setSessions(p => [...p, data]);
+
+      // 今日の全半荘の馬券の払い戻しをチップに反映
+      const todayBets = raceBets.filter(b => b.session_date === addDate && b.is_hit !== null);
+      if (todayBets.length > 0) {
+        setRaceChips(prev => {
+          const next = {...prev};
+          todayBets.forEach(b => {
+            if (b.is_hit && b.payout) {
+              const base = next[b.bettor_id] ?? 0;
+              next[b.bettor_id] = base + Math.round((b.payout - 1) * (b.bet_amount || 1));
+            }
+          });
+          return next;
+        });
+      }
+
       setLr({...addRules, uma:addRules.uma.map(Number)});
       setBashiroTotal("");
       await deleteDraft();
@@ -1296,6 +1314,30 @@ export default function App() {
       const { error } = await supabase.from("sessions").update({deleted_at: now}).eq("id", id);
       if (error) throw error;
       const s = sessions.find(s=>s.id===id);
+
+      // 削除された対局の馬券を無効化 → チップ返却
+      const deletedBets = raceBets.filter(b => b.session_date === s?.date);
+      if (deletedBets.length > 0) {
+        setRaceChips(prev => {
+          const next = {...prev};
+          deletedBets.forEach(b => {
+            // 消費したチップを返却
+            const consumed = b.bet_amount || 1;
+            next[b.bettor_id] = (next[b.bettor_id] ?? 0) + consumed;
+            // 的中で得た払い戻し分は減算
+            if (b.is_hit && b.payout) {
+              next[b.bettor_id] -= Math.round((b.payout - 1) * consumed);
+            }
+          });
+          return next;
+        });
+        // Supabase上でも無効化
+        await supabase.from("race_bets")
+          .update({ is_hit: null, payout: null, actual_result: null })
+          .eq("session_date", s?.date);
+        setRaceBets(prev => prev.filter(b => b.session_date !== s?.date));
+      }
+
       await writeAuditLog(memberName, "削除", `${s?.date||id} の対局をゴミ箱へ移動`);
       setTrashSessions(prev=>[{...s, deleted_at:now}, ...prev]);
       setSessions(p => p.filter(s => s.id !== id));
@@ -3334,6 +3376,10 @@ export default function App() {
                     b.bettor_id === raceSelf
                   );
                   if (alreadyBet) { showToast("error", "⚠️ この半荘ではすでに馬券を購入済みです"); return; }
+                  const myChips = currentChips(raceSelf);
+                  if (raceBetAmount < 1 || raceBetAmount > myChips) {
+                    showToast("error", `⚠️ 賭けチップは1〜${myChips}枚で入力してください`); return;
+                  }
                   setRaceBetSubmitting(true);
                   const {data} = await supabase.from("race_bets").insert({
                     session_date: addDate,
@@ -3342,14 +3388,22 @@ export default function App() {
                     bet_type: raceBetType,
                     bet_selection: raceSelection,
                     odds: currentOdds,
+                    bet_amount: raceBetAmount,
                     actual_result: null,
                     is_hit: null,
                     payout: null,
                   }).select().single();
-                  if(data) setRaceBets(prev=>[data, ...prev]);
-                  setRaceBetType(null); setRaceSelection([]);
+                  if(data) {
+                    setRaceBets(prev=>[data, ...prev]);
+                    // リアルタイムでチップ減算
+                    setRaceChips(prev => ({
+                      ...prev,
+                      [raceSelf]: (prev[raceSelf] ?? currentChips(raceSelf)) - raceBetAmount
+                    }));
+                  }
+                  setRaceBetType(null); setRaceSelection([]); setRaceBetAmount(1);
                   setRaceBetSubmitting(false);
-                  showToast("success", "🎫 馬券を購入しました！");
+                  showToast("success", `🎫 馬券購入！ ${raceBetAmount}チップ消費`);
                 };
 
                 // ===========================================
@@ -3594,15 +3648,44 @@ export default function App() {
                               {members.map(m=>{
                                 const isAttendee = addSel.map(Number).includes(Number(m.id));
                                 const myCurrentChips = currentChips(m.id);
+                                const myBets = raceBets.filter(b => b.bettor_id === m.id);
+                                const myHits = myBets.filter(b => b.is_hit);
                                 return (
-                                  <div key={m.id} onClick={()=>setRaceSelf(m.id)}
+                                  <div key={m.id}
                                     style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"8px 4px",borderRadius:8,cursor:"pointer",
-                                      background:isAttendee?"rgba(243,156,18,0.08)":"rgba(255,255,255,0.04)",
-                                      border:`1px solid ${isAttendee?"rgba(243,156,18,0.5)":"rgba(255,255,255,0.1)"}`}}>
-                                    <Av m={m} sz={28}/>
-                                    <div style={{fontSize:10,color:"#ccc"}}>{m.name}</div>
-                                    <div style={{fontSize:9,color:"#f1c40f"}}>🪙{myCurrentChips}</div>
-                                    {isAttendee && <div style={{fontSize:8,color:"#f39c12"}}>⏱10分制限</div>}
+                                      background: racePersonHistory===m.id ? "rgba(52,152,219,0.2)" : isAttendee?"rgba(243,156,18,0.08)":"rgba(255,255,255,0.04)",
+                                      border:`1px solid ${racePersonHistory===m.id?"rgba(52,152,219,0.6)":isAttendee?"rgba(243,156,18,0.5)":"rgba(255,255,255,0.1)"}`}}>
+                                    <div onClick={()=>setRaceSelf(m.id)} style={{width:"100%",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                                      <Av m={m} sz={28}/>
+                                      <div style={{fontSize:10,color:"#ccc"}}>{m.name}</div>
+                                      <div style={{fontSize:9,color:"#f1c40f"}}>🪙{myCurrentChips}</div>
+                                      {isAttendee && <div style={{fontSize:8,color:"#f39c12"}}>⏱10分制限</div>}
+                                    </div>
+                                    <div onClick={e=>{e.stopPropagation(); setRacePersonHistory(prev=>prev===m.id?null:m.id);}}
+                                      style={{fontSize:8,color:"#3498db",padding:"2px 6px",borderRadius:4,background:"rgba(52,152,219,0.1)",cursor:"pointer",marginTop:2}}>
+                                      {racePersonHistory===m.id?"▲ 閉じる":"📋 履歴"}
+                                    </div>
+                                    {/* 個人履歴パネル */}
+                                    {racePersonHistory===m.id && (
+                                      <div style={{width:"100%",marginTop:4,background:"rgba(0,0,0,0.3)",borderRadius:6,padding:"6px 4px",maxHeight:120,overflowY:"auto"}}>
+                                        <div style={{fontSize:8,color:"#3498db",fontWeight:600,marginBottom:4}}>
+                                          {m.name}の外馬履歴
+                                        </div>
+                                        {myBets.length===0 && <div style={{fontSize:8,color:"#555",textAlign:"center"}}>履歴なし</div>}
+                                        {myBets.filter(b=>b.is_hit!==null).slice(0,10).map((b,i)=>(
+                                          <div key={i} style={{fontSize:7,padding:"2px 0",borderBottom:"1px solid rgba(255,255,255,0.05)",color:b.is_hit?"#2ecc71":"#e74c3c"}}>
+                                            {b.is_hit?"✅":"❌"} {b.session_date} R{b.round_index+1}
+                                            <span style={{color:"#f1c40f"}}> -{b.bet_amount||1}🪙</span>
+                                            {b.is_hit && <span style={{color:"#2ecc71"}}> +{Math.round((b.payout-1)*(b.bet_amount||1))}🪙</span>}
+                                          </div>
+                                        ))}
+                                        <div style={{fontSize:8,color:"#888",marginTop:4,textAlign:"center"}}>
+                                          的中率: {myBets.filter(b=>b.is_hit!==null).length>0
+                                            ? `${myHits.length}/${myBets.filter(b=>b.is_hit!==null).length}回`
+                                            : "-"}
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
                                 );
                               })}
@@ -3622,6 +3705,21 @@ export default function App() {
                                 </div>
                               </div>
                               <button onClick={()=>{setRaceSelf(null);setRaceBetType(null);setRaceSelection([]);}} style={{fontSize:10,color:"#666",background:"none",border:"none",cursor:"pointer"}}>変更</button>
+                            </div>
+
+                            {/* 賭けチップ枚数入力 */}
+                            <div style={{marginBottom:12,background:"rgba(241,196,15,0.06)",borderRadius:8,padding:"8px 10px"}}>
+                              <div style={{fontSize:11,color:"#888",marginBottom:6}}>賭けるチップ枚数（保有: <span style={{color:"#f1c40f",fontWeight:600}}>{currentChips(raceSelf)}🪙</span>）</div>
+                              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                                <button onClick={()=>setRaceBetAmount(v=>Math.max(1,v-1))}
+                                  style={{width:28,height:28,borderRadius:"50%",background:"rgba(255,255,255,0.1)",border:"none",color:"#fff",fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>－</button>
+                                <div style={{flex:1,textAlign:"center",fontSize:18,fontWeight:"bold",color:"#f1c40f"}}>{raceBetAmount}🪙</div>
+                                <button onClick={()=>setRaceBetAmount(v=>Math.min(currentChips(raceSelf),v+1))}
+                                  style={{width:28,height:28,borderRadius:"50%",background:"rgba(255,255,255,0.1)",border:"none",color:"#fff",fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>＋</button>
+                              </div>
+                              <input type="range" min={1} max={currentChips(raceSelf)} value={raceBetAmount}
+                                onChange={e=>setRaceBetAmount(Number(e.target.value))}
+                                style={{width:"100%",marginTop:6,accentColor:"#f1c40f"}}/>
                             </div>
 
                             {/* 馬券種類選択 */}
