@@ -936,11 +936,15 @@ export default function App() {
       return s ? s : b;
     }));
 
-    // Supabase非同期更新
+    // Supabase非同期更新（エラーがあれば通知）
     scored.forEach(async b => {
-      await supabase.from("race_bets").update({
+      const {error} = await supabase.from("race_bets").update({
         actual_result: b.actual_result, is_hit: b.is_hit, payout: b.payout
       }).eq("id", b.id);
+      if (error) {
+        console.error("race_bets update error:", error);
+        showToast("error", `⚠️ 採点保存失敗: ${error.message}`);
+      }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[addRounds.length]);
@@ -3368,7 +3372,10 @@ export default function App() {
 
                 // 購入処理
                 const submitBet = async () => {
-                  if(!raceSelf || !raceBetType || !selectionsValid || !currentOdds) return;
+                  if(!raceSelf || !raceBetType || !selectionsValid || !currentOdds) {
+                    showToast("error", `⚠️ 購入できません (raceSelf:${!!raceSelf} betType:${!!raceBetType} valid:${selectionsValid} odds:${!!currentOdds})`);
+                    return;
+                  }
                   // 同一人物が同一半荘で2回以上賭けるのを防止
                   const alreadyBet = raceBets.find(b =>
                     b.session_date === addDate &&
@@ -3381,10 +3388,10 @@ export default function App() {
                     showToast("error", `⚠️ 賭けチップは1〜${myChips}枚で入力してください`); return;
                   }
                   setRaceBetSubmitting(true);
-                  const {data} = await supabase.from("race_bets").insert({
+                  const {data, error} = await supabase.from("race_bets").insert({
                     session_date: addDate,
                     round_index: currentRoundIndex,
-                    bettor_id: raceSelf,
+                    bettor_id: Number(raceSelf),
                     bet_type: raceBetType,
                     bet_selection: raceSelection,
                     odds: currentOdds,
@@ -3393,9 +3400,19 @@ export default function App() {
                     is_hit: null,
                     payout: null,
                   }).select().single();
+                  if (error) {
+                    console.error("race_bets insert error:", error);
+                    showToast("error", `⚠️ 馬券購入失敗: ${error.message || error.code || "原因不明"}`);
+                    setRaceBetSubmitting(false);
+                    return;
+                  }
                   if(data) {
                     setRaceBets(prev=>[data, ...prev]);
-                    // raceBetsが更新されればcurrentChipsで自動計算される
+                    raceBetsRef.current = [data, ...raceBetsRef.current];
+                  } else {
+                    showToast("error", "⚠️ DBから保存データが返ってきませんでした");
+                    setRaceBetSubmitting(false);
+                    return;
                   }
                   setRaceBetType(null); setRaceSelection([]); setRaceBetAmount(1);
                   setRaceBetSubmitting(false);
