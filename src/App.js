@@ -499,26 +499,28 @@ function RaceTrack({ playingMembers, strengthMap, mySelection, betType }) {
             fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="0.5" strokeDasharray="2,2"/>
         ))}
 
-        {/* ゴール板（楕円トラックの下の中央） */}
+        {/* ゴールゲート（楕円コース下中央を縦に貫く） */}
         {(() => {
-          const gx = cx; // 真ん中
-          const gy = cy + ry + 20; // 楕円の下端より少し下
+          // 楕円の下端中央を通過地点とする
+          const gx = cx;         // x=140 中央
+          const gTop = cy + ry - 28; // コース上端（内側レーン）
+          const gBot = cy + ry + 12; // コース下端（外側レーン）
+          const pw = 3; // ポール幅
+          const pOff = 30; // ポール左右の間隔
           return (
             <g>
-              {/* 左右のポール */}
-              <line x1={gx-18} y1={gy-18} x2={gx-18} y2={gy+2} stroke="#FFD700" strokeWidth="2"/>
-              <line x1={gx+18} y1={gy-18} x2={gx+18} y2={gy+2} stroke="#FFD700" strokeWidth="2"/>
-              {/* 横断幕（市松模様） */}
-              {[0,1,2,3,4,5].map(i=>(
-                <rect key={i} x={gx-18+i*6} y={gy-18} width={6} height={6}
-                  fill={i%2===0?"#fff":"#222"} opacity="0.9"/>
+              {/* 左ポール */}
+              <rect x={gx - pOff - pw} y={gTop} width={pw} height={gBot - gTop} fill="#FFD700" rx="1"/>
+              {/* 右ポール */}
+              <rect x={gx + pOff} y={gTop} width={pw} height={gBot - gTop} fill="#FFD700" rx="1"/>
+              {/* 横断幕（ポール上部に市松模様・縦向き） */}
+              {[0,1,2,3].map(i=>(
+                <rect key={`ca${i}`} x={gx-pOff} y={gTop + i*7} width={pOff*2} height={7}
+                  fill={i%2===0?"#fff":"#111"} opacity="0.92"/>
               ))}
-              {[0,1,2,3,4,5].map(i=>(
-                <rect key={i} x={gx-18+i*6} y={gy-12} width={6} height={6}
-                  fill={i%2===0?"#222":"#fff"} opacity="0.9"/>
-              ))}
-              {/* GOALテキスト */}
-              <text x={gx} y={gy+10} fontSize="7" fill="#FFD700" textAnchor="middle" fontWeight="bold">GOAL</text>
+              {/* GOAL文字 */}
+              <text x={gx} y={gTop + 16} fontSize="8" fill="#e74c3c" textAnchor="middle" fontWeight="bold"
+                style={{textShadow:"0 0 4px #000"}}>GOAL</text>
             </g>
           );
         })()}
@@ -781,6 +783,7 @@ export default function App() {
   const [raceStartTimes, setRaceStartTimes] = useState({}); // { [round_index]: timestamp_ms }
   const [, setRaceNowTick] = useState(0); // 5分タイマー更新用ダミーstate
   const [raceChips, setRaceChips] = useState({}); // { member_id: chips } - 生涯参加数をチップに見立てる
+  const [showGoalScene, setShowGoalScene] = useState(false); // 写真判定ゴールシーン展開
   const [sortKey, setSortKey] = useState("sc");
   const [sortAsc, setSortAsc] = useState(false);
   const [h2hA, setH2hA] = useState(null);
@@ -1238,7 +1241,7 @@ export default function App() {
       setTimeout(() => setYakumanCelebration(null), 4000);
     }
     setRpSc(Object.fromEntries(addSel.map(id=>[id,""])));
-    setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes({}); setRpOpenRiichi([]); setRpDealIn([]); setRpAutoId(null); setRpActive(null); setRpSkenbans([]); setAddErr("");
+    setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes({}); setRpOpenRiichi([]); setRpDealIn([]); setRpAutoId(null); setRpActive(null); setRpSkenbans([]); setAddErr(""); setShowGoalScene(false);
   }
 
   function startAdd() {
@@ -3273,7 +3276,7 @@ export default function App() {
 
                 // 強さスコア・単勝オッズを計算（参加者がいるときだけ）
                 let strengthMap = null, tanshoOdds = null;
-                if(isLive && playingMembers.length === 4 && rpSkenbans.length > 0) {
+                if(isLive && playingMembers.length === 4) {
                   strengthMap = calcHorseStrength(sessions, members, addSel.map(Number));
                   tanshoOdds = calcTanshoOdds(strengthMap);
                 }
@@ -3394,16 +3397,14 @@ export default function App() {
 
                 // チップ計算：各メンバーの生涯参加半荘数 = チップ
                 const memberChips = {};
-                addSel.forEach(id => {
+                members.forEach(m => {
                   const memberRounds = sessions
-                    .filter(s => s.members.includes(id))
+                    .filter(s => (s.members || []).map(Number).includes(Number(m.id)))
                     .reduce((sum, s) => sum + (s.rounds?.length || 0), 0);
-                  memberChips[id] = Math.max(10, memberRounds); // 最小10チップ
+                  memberChips[m.id] = Math.max(10, memberRounds);
                 });
-                // raceChipsに設定（初回のみ）
-                if (Object.keys(raceChips).length === 0) {
-                  setRaceChips(memberChips);
-                }
+                // 現在の持ちチップ（raceChipsに上書きがあればそちらを優先）
+                const currentChips = (id) => raceChips[id] ?? memberChips[id] ?? 10;
 
 
                 return (
@@ -3434,7 +3435,7 @@ export default function App() {
                     )}
 
                     {/* LIVE中：4人参加していない場合 */}
-                    {isLive && (playingMembers.length !== 4 || rpSkenbans.length === 0) && (
+                    {isLive && playingMembers.length !== 4 && (
                       <div style={{textAlign:"center",padding:24,color:"#555",fontSize:12}}>
                         4人対局のみ競馬レースが楽しめます（現在{playingMembers.length}人）
                       </div>
@@ -3457,15 +3458,71 @@ export default function App() {
                             <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:8}}>
                               <span style={{fontSize:18}}>🏁</span>
                               <span style={{fontSize:13,fontWeight:"bold",color:"#f1c40f"}}>第{finishBoard.lastIdx+1}レース 結果</span>
-                              {finishBoard.photoFinish && (
-                                <span style={{fontSize:9,padding:"2px 6px",background:"rgba(231,76,60,0.3)",color:"#fff",borderRadius:6,border:"1px solid rgba(231,76,60,0.6)",fontWeight:"bold",animation:"pulse 1s infinite"}}>📸 写真判定</span>
-                              )}
+                              {/* 写真判定バッジ：毎回表示、差額に応じてラベル変更 */}
+                              <span
+                                onClick={()=>setShowGoalScene(v=>!v)}
+                                style={{fontSize:9,padding:"2px 6px",
+                                  background: finishBoard.gap12 <= 1000 ? "rgba(231,76,60,0.3)" : finishBoard.gap12 <= 5000 ? "rgba(243,156,18,0.3)" : "rgba(52,152,219,0.3)",
+                                  color:"#fff",borderRadius:6,
+                                  border: `1px solid ${finishBoard.gap12 <= 1000 ? "rgba(231,76,60,0.6)" : finishBoard.gap12 <= 5000 ? "rgba(243,156,18,0.6)" : "rgba(52,152,219,0.6)"}`,
+                                  fontWeight:"bold",cursor:"pointer",
+                                  animation: finishBoard.gap12 <= 1000 ? "pulse 1s infinite" : "none"}}>
+                                {finishBoard.gap12 <= 1000 ? "📸 写真判定" : finishBoard.gap12 <= 5000 ? "⚡ 接戦" : "🏆 圧勝"}
+                                {showGoalScene ? " ▲" : " ▼"}
+                              </span>
                             </div>
-                            {finishBoard.photoFinish && (
-                              <div style={{fontSize:9,color:"#e74c3c",textAlign:"center",marginBottom:6}}>
-                                1-2着の差 わずか{finishBoard.gap12}点！
-                              </div>
-                            )}
+
+                            {/* ゴールシーン：タップで展開、差額に応じた距離感 */}
+                            {showGoalScene && (()=>{
+                              const maxScore = finishBoard.finishResults[0]?.score ?? 0;
+                              const maxGap = Math.max(finishBoard.gap12 * 2, 3000);
+                              const trackW = 260, goalX = 240;
+                              const horseColors = ["#e74c3c","#3498db","#2ecc71","#f1c40f"];
+                              return (
+                                <div style={{marginBottom:10,background:"rgba(0,0,0,0.3)",borderRadius:8,padding:8}}>
+                                  <div style={{fontSize:9,color:"#888",textAlign:"center",marginBottom:4}}>
+                                    ゴール前の距離感（1-2着差：{finishBoard.gap12}点）
+                                  </div>
+                                  <svg viewBox={`0 0 ${trackW} 80`} style={{width:"100%",height:"auto",display:"block"}}>
+                                    {/* 芝生背景 */}
+                                    <rect x="0" y="0" width={trackW} height="80" fill="#1a4a1a" rx="6"/>
+                                    <rect x="0" y="55" width={trackW} height="25" fill="#236b23" rx="0"/>
+                                    {/* ゴールライン */}
+                                    <line x1={goalX} y1="0" x2={goalX} y2="80" stroke="#FFD700" strokeWidth="2"/>
+                                    {/* 市松ゴール板 */}
+                                    {[0,1,2,3].map(i=>(
+                                      <rect key={i} x={goalX} y={i*8} width={8} height={8}
+                                        fill={i%2===0?"#fff":"#111"} opacity="0.9"/>
+                                    ))}
+                                    {[0,1,2,3].map(i=>(
+                                      <rect key={i} x={goalX+8} y={i*8} width={8} height={8}
+                                        fill={i%2===0?"#111":"#fff"} opacity="0.9"/>
+                                    ))}
+                                    {/* 各馬の位置 */}
+                                    {finishBoard.finishResults.map((r, i) => {
+                                      const gap = maxScore - r.score;
+                                      const pxBack = Math.min(180, (gap / maxGap) * 180);
+                                      const hx = goalX - pxBack - 8;
+                                      const hy = 18 + i * 14;
+                                      const col = horseColors[r.horseNum-1] || "#888";
+                                      return (
+                                        <g key={r.member?.id}>
+                                          <circle cx={hx} cy={hy} r="7" fill={col} stroke="#fff" strokeWidth="0.8"/>
+                                          <text x={hx} y={hy+2.5} fontSize="6" fill="#fff" textAnchor="middle" fontWeight="bold">{r.horseNum}</text>
+                                          <text x={hx-10} y={hy+2.5} fontSize="6" fill="#ccc" textAnchor="end">{r.member?.name?.slice(0,3)}</text>
+                                        </g>
+                                      );
+                                    })}
+                                    {/* GOAL文字 */}
+                                    <text x={goalX+4} y={76} fontSize="7" fill="#FFD700" fontWeight="bold">GOAL</text>
+                                  </svg>
+                                </div>
+                              );
+                            })()}
+
+                            <div style={{fontSize:9,color: finishBoard.gap12<=1000?"#e74c3c":finishBoard.gap12<=5000?"#f39c12":"#3498db", textAlign:"center",marginBottom:6}}>
+                              1-2着の差：{finishBoard.gap12}点
+                            </div>
                             <div style={{display:"flex",flexDirection:"column",gap:4}}>
                               {finishBoard.finishResults.map((r, i) => {
                                 const rankEmoji = ["🥇","🥈","🥉","4️⃣"][i];
@@ -3536,7 +3593,7 @@ export default function App() {
                             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
                               {members.map(m=>{
                                 const isAttendee = addSel.map(Number).includes(Number(m.id));
-                                const myCurrentChips = raceChips[m.id] ?? memberChips[m.id] ?? 10;
+                                const myCurrentChips = currentChips(m.id);
                                 return (
                                   <div key={m.id} onClick={()=>setRaceSelf(m.id)}
                                     style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"8px 4px",borderRadius:8,cursor:"pointer",
@@ -3556,10 +3613,15 @@ export default function App() {
                         {/* 馬券購入UI */}
                         {raceSelf && !myBet && bettingOpen && (
                           <div style={{...S.card({background:"rgba(255,255,255,0.04)"}),marginBottom:10}}>
-                            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
                               <Av m={gm(raceSelf)} sz={22}/>
-                              <span style={{fontSize:12,color:"#ccc"}}>{gm(raceSelf)?.name}として購入</span>
-                              <button onClick={()=>{setRaceSelf(null);setRaceBetType(null);setRaceSelection([]);}} style={{marginLeft:"auto",fontSize:10,color:"#666",background:"none",border:"none",cursor:"pointer"}}>変更</button>
+                              <div style={{flex:1}}>
+                                <span style={{fontSize:12,color:"#ccc"}}>{gm(raceSelf)?.name}として購入</span>
+                                <div style={{fontSize:10,color:"#f1c40f",marginTop:2}}>
+                                  🪙 保有チップ：{currentChips(raceSelf)}
+                                </div>
+                              </div>
+                              <button onClick={()=>{setRaceSelf(null);setRaceBetType(null);setRaceSelection([]);}} style={{fontSize:10,color:"#666",background:"none",border:"none",cursor:"pointer"}}>変更</button>
                             </div>
 
                             {/* 馬券種類選択 */}
@@ -3642,7 +3704,7 @@ export default function App() {
                             {/* チップ残高 */}
                             <div style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
                               <div style={{fontSize:10,color:"#f1c40f",background:"rgba(241,196,15,0.15)",borderRadius:6,padding:"2px 8px"}}>
-                                🪙 保有チップ：{raceChips[raceSelf] ?? memberChips[raceSelf] ?? 10}
+                                🪙 保有チップ：{currentChips(raceSelf)}
                               </div>
                             </div>
                             <div style={{textAlign:"center",fontSize:12,color:"#f1c40f",marginBottom:8}}>🎫 購入済み</div>
