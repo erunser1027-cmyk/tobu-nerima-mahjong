@@ -30,6 +30,11 @@ const CHANGELOG = [
     "外馬タブ白画面バグ修正（render中setState禁止）",
     "投票時間制限：参加メンバー全員（対局者+抜け番）= 10分制限、外馬 = 無制限",
     "外馬ルール表記追加",
+    "🏇 外馬タブを独立タブ化（💀の右側に配置、ダッシュボードから分離）",
+    "外馬ルールに「1半荘1馬券のみ」「生涯参加数でチップ蓄積」を明記",
+    "Supabase Realtimeに drafts/race_bets を追加 → LIVE状態・馬券が即時同期",
+    "抜け番選択(rpSkenbans)と外馬選択(raceSelf)をlocalStorageに永続化",
+    "対局を「✖破棄」した時もrace_betsを削除してチップ・ランキング無効化",
   ]},
   { date:"2026-05-14", features:[
     "バグ修正：アプリを閉じてもLIVEモードが復元されるように修正（ドラフト保存にステップ情報を追加）",
@@ -1425,12 +1430,34 @@ export default function App() {
   }
 
   async function resetAdd() {
+    // 破棄時に当日の馬券を削除（保存削除と同じ扱い → チップ・ランキングが無効化）
+    try {
+      const targetDate = addDate;
+      const discardedBets = raceBetsRef.current.filter(b => b.session_date === targetDate);
+      if (discardedBets.length > 0) {
+        const { error } = await supabase.from("race_bets").delete().eq("session_date", targetDate);
+        if (error) {
+          console.error("race_bets delete error:", error);
+          showToast("error", `⚠️ 馬券破棄失敗: ${error.message}`);
+        } else {
+          setRaceBets(prev => prev.filter(b => b.session_date !== targetDate));
+          raceBetsRef.current = raceBetsRef.current.filter(b => b.session_date !== targetDate);
+          if (discardedBets.length > 0) {
+            showToast("success", `🗑 馬券${discardedBets.length}件を無効化（チップ返却）`);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Failed to discard race_bets:", e);
+    }
+
     await deleteDraft();
     setAddStep(0); setAddRules({...lr}); setAddSel([]); setAddRounds([]);
     setAddDate(today());
     setAddEndTimePlan("");
     setRpSc({}); setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes({}); setRpOpenRiichi([]); setRpDealIn([]); setAddChips({}); setAddBashiro({});
     setRpActive(null); setChipActive(null); setAddErr(""); setBashiroTotal("");
+    setRpSkenbans([]); setRaceSelf(null); setRaceBetType(null); setRaceSelection([]); setRaceBetAmount(1);
     setDraftId(null);
   }
 
