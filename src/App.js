@@ -19,6 +19,7 @@ const CHANGELOG = [
     "外馬機能：5人以上参加時に対応（各半荘開始時に抜け番をタップして選択）",
     "抜け番選択UI追加（5人以上の場合のみ表示、タップで簡単選択）",
     "外馬レース機能：抜け番を除いた4人をベースに動作するように修正",
+    "競馬場背景のイラスト化（スタンド・観客・太陽・雲・フェンス等をSVGで実装、豪華版）",
   ]},
   { date:"2026-05-14", features:[
     "バグ修正：アプリを閉じてもLIVEモードが復元されるように修正（ドラフト保存にステップ情報を追加）",
@@ -420,18 +421,59 @@ function RaceTrack({ playingMembers, strengthMap, mySelection, betType }) {
 
   return (
     <div style={{
-      background:"linear-gradient(180deg, rgba(46,139,87,0.2), rgba(46,139,87,0.4))",
+      background:"linear-gradient(180deg, #87CEEB 0%, #90EE90 40%, #228B22 100%)",
       border:"1px solid rgba(255,255,255,0.15)", borderRadius:10,
       padding:"8px", marginBottom:10, position:"relative", overflow:"hidden"
     }}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4,padding:"0 4px"}}>
+      {/* 競馬場背景イラスト */}
+      <svg style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",zIndex:0}} viewBox="0 0 280 140" preserveAspectRatio="none">
+        {/* 太陽 */}
+        <circle cx="240" cy="20" r="15" fill="#FFD700" opacity="0.8"/>
+        
+        {/* 雲 */}
+        <ellipse cx="50" cy="15" rx="20" ry="8" fill="#FFF" opacity="0.6"/>
+        <ellipse cx="65" cy="12" rx="15" ry="6" fill="#FFF" opacity="0.6"/>
+        <ellipse cx="210" cy="25" rx="18" ry="7" fill="#FFF" opacity="0.5"/>
+        <ellipse cx="225" cy="22" rx="14" ry="5" fill="#FFF" opacity="0.5"/>
+        
+        {/* スタンド（観客席） */}
+        <g opacity="0.5">
+          {/* 左スタンド */}
+          <polygon points="10,80 20,50 35,55 25,85" fill="#6B4423"/>
+          <polygon points="20,80 32,48 45,54 35,85" fill="#8B5A3C"/>
+          <polygon points="32,80 43,48 56,54 46,85" fill="#6B4423"/>
+          
+          {/* 右スタンド */}
+          <polygon points="245,80 255,50 270,55 260,85" fill="#6B4423"/>
+          <polygon points="235,80 248,48 260,54 248,85" fill="#8B5A3C"/>
+          <polygon points="223,80 236,48 248,54 237,85" fill="#6B4423"/>
+        </g>
+        
+        {/* 観客シルエット */}
+        <g fill="#000" opacity="0.15">
+          <circle cx="15" cy="65" r="2"/>
+          <circle cx="25" cy="70" r="2"/>
+          <circle cx="35" cy="68" r="2"/>
+          <circle cx="42" cy="72" r="2"/>
+          <circle cx="250" cy="65" r="2"/>
+          <circle cx="260" cy="70" r="2"/>
+          <circle cx="270" cy="68" r="2"/>
+          <circle cx="235" cy="72" r="2"/>
+        </g>
+        
+        {/* フェンス */}
+        <rect x="0" y="115" width="280" height="2" fill="#8B4513" opacity="0.7"/>
+        <line x1="0" y1="110" x2="280" y2="110" stroke="#A0522D" strokeWidth="1" opacity="0.5"/>
+      </svg>
+      
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4,padding:"0 4px",position:"relative",zIndex:1}}>
         <div style={{fontSize:10,color:"#aaa"}}>🏇 レース実況中継</div>
         <div style={{fontSize:9,color:"#888",display:"flex",alignItems:"center",gap:4}}>
           <span style={{width:5,height:5,borderRadius:"50%",background:"#e74c3c",animation:"pulse 1.5s infinite"}}/>
           LIVE
         </div>
       </div>
-      <svg viewBox="0 0 280 140" style={{width:"100%",height:"auto",display:"block"}}>
+      <svg viewBox="0 0 280 140" style={{width:"100%",height:"auto",display:"block",position:"relative",zIndex:1}}>
         {/* 楕円トラック（外） */}
         <ellipse cx={cx} cy={cy} rx={rx+24} ry={ry+24}
           fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="1"/>
