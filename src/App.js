@@ -18,13 +18,17 @@ const CHANGELOG = [
   { date:"2026-05-18", features:[
     "外馬機能：5人以上参加時に対応（各半荘開始時に抜け番をタップして複数選択）",
     "抜け番複数選択UI追加（4人が確定するまで選択可能、6人以上時は2人以上の抜け番選択に対応）",
-    "外馬レース機能：抜け番を除いた4人をベースに動作するように修正",
-    "競馬場背景のイラスト化（スタンド・観客・太陽・雲・フェンス等をSVGで実装、豪華版）",
-    "ゴール地点のイラスト追加（楕円トラックの右端にゴールラインを表示）",
+    "競馬場背景のイラスト化（スタンド・観客・太陽・雲・フェンス等をSVGで実装）",
+    "ゴール板イラスト追加（楕円トラック下中央に市松模様ゴール板を設置）",
     "馬の着順リアルタイム表示（レース中に1着〜4着の順位を表示）",
-    "チップシステム追加（生涯参加半荘数 = チップ、勝利時は払い戻し加算、敗北時は消費）",
-    "投票時間制限の正確な実装（その日の参加メンバー全員 = 10分制限、外馬 = 時間無制限）",
-    "外馬ルール表記追加（ルール・チップシステム・時間制限の説明）",
+    "外馬参加者の修正：全メンバーが馬券購入可能に（対局者・抜け番・外馬すべて対応）",
+    "馬券選択画面に⏱10分制限バッジを追加（参加メンバーのみ表示）",
+    "チップ保有数を馬券選択画面と購入済み画面に常時表示",
+    "当たり演出を追加（🎉アニメーション・チップ払い戻し表示）",
+    "1レース1馬券のみに制限（同一人物の2重購入を防止）",
+    "オッズ上限を修正（馬連15倍・三連単25倍・四連単35倍、幾何平均ベース計算）",
+    "投票時間制限：参加メンバー全員（対局者+抜け番）= 10分制限、外馬 = 無制限",
+    "外馬ルール表記追加",
   ]},
   { date:"2026-05-14", features:[
     "バグ修正：アプリを閉じてもLIVEモードが復元されるように修正（ドラフト保存にステップ情報を追加）",
@@ -310,22 +314,26 @@ function calcTanshoOdds(strengthMap) {
   return result;
 }
 
-// 馬連オッズ：単勝オッズの組み合わせ × 1.5
+// 馬連オッズ：単勝オッズの幾何平均ベース、上限15倍
 function calcUmarenOdds(idA, idB, tanshoOdds) {
-  const raw = tanshoOdds[idA] * tanshoOdds[idB] * 1.5;
-  return Math.max(2.0, Math.min(999, Math.round(raw * 10) / 10));
+  // 幾何平均で単勝オッズを合成（積よりも抑えられる）
+  const avgOdds = Math.sqrt(tanshoOdds[idA] * tanshoOdds[idB]);
+  const raw = avgOdds * 2.0;
+  return Math.max(2.0, Math.min(15.0, Math.round(raw * 10) / 10));
 }
 
-// 三連単オッズ：単勝オッズの掛け算 × 2
+// 三連単オッズ：単勝オッズの幾何平均ベース、上限25倍
 function calcSanrentanOdds(id1, id2, id3, tanshoOdds) {
-  const raw = tanshoOdds[id1] * tanshoOdds[id2] * tanshoOdds[id3] * 2;
-  return Math.max(5.0, Math.min(9999, Math.round(raw * 10) / 10));
+  const avgOdds = Math.pow(tanshoOdds[id1] * tanshoOdds[id2] * tanshoOdds[id3], 1/3);
+  const raw = avgOdds * 3.5;
+  return Math.max(5.0, Math.min(25.0, Math.round(raw * 10) / 10));
 }
 
-// 四連単オッズ：単勝オッズの掛け算 × 3
+// 四連単オッズ：単勝オッズの幾何平均ベース、上限35倍
 function calcYonrentanOdds(id1, id2, id3, id4, tanshoOdds) {
-  const raw = tanshoOdds[id1] * tanshoOdds[id2] * tanshoOdds[id3] * tanshoOdds[id4] * 3;
-  return Math.max(10.0, Math.min(99999, Math.round(raw * 10) / 10));
+  const avgOdds = Math.pow(tanshoOdds[id1] * tanshoOdds[id2] * tanshoOdds[id3] * tanshoOdds[id4], 1/4);
+  const raw = avgOdds * 5.0;
+  return Math.max(10.0, Math.min(35.0, Math.round(raw * 10) / 10));
 }
 
 function Av({ m, sz }) {
@@ -491,11 +499,30 @@ function RaceTrack({ playingMembers, strengthMap, mySelection, betType }) {
             fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="0.5" strokeDasharray="2,2"/>
         ))}
 
-        {/* ゴール地点 */}
-        <line x1={cx+rx+24} y1={cy-ry-24} x2={cx+rx+24} y2={cy+ry+24}
-          stroke="#FFD700" strokeWidth="3" opacity="0.8"/>
-        <text x={cx+rx+28} y={cy-ry-26} fontSize="8" fill="#FFD700" fontWeight="bold">GOAL</text>
-        
+        {/* ゴール板（楕円トラックの下の中央） */}
+        {(() => {
+          const gx = cx; // 真ん中
+          const gy = cy + ry + 20; // 楕円の下端より少し下
+          return (
+            <g>
+              {/* 左右のポール */}
+              <line x1={gx-18} y1={gy-18} x2={gx-18} y2={gy+2} stroke="#FFD700" strokeWidth="2"/>
+              <line x1={gx+18} y1={gy-18} x2={gx+18} y2={gy+2} stroke="#FFD700" strokeWidth="2"/>
+              {/* 横断幕（市松模様） */}
+              {[0,1,2,3,4,5].map(i=>(
+                <rect key={i} x={gx-18+i*6} y={gy-18} width={6} height={6}
+                  fill={i%2===0?"#fff":"#222"} opacity="0.9"/>
+              ))}
+              {[0,1,2,3,4,5].map(i=>(
+                <rect key={i} x={gx-18+i*6} y={gy-12} width={6} height={6}
+                  fill={i%2===0?"#222":"#fff"} opacity="0.9"/>
+              ))}
+              {/* GOALテキスト */}
+              <text x={gx} y={gy+10} fontSize="7" fill="#FFD700" textAnchor="middle" fontWeight="bold">GOAL</text>
+            </g>
+          );
+        })()}
+
         {/* 現在の着順表示（進捗順に着番を計算） */}
         {playingMembers.map((m, i) => {
           const angle = positions[i] * Math.PI * 2 - Math.PI/2;
@@ -3297,6 +3324,13 @@ export default function App() {
                 // 購入処理
                 const submitBet = async () => {
                   if(!raceSelf || !raceBetType || !selectionsValid || !currentOdds) return;
+                  // 同一人物が同一半荘で2回以上賭けるのを防止
+                  const alreadyBet = raceBets.find(b =>
+                    b.session_date === addDate &&
+                    b.round_index === currentRoundIndex &&
+                    b.bettor_id === raceSelf
+                  );
+                  if (alreadyBet) { showToast("error", "⚠️ この半荘ではすでに馬券を購入済みです"); return; }
                   setRaceBetSubmitting(true);
                   const {data} = await supabase.from("race_bets").insert({
                     session_date: addDate,
@@ -3498,19 +3532,24 @@ export default function App() {
                         {/* あなたは？ */}
                         {!raceSelf && bettingOpen && (
                           <div style={{...S.card({background:"rgba(255,255,255,0.04)"}),marginBottom:10}}>
-                            <div style={{fontSize:11,color:"#888",marginBottom:8}}>馬券を買うあなたを選んでください</div>
+                            <div style={{fontSize:11,color:"#888",marginBottom:8}}>外馬をするのはあなたですか？</div>
                             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
-                              {members.filter(m=>!addSel.includes(m.id)).map(m=>(
-                                <div key={m.id} onClick={()=>setRaceSelf(m.id)}
-                                  style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"8px 4px",borderRadius:8,cursor:"pointer",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)"}}>
-                                  <Av m={m} sz={28}/>
-                                  <div style={{fontSize:10,color:"#ccc"}}>{m.name}</div>
-                                </div>
-                              ))}
+                              {members.map(m=>{
+                                const isAttendee = addSel.map(Number).includes(Number(m.id));
+                                const myCurrentChips = raceChips[m.id] ?? memberChips[m.id] ?? 10;
+                                return (
+                                  <div key={m.id} onClick={()=>setRaceSelf(m.id)}
+                                    style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"8px 4px",borderRadius:8,cursor:"pointer",
+                                      background:isAttendee?"rgba(243,156,18,0.08)":"rgba(255,255,255,0.04)",
+                                      border:`1px solid ${isAttendee?"rgba(243,156,18,0.5)":"rgba(255,255,255,0.1)"}`}}>
+                                    <Av m={m} sz={28}/>
+                                    <div style={{fontSize:10,color:"#ccc"}}>{m.name}</div>
+                                    <div style={{fontSize:9,color:"#f1c40f"}}>🪙{myCurrentChips}</div>
+                                    {isAttendee && <div style={{fontSize:8,color:"#f39c12"}}>⏱10分制限</div>}
+                                  </div>
+                                );
+                              })}
                             </div>
-                            {members.filter(m=>!addSel.includes(m.id)).length===0 && (
-                              <div style={{fontSize:11,color:"#666",textAlign:"center",padding:12}}>全員参加中のため馬券を買える人がいません</div>
-                            )}
                           </div>
                         )}
 
@@ -3600,6 +3639,12 @@ export default function App() {
                         {/* 購入済み表示 */}
                         {raceSelf && myBet && (
                           <div style={{...S.card({background:"rgba(241,196,15,0.08)",border:"1px solid rgba(241,196,15,0.3)"}),marginBottom:10}}>
+                            {/* チップ残高 */}
+                            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
+                              <div style={{fontSize:10,color:"#f1c40f",background:"rgba(241,196,15,0.15)",borderRadius:6,padding:"2px 8px"}}>
+                                🪙 保有チップ：{raceChips[raceSelf] ?? memberChips[raceSelf] ?? 10}
+                              </div>
+                            </div>
                             <div style={{textAlign:"center",fontSize:12,color:"#f1c40f",marginBottom:8}}>🎫 購入済み</div>
                             <div style={{fontSize:11,textAlign:"center",color:"#ccc",marginBottom:6}}>
                               {BET_TYPES.find(t=>t.key===myBet.bet_type)?.label}：
@@ -3607,9 +3652,19 @@ export default function App() {
                             </div>
                             <div style={{textAlign:"center",fontSize:18,fontWeight:"bold",color:"#f1c40f"}}>{myBet.odds}倍</div>
                             {myBet.is_hit !== null && (
-                              <div style={{textAlign:"center",marginTop:8,fontSize:13,fontWeight:"bold",color:myBet.is_hit?"#2ecc71":"#e74c3c"}}>
-                                {myBet.is_hit?`🎉 的中！ 配当${myBet.payout}倍`:"❌ ハズレ"}
-                              </div>
+                              myBet.is_hit ? (
+                                <div style={{textAlign:"center",marginTop:10,padding:"10px 8px",background:"rgba(46,204,113,0.12)",borderRadius:8,border:"1px solid rgba(46,204,113,0.4)"}}>
+                                  <div style={{fontSize:24,marginBottom:4,animation:"pulse 1s infinite"}}>🎉</div>
+                                  <div style={{fontSize:14,fontWeight:"bold",color:"#2ecc71"}}>的中！</div>
+                                  <div style={{fontSize:12,color:"#f1c40f",marginTop:4}}>配当 {myBet.payout}倍</div>
+                                  <div style={{fontSize:10,color:"#2ecc71",marginTop:4}}>🪙 チップ払い戻し済み</div>
+                                </div>
+                              ) : (
+                                <div style={{textAlign:"center",marginTop:8,fontSize:13,fontWeight:"bold",color:"#e74c3c"}}>
+                                  ❌ ハズレ
+                                  <div style={{fontSize:10,color:"#888",marginTop:4}}>チップ消費済み</div>
+                                </div>
+                              )
                             )}
                           </div>
                         )}
