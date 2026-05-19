@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+﻿import { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
 
 const INVITE = "とうねり";
@@ -16,17 +16,19 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-05-19
 const CHANGELOG = [
   { date:"2026-05-19", features:[
-    "v1.6（安定版）表記をヘッダーに追加",
-    "バグ修正：MVP紙吹雪が1日1回ではなく毎回発火していた問題を修正(UTC基準を日本時間に変更)",
-    "バグ修正：履歴タブで期間フィルター（全期間・今年・今月）が効かない問題を修正",
-    "MVP紙吹雪を1日1回だけに修正（毎回発火から1日1回に変更）",
-    "ハイ&ローをメインメニューに移動（ダッシュボードのサブタブから削除）",
-    "期間フィルターの初期値を「今月」に変更（従来は全期間）",
-    "外馬レースの表記統一（旧：競馬レース）・ルール説明追加",
-    "バグ修正：対局開始後にルール設定画面で項目を編集すると開始時刻が上書きされる問題を修正",
-    "重大バグ修正：抜け番選択がSupabaseに保存されず、アプリ再起動で外馬機能が使えなくなる問題を修正(drafts.skenbansカラム追加)",
-    "抜け番情報のリアルタイム同期：抜け番選択が全端末に即時反映されるよう改善",
+    "Mリーグ指標 個人タイトル機能を追加（💥最高得点賞・🛡️4着回避賞の2部門・年間20半荘以上参加者対象）",
+    "個人スコア賞・最多トップ賞は実装中表示（参加数による有利不利を調整中）",
     "外馬機能：現在の半荘の全員予想一覧をトラック下部に表示（配当チップ多い順・自分の予想をハイライト）",
+    "抜け番情報のリアルタイム同期：抜け番選択が全端末に即時反映されるよう改善",
+    "重大バグ修正：抜け番選択がSupabaseに保存されず、アプリ再起動で外馬機能が使えなくなる問題を修正(drafts.skenbansカラム追加)",
+    "バグ修正：対局開始後にルール設定画面で項目を編集すると開始時刻が上書きされる問題を修正",
+    "外馬レースの表記統一（旧：競馬レース）・ルール説明追加",
+    "期間フィルターの初期値を「今月」に変更（従来は全期間）",
+    "ハイ&ローをメインメニューに移動（ダッシュボードのサブタブから削除）",
+    "MVP紙吹雪を1日1回だけに修正（毎回発火から1日1回に変更）",
+    "バグ修正：履歴タブで期間フィルター（全期間・今年・今月）が効かない問題を修正",
+    "バグ修正：MVP紙吹雪が1日1回ではなく毎回発火していた問題を修正(UTC基準を日本時間に変更)",
+    "v1.6（安定版）表記をヘッダーに追加",
   ]},
   { date:"2026-05-18", features:[
     "外馬機能：5人以上参加時に対応（各半荘開始時に抜け番をタップして複数選択）",
@@ -791,6 +793,7 @@ export default function App() {
   const [memberEditName, setMemberEditName] = useState("");
   const [editKeypadActive, setEditKeypadActive] = useState(null); // "ri-pid"
   const [dashSub, setDashSub] = useState("summary");
+  const [showMLeague, setShowMLeague] = useState(false);
   // eslint-disable-next-line no-unused-vars
   const [raceBets, setRaceBets] = useState([]);
   const [raceSelf, setRaceSelf] = useState(() => {
@@ -2200,6 +2203,17 @@ export default function App() {
                 </option>
               ))}
             </select>
+            {/* 🏆 Mリーグタイトル画面 */}
+            {tab==="dashboard" && (
+              <button onClick={()=>setShowMLeague(true)} style={{
+                padding:"4px 10px",borderRadius:13,cursor:"pointer",fontSize:11,
+                background:"linear-gradient(135deg,rgba(231,76,60,0.15),rgba(241,196,15,0.15))",
+                border:"1px solid rgba(241,196,15,0.5)",
+                color:"#f1c40f",fontWeight:600,
+              }}>
+                🏆 Mリーグ
+              </button>
+            )}
             <button onClick={()=>{
                 setShowSettings(p=>!p);
                 if(hasNewUpdate){
@@ -2214,6 +2228,139 @@ export default function App() {
             </button>
           </div>
         )}
+
+        {/* 🏆 Mリーグ指標 個人タイトル */}
+        {showMLeague && (() => {
+          const currentYear = new Date().getFullYear();
+          // その年のセッションだけ
+          const yearSessions = sessions.filter(s => s.date.startsWith(String(currentYear)));
+          // メンバーごとの統計
+          const stats = {};
+          members.forEach(m => {
+            stats[m.id] = { id: m.id, name: m.name, photo: m.photo, total: 0, max: -Infinity, ranks: [0,0,0,0] };
+          });
+          yearSessions.forEach(s => {
+            (s.rounds || []).forEach(rd => {
+              (rd.scores || []).forEach((sc, i) => {
+                const id = sc.member_id;
+                if (!stats[id]) return;
+                const point = Number(sc.point || 0);
+                stats[id].total++;
+                if (point > stats[id].max) stats[id].max = point;
+                // ランク（1-4）を集計
+                const rank = sc.rank;
+                if (rank >= 1 && rank <= 4) stats[id].ranks[rank-1]++;
+              });
+            });
+          });
+          // 20半荘以上参加者だけ抽出
+          const qualified = Object.values(stats).filter(s => s.total >= 20);
+          // 最高得点ランキング（上位6人）
+          const maxRanking = [...qualified]
+            .filter(s => s.max !== -Infinity)
+            .sort((a, b) => b.max - a.max)
+            .slice(0, 6);
+          // 4着回避率ランキング（上位6人）
+          const avoidLastRanking = [...qualified]
+            .map(s => ({ ...s, avoidRate: 1 - (s.ranks[3] / s.total) }))
+            .sort((a, b) => b.avoidRate - a.avoidRate)
+            .slice(0, 6);
+
+          const rankColor = (i) => ["#f1c40f","#c0c0c0","#cd7f32","#888","#888","#888"][i] || "#888";
+          const rankBg = (i) => ["rgba(241,196,15,0.12)","rgba(192,192,192,0.10)","rgba(205,127,50,0.10)","rgba(255,255,255,0.04)","rgba(255,255,255,0.04)","rgba(255,255,255,0.04)"][i] || "rgba(255,255,255,0.04)";
+
+          const RankList = ({ items, valueLabel, formatter }) => (
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              {items.length === 0 ? (
+                <div style={{textAlign:"center",color:"#666",fontSize:11,padding:"12px 0"}}>
+                  対象者なし（20半荘以上参加者がいません）
+                </div>
+              ) : items.map((s, i) => (
+                <div key={s.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:rankBg(i),borderRadius:6,border:`1px solid ${i<3?rankColor(i):"rgba(255,255,255,0.04)"}33`}}>
+                  <div style={{fontSize:13,fontWeight:700,color:rankColor(i),minWidth:24,textAlign:"center"}}>{i+1}位</div>
+                  <Av m={s} sz={24}/>
+                  <div style={{flex:1,minWidth:0,fontSize:12,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
+                  <div style={{fontSize:13,fontWeight:700,color:rankColor(i),whiteSpace:"nowrap"}}>{formatter(s)}</div>
+                </div>
+              ))}
+            </div>
+          );
+
+          return (
+            <div style={{...S.card({background:"linear-gradient(135deg,rgba(231,76,60,0.06),rgba(241,196,15,0.06))",border:"1px solid rgba(241,196,15,0.3)",marginBottom:10})}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{fontSize:14,fontWeight:700,color:"#f1c40f"}}>🏆 Mリーグ指標 個人タイトル</div>
+                <button onClick={()=>setShowMLeague(false)} style={S.bs()}>✕</button>
+              </div>
+
+              {/* 説明文 */}
+              <div style={{
+                padding:"10px 12px",marginBottom:14,
+                background:"rgba(0,0,0,0.2)",borderRadius:8,
+                border:"1px solid rgba(255,255,255,0.05)",
+                fontSize:11,color:"#ccc",lineHeight:1.6
+              }}>
+                <div style={{color:"#f1c40f",fontWeight:600,marginBottom:6}}>📖 Mリーグ指標とは</div>
+                プロ麻雀リーグ「Mリーグ」の年間個人タイトルを参考にしたランキングです。
+                <br/>
+                自分の成績がMリーガーと比べてどれくらいなのか、楽しみながら振り返れる指標として設けました。
+                <div style={{marginTop:8,color:"#888",fontSize:10}}>
+                  <span style={{color:"#3498db"}}>● 対象期間：</span>{currentYear}年（1/1〜12/31）
+                  <br/>
+                  <span style={{color:"#3498db"}}>● 参加条件：</span>同年内に20半荘以上参加
+                  <br/>
+                  <span style={{color:"#3498db"}}>● 上限：</span>Mリーグでは最大40半荘ですが、当リーグは上限なし
+                </div>
+              </div>
+
+              {/* 💥 最高得点賞 */}
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#e74c3c",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+                  💥 最高得点賞
+                  <span style={{fontSize:9,color:"#888",fontWeight:400}}>（1半荘の最高点を競う）</span>
+                </div>
+                <RankList
+                  items={maxRanking}
+                  formatter={(s) => `${s.max >= 0 ? "+" : ""}${s.max.toFixed(1)}`}
+                />
+              </div>
+
+              {/* 🛡️ 4着回避賞 */}
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#3498db",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+                  🛡️ 4着回避賞
+                  <span style={{fontSize:9,color:"#888",fontWeight:400}}>（4着を避ける安定感）</span>
+                </div>
+                <RankList
+                  items={avoidLastRanking}
+                  formatter={(s) => s.avoidRate.toFixed(2)}
+                />
+              </div>
+
+              {/* 🏆 個人スコア賞（実装中） */}
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#666",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+                  🏆 個人スコア賞
+                  <span style={{fontSize:9,color:"#888",fontWeight:400}}>（年間累積スコアを競う）</span>
+                </div>
+                <div style={{padding:"12px 10px",background:"rgba(255,255,255,0.03)",borderRadius:6,textAlign:"center",fontSize:11,color:"#666",border:"1px dashed rgba(255,255,255,0.1)"}}>
+                  🚧 実装中（参加数による有利不利を調整中）
+                </div>
+              </div>
+
+              {/* 👑 最多トップ賞（実装中） */}
+              <div>
+                <div style={{fontSize:12,fontWeight:700,color:"#666",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+                  👑 最多トップ賞
+                  <span style={{fontSize:9,color:"#888",fontWeight:400}}>（1位を取った回数を競う）</span>
+                </div>
+                <div style={{padding:"12px 10px",background:"rgba(255,255,255,0.03)",borderRadius:6,textAlign:"center",fontSize:11,color:"#666",border:"1px dashed rgba(255,255,255,0.1)"}}>
+                  🚧 実装中（参加数による有利不利を調整中）
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* 設定モーダル */}
         {showSettings && (
