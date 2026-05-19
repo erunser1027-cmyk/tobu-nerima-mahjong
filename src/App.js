@@ -4262,22 +4262,23 @@ export default function App() {
         )}
 
         {/* ===== HISTORY ===== */}
-        {tab==="history" && (
-          <>
-            {(() => {
-              // 期間フィルター
-              const now = new Date();
-              const thisYear = now.getFullYear();
-              const thisMonth = `${thisYear}-${String(now.getMonth()+1).padStart(2,"0")}`;
-              const filteredSessions = period==="year" ? sessions.filter(s=>s.date.startsWith(String(thisYear)))
-                : period==="month" ? sessions.filter(s=>s.date.startsWith(thisMonth))
-                : period==="pick" ? sessions.filter(s=>s.date.startsWith(selectedMonth))
-                : sessions;
-              
-              return (
-            !filteredSessions.length
-              ? <div style={{color:"#888",textAlign:"center",padding:30}}>該当する記録がありません</div>
-              : [...filteredSessions].sort((a,b)=>b.date.localeCompare(a.date)).map(s => {
+        {tab==="history" && (() => {
+          // 期間フィルター
+          const now = new Date();
+          const thisYear = now.getFullYear();
+          const thisMonth = `${thisYear}-${String(now.getMonth()+1).padStart(2,"0")}`;
+          const filteredSessions = period==="year" ? sessions.filter(s=>s.date.startsWith(String(thisYear)))
+            : period==="month" ? sessions.filter(s=>s.date.startsWith(thisMonth))
+            : period==="pick" ? sessions.filter(s=>s.date.startsWith(selectedMonth))
+            : sessions;
+          
+          if (!filteredSessions.length) {
+            return <div style={{color:"#888",textAlign:"center",padding:30}}>該当する記録がありません</div>;
+          }
+          
+          return (
+            <>
+              {[...filteredSessions].sort((a,b)=>b.date.localeCompare(a.date)).map(s => {
                 const tot=calcTotals(s), mems=s.members.map(id=>gm(id)).filter(Boolean);
                 const rL=SCORE_RATES.find(r=>r.val===s.rules.scoreRate)?.label.split("（")[0]||"";
                 const isOpen=histOpen[s.id];
@@ -4402,10 +4403,9 @@ export default function App() {
                   </div>
                 );
               })}
-              );
-            })()}
-          </>
-        )}
+            </>
+          );
+        })()}
 
         {/* ===== ADD ===== */}
         {tab==="add" && (
