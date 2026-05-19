@@ -16,6 +16,8 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-05-19
 const CHANGELOG = [
   { date:"2026-05-19", features:[
+    "v1.6（安定版）表記をヘッダーに追加",
+    "バグ修正：MVP紙吹雪が1日1回ではなく毎回発火していた問題を修正（UTC基準を日本時間に変更）",
     "バグ修正：履歴タブで期間フィルター（全期間・今年・今月）が効かない問題を修正",
     "MVP紙吹雪を1日1回だけに修正（毎回発火から1日1回に変更）",
     "ハイ&ローをメインメニューに移動（ダッシュボードのサブタブから削除）",
@@ -1001,11 +1003,13 @@ export default function App() {
   // 今月表示時にconfettiを1日1回だけ発火
   useEffect(()=>{
     if (period === "month" && mvpIds.length > 0 && !confettiShown) {
-      const today = new Date().toISOString().slice(0,10); // YYYY-MM-DD
+      // 日本時間のYYYY-MM-DD（toISOStringはUTCなのでローカルで作る）
+      const d = new Date();
+      const today = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
       const lastConfetti = localStorage.getItem("tleague_lastConfetti");
       if (lastConfetti !== today) {
-        setConfettiShown(true);
         localStorage.setItem("tleague_lastConfetti", today);
+        setConfettiShown(true);
         setTimeout(()=>setConfettiShown(false), 4500);
       }
     }
@@ -2059,7 +2063,7 @@ export default function App() {
         <span style={{fontSize:18}}>🀄</span>
         <div>
           <div style={{fontSize:9,color:"#e74c3c",fontWeight:600,lineHeight:1.2}}>東武練馬Tリーグ</div>
-          <div style={{fontSize:12,fontWeight:500,lineHeight:1.2}}>麻雀スコア表</div>
+          <div style={{fontSize:12,fontWeight:500,lineHeight:1.2}}>麻雀スコア表 <span style={{fontSize:9,color:"#666",fontWeight:400}}>v1.6</span></div>
         </div>
         {/* LIVE バッジ：実際にLIVE対局中(addStep===2)のみ表示 */}
         {addStep === 2 && (
