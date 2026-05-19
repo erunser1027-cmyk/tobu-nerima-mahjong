@@ -637,9 +637,9 @@ function Confetti() {
 }
 
 // MVP用アバター（炎エフェクト付き）
-function MvpAv({ m, sz }) {
+function MvpAv({ m, sz, onClick }) {
   return (
-    <div style={{position:"relative", display:"inline-block"}}>
+    <div style={{position:"relative", display:"inline-block", cursor: onClick ? "pointer" : "default"}} onClick={onClick}>
       <div style={{
         width:sz, height:sz, borderRadius:"50%", overflow:"hidden",
         animation:"flame 1.5s ease-in-out infinite",
@@ -2882,7 +2882,7 @@ export default function App() {
                             textAlign:"center", padding:10,
                             animation: isMvp ? "cardReveal 0.5s ease both" : "none",
                           })}>
-                            {isMvp ? <MvpAv m={gm(p.id)} sz={36}/> : <Av m={gm(p.id)} sz={36} onClick={()=>setMemberDetailModal({m: gm(p.id), p})}/>}
+                            {isMvp ? <MvpAv m={gm(p.id)} sz={36} onClick={()=>setMemberDetailModal({m: gm(p.id), p})}/> : <Av m={gm(p.id)} sz={36} onClick={()=>setMemberDetailModal({m: gm(p.id), p})}/>}
                             <div style={{fontSize:12,fontWeight:500,marginTop:isMvp?8:4}}>
                               {p.name}
                               {ms && <span style={{display:"block",fontSize:9,background:ms.badge,color:ms.badgeColor,fontWeight:"bold",padding:"1px 5px",borderRadius:6,animation:"badgeIn 0.4s ease both",marginTop:2}}>{ms.label}</span>}
