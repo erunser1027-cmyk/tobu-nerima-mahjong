@@ -17,13 +17,15 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 const CHANGELOG = [
   { date:"2026-05-19", features:[
     "v1.6（安定版）表記をヘッダーに追加",
-    "バグ修正：MVP紙吹雪が1日1回ではなく毎回発火していた問題を修正（UTC基準を日本時間に変更）",
+    "バグ修正：MVP紙吹雪が1日1回ではなく毎回発火していた問題を修正(UTC基準を日本時間に変更)",
     "バグ修正：履歴タブで期間フィルター（全期間・今年・今月）が効かない問題を修正",
     "MVP紙吹雪を1日1回だけに修正（毎回発火から1日1回に変更）",
     "ハイ&ローをメインメニューに移動（ダッシュボードのサブタブから削除）",
     "期間フィルターの初期値を「今月」に変更（従来は全期間）",
     "外馬レースの表記統一（旧：競馬レース）・ルール説明追加",
     "バグ修正：対局開始後にルール設定画面で項目を編集すると開始時刻が上書きされる問題を修正",
+    "重大バグ修正：抜け番選択がSupabaseに保存されず、アプリ再起動で外馬機能が使えなくなる問題を修正(drafts.skenbansカラム追加)",
+    "抜け番情報のリアルタイム同期：抜け番選択が全端末に即時反映されるよう改善",
   ]},
   { date:"2026-05-18", features:[
     "外馬機能：5人以上参加時に対応（各半荘開始時に抜け番をタップして複数選択）",
@@ -1033,6 +1035,7 @@ export default function App() {
           setAddRules(data.rules);
           setAddSel(data.members);
           setAddRounds(data.rounds);
+          setRpSkenbans(Array.isArray(data.skenbans) ? data.skenbans : []);
           // 保存されたstepを使う。なければ従来ロジックで推定
           setAddStep(data.step ?? (data.rounds.length>0 ? 2 : (data.members?.length>0 ? 2 : 0)));
           return;
@@ -1053,6 +1056,7 @@ export default function App() {
             setAddRules(draft.rules);
             setAddSel(draft.members);
             setAddRounds(draft.rounds);
+            setRpSkenbans(Array.isArray(draft.skenbans) ? draft.skenbans : []);
             setAddStep(draft.step ?? (draft.rounds.length>0 ? 2 : (draft.members?.length>0 ? 2 : 0)));
             showToast("success", "📦 ローカル保存から復元しました");
           } else {
@@ -1067,9 +1071,11 @@ export default function App() {
   },[]);
 
   // 対局状態が変化するたびにSupabaseに下書き保存
-  async function saveDraft(date, rules, sel, step, rounds){
+  // skenbansは省略可能（省略時は現在のrpSkenbansを使う）
+  async function saveDraft(date, rules, sel, step, rounds, skenbans){
     if(sel.length === 0) return; // メンバー未選択は保存しない
-    const payload = { date, rules, members:sel, rounds, step, updated_at: new Date().toISOString() };
+    const skenbansToSave = Array.isArray(skenbans) ? skenbans : rpSkenbans;
+    const payload = { date, rules, members:sel, rounds, step, skenbans: skenbansToSave, updated_at: new Date().toISOString() };
     
     // localStorage にバックアップ（オフライン時の保険）
     try {
@@ -1137,6 +1143,7 @@ export default function App() {
               setAddSel(data.members);
               setAddStep(data.step);
               setAddRounds(data.rounds || []);
+              setRpSkenbans(Array.isArray(data.skenbans) ? data.skenbans : []);
               setDraftId(data.id);
             }
           }
@@ -4567,10 +4574,12 @@ export default function App() {
                               const isSkenban = rpSkenbans.includes(id);
                               return (
                                 <div key={id} onClick={() => {
-                                  setRpSkenbans(isSkenban 
+                                  const newSkenbans = isSkenban 
                                     ? rpSkenbans.filter(x => x !== id)
-                                    : [...rpSkenbans, id]
-                                  );
+                                    : [...rpSkenbans, id];
+                                  setRpSkenbans(newSkenbans);
+                                  // Supabaseに即時保存（全端末に共有するため）
+                                  saveDraft(addDate, addRules, addSel, addStep, addRounds, newSkenbans);
                                 }}
                                   style={{borderRadius:9,padding:"12px 6px",textAlign:"center",cursor:"pointer",
                                     border:`2px solid ${isSkenban ? "#f39c12" : "rgba(243,156,18,0.5)"}`,
