@@ -16,6 +16,8 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-05-19
 const CHANGELOG = [
   { date:"2026-05-19", features:[
+    "バグ修正：履歴タブで期間フィルター（全期間・今年・今月）が効かない問題を修正",
+    "MVP紙吹雪を1日1回だけに修正（毎回発火から1日1回に変更）",
     "ハイ&ローをメインメニューに移動（ダッシュボードのサブタブから削除）",
     "期間フィルターの初期値を「今月」に変更（従来は全期間）",
     "外馬レースの表記統一（旧：競馬レース）・ルール説明追加",
@@ -996,11 +998,16 @@ export default function App() {
       .then(({data})=>{ if(data) setTrashMembers(data); });
   },[]);
 
-  // 今月表示時にconfettiを1回だけ発火
+  // 今月表示時にconfettiを1日1回だけ発火
   useEffect(()=>{
     if (period === "month" && mvpIds.length > 0 && !confettiShown) {
-      setConfettiShown(true);
-      setTimeout(()=>setConfettiShown(false), 4500);
+      const today = new Date().toISOString().slice(0,10); // YYYY-MM-DD
+      const lastConfetti = localStorage.getItem("tleague_lastConfetti");
+      if (lastConfetti !== today) {
+        setConfettiShown(true);
+        localStorage.setItem("tleague_lastConfetti", today);
+        setTimeout(()=>setConfettiShown(false), 4500);
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[period, mvpIds.length]);
@@ -4253,9 +4260,20 @@ export default function App() {
         {/* ===== HISTORY ===== */}
         {tab==="history" && (
           <>
-            {!sessions.length
-              ? <div style={{color:"#888",textAlign:"center",padding:30}}>まだ記録がありません</div>
-              : [...sessions].sort((a,b)=>b.date.localeCompare(a.date)).map(s => {
+            {(() => {
+              // 期間フィルター
+              const now = new Date();
+              const thisYear = now.getFullYear();
+              const thisMonth = `${thisYear}-${String(now.getMonth()+1).padStart(2,"0")}`;
+              const filteredSessions = period==="year" ? sessions.filter(s=>s.date.startsWith(String(thisYear)))
+                : period==="month" ? sessions.filter(s=>s.date.startsWith(thisMonth))
+                : period==="pick" ? sessions.filter(s=>s.date.startsWith(selectedMonth))
+                : sessions;
+              
+              return (
+            !filteredSessions.length
+              ? <div style={{color:"#888",textAlign:"center",padding:30}}>該当する記録がありません</div>
+              : [...filteredSessions].sort((a,b)=>b.date.localeCompare(a.date)).map(s => {
                 const tot=calcTotals(s), mems=s.members.map(id=>gm(id)).filter(Boolean);
                 const rL=SCORE_RATES.find(r=>r.val===s.rules.scoreRate)?.label.split("（")[0]||"";
                 const isOpen=histOpen[s.id];
@@ -4380,6 +4398,8 @@ export default function App() {
                   </div>
                 );
               })}
+              );
+            })()}
           </>
         )}
 
