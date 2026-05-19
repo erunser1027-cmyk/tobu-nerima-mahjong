@@ -16,8 +16,12 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-05-19
 const CHANGELOG = [
   { date:"2026-05-19", features:[
-    "Mリーグ指標 個人タイトル機能を追加（💥最高得点賞・🛡️4着回避賞の2部門・年間20半荘以上参加者対象）",
-    "個人スコア賞・最多トップ賞は実装中表示（参加数による有利不利を調整中）",
+    "バグ修正：Mリーグの最高スコアを正しい仕様に修正（70点以上叩いた時の生持ち点ベースに）",
+    "バグ修正：Mリーグタブを開くと白い画面になる問題を修正（scoresのデータ構造誤りを修正）",
+    "Mリーグ部門名をMリーグ準拠に変更（最高得点賞→最高スコア、4着回避賞→4着回避率、個人スコア賞→個人スコア、最多トップ賞→最多トップ）",
+    "UI改善：設定ボタンを月選択行からメインメニュー（メンバー管理の右隣）に移動",
+    "Mリーグ指標 個人タイトル機能を追加（💥最高スコア・🛡️4着回避率の2部門・年間20半荘以上参加者対象）",
+    "個人スコア・最多トップは実装中表示（参加数による有利不利を調整中）",
     "外馬機能：現在の半荘の全員予想一覧をトラック下部に表示（配当チップ多い順・自分の予想をハイライト）",
     "抜け番情報のリアルタイム同期：抜け番選択が全端末に即時反映されるよう改善",
     "重大バグ修正：抜け番選択がSupabaseに保存されず、アプリ再起動で外馬機能が使えなくなる問題を修正(drafts.skenbansカラム追加)",
@@ -2103,6 +2107,19 @@ export default function App() {
               </button>
             );
           })}
+          {/* ⚙️ 設定ボタン（メンバー管理の右隣） */}
+          <button onClick={()=>{
+              setShowSettings(p=>!p);
+              if(hasNewUpdate){
+                localStorage.setItem("tleague_settings_seen", latestChangelogKey);
+                setHasNewUpdate(false);
+              }
+            }} style={{...S.nav(showSettings),position:"relative"}}>
+            ⚙️
+            {hasNewUpdate && !showSettings && (
+              <span style={{position:"absolute",top:-2,right:-2,width:8,height:8,borderRadius:"50%",background:"#e74c3c",boxShadow:"0 0 6px #e74c3c",animation:"pulse 1s infinite"}}/>
+            )}
+          </button>
         </div>
       </div>
 
@@ -2214,18 +2231,6 @@ export default function App() {
                 🏆 Mリーグ
               </button>
             )}
-            <button onClick={()=>{
-                setShowSettings(p=>!p);
-                if(hasNewUpdate){
-                  localStorage.setItem("tleague_settings_seen", latestChangelogKey);
-                  setHasNewUpdate(false);
-                }
-              }} style={{marginLeft:"auto",padding:"4px 10px",borderRadius:13,cursor:"pointer",fontSize:11,background:"transparent",border:showSettings?"1px solid #7fb9e0":"1px solid rgba(255,255,255,0.18)",color:showSettings?"#7fb9e0":"#888",position:"relative"}}>
-              ⚙️ 設定
-              {hasNewUpdate && !showSettings && (
-                <span style={{position:"absolute",top:-4,right:-4,width:8,height:8,borderRadius:"50%",background:"#e74c3c",boxShadow:"0 0 6px #e74c3c",animation:"pulse 1s infinite"}}/>
-              )}
-            </button>
           </div>
         )}
 
@@ -2234,31 +2239,43 @@ export default function App() {
           const currentYear = new Date().getFullYear();
           // その年のセッションだけ
           const yearSessions = sessions.filter(s => s.date.startsWith(String(currentYear)));
-          // メンバーごとの統計
+          // メンバーごとの統計（参加数・着順用）
           const stats = {};
           members.forEach(m => {
-            stats[m.id] = { id: m.id, name: m.name, photo: m.photo, total: 0, max: -Infinity, ranks: [0,0,0,0] };
+            stats[m.id] = { id: m.id, name: m.name, photo: m.photo, total: 0, maxRaw: null, ranks: [0,0,0,0] };
           });
           yearSessions.forEach(s => {
-            (s.rounds || []).forEach(rd => {
-              (rd.scores || []).forEach((sc, i) => {
-                const id = sc.member_id;
+            (s.rounds || []).forEach(r => {
+              if (!r.players || !r.scores) return;
+              // この半荘のスコアを降順ソートして着順を決定
+              const sorted = [...r.players].map(pid => ({
+                pid: Number(pid),
+                sc: N(r.scores[String(pid)] ?? r.scores[pid])
+              })).sort((a, b) => b.sc - a.sc);
+              sorted.forEach((entry, idx) => {
+                const id = entry.pid;
                 if (!stats[id]) return;
-                const point = Number(sc.point || 0);
                 stats[id].total++;
-                if (point > stats[id].max) stats[id].max = point;
-                // ランク（1-4）を集計
-                const rank = sc.rank;
-                if (rank >= 1 && rank <= 4) stats[id].ranks[rank-1]++;
+                if (idx >= 0 && idx <= 3) stats[id].ranks[idx]++;
               });
+              // 最高点（70点以上叩いた時の生スコア）を個人別に集計
+              if (r.highScore && r.highScore.playerId != null && r.highScore.rawScore != null) {
+                const hid = Number(r.highScore.playerId);
+                const raw = Number(r.highScore.rawScore);
+                if (stats[hid]) {
+                  if (stats[hid].maxRaw == null || raw > stats[hid].maxRaw) {
+                    stats[hid].maxRaw = raw;
+                  }
+                }
+              }
             });
           });
           // 20半荘以上参加者だけ抽出
           const qualified = Object.values(stats).filter(s => s.total >= 20);
-          // 最高得点ランキング（上位6人）
+          // 最高スコアランキング（上位6人）- 70点以上を叩いた人のみ
           const maxRanking = [...qualified]
-            .filter(s => s.max !== -Infinity)
-            .sort((a, b) => b.max - a.max)
+            .filter(s => s.maxRaw != null)
+            .sort((a, b) => b.maxRaw - a.maxRaw)
             .slice(0, 6);
           // 4着回避率ランキング（上位6人）
           const avoidLastRanking = [...qualified]
@@ -2269,7 +2286,7 @@ export default function App() {
           const rankColor = (i) => ["#f1c40f","#c0c0c0","#cd7f32","#888","#888","#888"][i] || "#888";
           const rankBg = (i) => ["rgba(241,196,15,0.12)","rgba(192,192,192,0.10)","rgba(205,127,50,0.10)","rgba(255,255,255,0.04)","rgba(255,255,255,0.04)","rgba(255,255,255,0.04)"][i] || "rgba(255,255,255,0.04)";
 
-          const RankList = ({ items, valueLabel, formatter }) => (
+          const RankList = ({ items, formatter }) => (
             <div style={{display:"flex",flexDirection:"column",gap:4}}>
               {items.length === 0 ? (
                 <div style={{textAlign:"center",color:"#666",fontSize:11,padding:"12px 0"}}>
@@ -2313,22 +2330,22 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 💥 最高得点賞 */}
+              {/* 💥 最高スコア */}
               <div style={{marginBottom:14}}>
                 <div style={{fontSize:12,fontWeight:700,color:"#e74c3c",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
-                  💥 最高得点賞
-                  <span style={{fontSize:9,color:"#888",fontWeight:400}}>（1半荘の最高点を競う）</span>
+                  💥 最高スコア
+                  <span style={{fontSize:9,color:"#888",fontWeight:400}}>（70点以上叩いた個人別の最高持ち点）</span>
                 </div>
                 <RankList
                   items={maxRanking}
-                  formatter={(s) => `${s.max >= 0 ? "+" : ""}${s.max.toFixed(1)}`}
+                  formatter={(s) => `${Math.round(s.maxRaw).toLocaleString()}点`}
                 />
               </div>
 
-              {/* 🛡️ 4着回避賞 */}
+              {/* 🛡️ 4着回避率 */}
               <div style={{marginBottom:14}}>
                 <div style={{fontSize:12,fontWeight:700,color:"#3498db",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
-                  🛡️ 4着回避賞
+                  🛡️ 4着回避率
                   <span style={{fontSize:9,color:"#888",fontWeight:400}}>（4着を避ける安定感）</span>
                 </div>
                 <RankList
@@ -2337,10 +2354,10 @@ export default function App() {
                 />
               </div>
 
-              {/* 🏆 個人スコア賞（実装中） */}
+              {/* 🏆 個人スコア（実装中） */}
               <div style={{marginBottom:14}}>
                 <div style={{fontSize:12,fontWeight:700,color:"#666",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
-                  🏆 個人スコア賞
+                  🏆 個人スコア
                   <span style={{fontSize:9,color:"#888",fontWeight:400}}>（年間累積スコアを競う）</span>
                 </div>
                 <div style={{padding:"12px 10px",background:"rgba(255,255,255,0.03)",borderRadius:6,textAlign:"center",fontSize:11,color:"#666",border:"1px dashed rgba(255,255,255,0.1)"}}>
@@ -2348,10 +2365,10 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 👑 最多トップ賞（実装中） */}
+              {/* 👑 最多トップ（実装中） */}
               <div>
                 <div style={{fontSize:12,fontWeight:700,color:"#666",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
-                  👑 最多トップ賞
+                  👑 最多トップ
                   <span style={{fontSize:9,color:"#888",fontWeight:400}}>（1位を取った回数を競う）</span>
                 </div>
                 <div style={{padding:"12px 10px",background:"rgba(255,255,255,0.03)",borderRadius:6,textAlign:"center",fontSize:11,color:"#666",border:"1px dashed rgba(255,255,255,0.1)"}}>
