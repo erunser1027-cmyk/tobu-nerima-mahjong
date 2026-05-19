@@ -26,6 +26,7 @@ const CHANGELOG = [
     "バグ修正：対局開始後にルール設定画面で項目を編集すると開始時刻が上書きされる問題を修正",
     "重大バグ修正：抜け番選択がSupabaseに保存されず、アプリ再起動で外馬機能が使えなくなる問題を修正(drafts.skenbansカラム追加)",
     "抜け番情報のリアルタイム同期：抜け番選択が全端末に即時反映されるよう改善",
+    "外馬機能：現在の半荘の全員予想一覧をトラック下部に表示（配当チップ多い順・自分の予想をハイライト）",
   ]},
   { date:"2026-05-18", features:[
     "外馬機能：5人以上参加時に対応（各半荘開始時に抜け番をタップして複数選択）",
@@ -3787,6 +3788,69 @@ export default function App() {
                             })}
                           </div>
                         </div>
+
+                        {/* ★ 現在の半荘の全員予想一覧（配当チップ多い順） */}
+                        {(()=>{
+                          const currentRoundBets = raceBets.filter(b =>
+                            b.session_date === addDate && b.round_index === currentRoundIndex
+                          );
+                          const sortedCurrentBets = [...currentRoundBets].sort((a, b) => {
+                            const aPayout = Number(a.bet_amount || 1) * Number(a.odds || 1);
+                            const bPayout = Number(b.bet_amount || 1) * Number(b.odds || 1);
+                            return bPayout - aPayout;
+                          });
+                          const betTypeLabel = (k) => ({tansho:"単勝",umaren:"馬連",sanrentan:"三連単",yonrentan:"四連単"})[k] || k;
+                          const joinSep = (k) => k === "umaren" ? "," : "→";
+                          return (
+                            <div style={{...S.card({background:"rgba(52,152,219,0.06)",border:"1px solid rgba(52,152,219,0.25)"}),padding:"10px 12px",marginBottom:10}}>
+                              <div style={{fontSize:11,fontWeight:700,color:"#3498db",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+                                🎯 第{currentRoundIndex+1}レース - 現在の予想
+                                <span style={{fontSize:9,color:"#888",fontWeight:400}}>（配当チップ多い順）</span>
+                              </div>
+                              {sortedCurrentBets.length === 0 ? (
+                                <div style={{fontSize:10,color:"#666",textAlign:"center",padding:"8px 0"}}>
+                                  まだ誰も予想していません
+                                </div>
+                              ) : (
+                                <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                                  {sortedCurrentBets.map((b, i) => {
+                                    const bettor = gm(b.bettor_id);
+                                    const isMine = raceSelf && Number(b.bettor_id) === Number(raceSelf);
+                                    const betAmt = Number(b.bet_amount || 1);
+                                    const odds = Number(b.odds || 1);
+                                    const expectedPayout = Math.round(betAmt * odds);
+                                    const selectionNames = (b.bet_selection || []).map(id => gm(id)?.name || "?").join(joinSep(b.bet_type));
+                                    return (
+                                      <div key={b.id || i} style={{
+                                        display:"flex",alignItems:"center",gap:6,padding:"6px 8px",
+                                        background: isMine ? "rgba(52,152,219,0.18)" : "rgba(0,0,0,0.2)",
+                                        border: isMine ? "1.5px solid rgba(52,152,219,0.7)" : "1px solid rgba(255,255,255,0.05)",
+                                        borderRadius:6,fontSize:10
+                                      }}>
+                                        <Av m={bettor} sz={18}/>
+                                        <div style={{fontSize:10,color:"#fff",fontWeight:600,minWidth:50,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                          {bettor?.name || "?"}
+                                          {isMine && <span style={{fontSize:8,color:"#3498db",marginLeft:4}}>(あなた)</span>}
+                                        </div>
+                                        <div style={{flex:1,minWidth:0,fontSize:9,color:"#ccc",lineHeight:1.4}}>
+                                          <div>予想：<span style={{color:"#fff",fontWeight:600}}>{selectionNames}</span></div>
+                                          <div style={{color:"#888"}}>
+                                            <span style={{color:"#f39c12"}}>{betTypeLabel(b.bet_type)}</span>
+                                            {" / "}チップ：<span style={{color:"#f1c40f"}}>{betAmt}枚</span>
+                                            {" / "}オッズ：<span style={{color:"#f1c40f"}}>{odds}倍</span>
+                                          </div>
+                                        </div>
+                                        <div style={{fontSize:11,color:"#2ecc71",fontWeight:700,whiteSpace:"nowrap"}}>
+                                          🪙{expectedPayout}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         {/* あなたは？ */}
                         {!raceSelf && bettingOpen && (
