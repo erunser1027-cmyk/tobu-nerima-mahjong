@@ -13,8 +13,11 @@ const SCORE_RATES = [
 const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ", "池袋カクレマ", "池袋PSJ北口"];
 
 // 更新履歴 - 新しい機能は必ず今日の日付で追加してください
-// 今日: 2026-05-18
+// 今日: 2026-05-19
 const CHANGELOG = [
+  { date:"2026-05-19", features:[
+    "バグ修正：対局開始後にルール設定画面で項目を編集すると開始時刻が上書きされる問題を修正",
+  ]},
   { date:"2026-05-18", features:[
     "外馬機能：5人以上参加時に対応（各半荘開始時に抜け番をタップして複数選択）",
     "抜け番複数選択UI追加（4人が確定するまで選択可能、6人以上時は2人以上の抜け番選択に対応）",
@@ -4390,7 +4393,7 @@ export default function App() {
                 </div>
                 <div style={{marginBottom:8}}>
                   <div style={{fontSize:11,color:"#888",marginBottom:3}}>レート</div>
-                  <select value={addRules.scoreRate} onChange={e=>setAddRules(r=>({...r,scoreRate:Number(e.target.value)}))} style={S.sel()}>
+                  <select value={addRules.scoreRate} onChange={e=>setAddRules(r=>({...r,scoreRate:Number(e.target.value),startTime:r.startTime}))} style={S.sel()}>
                     {SCORE_RATES.map(r=><option key={r.val} value={r.val}>{r.label}</option>)}
                   </select>
                 </div>
@@ -4401,7 +4404,7 @@ export default function App() {
                       <div key={i}>
                         <div style={{fontSize:10,color:"#666",marginBottom:2}}>{i+1}位</div>
                         <input type="text" inputMode="decimal" value={addRules.uma[i]}
-                          onChange={e=>{const u=[...addRules.uma];u[i]=e.target.value;setAddRules(r=>({...r,uma:u}));}}
+                          onChange={e=>{const u=[...addRules.uma];u[i]=e.target.value;setAddRules(r=>({...r,uma:u,startTime:r.startTime}));}}
                           style={S.inp({textAlign:"center"})}/>
                       </div>
                     ))}
@@ -4410,16 +4413,16 @@ export default function App() {
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
                   <div>
                     <div style={{fontSize:11,color:"#888",marginBottom:3}}>返し点</div>
-                    <input type="text" inputMode="decimal" value={addRules.kaeshi} onChange={e=>setAddRules(r=>({...r,kaeshi:N(e.target.value)}))} style={S.inp()}/>
+                    <input type="text" inputMode="decimal" value={addRules.kaeshi} onChange={e=>setAddRules(r=>({...r,kaeshi:N(e.target.value),startTime:r.startTime}))} style={S.inp()}/>
                   </div>
                   <div>
                     <div style={{fontSize:11,color:"#888",marginBottom:3}}>配給原点</div>
-                    <input type="text" inputMode="decimal" value={addRules.starting} onChange={e=>setAddRules(r=>({...r,starting:N(e.target.value)}))} style={S.inp()}/>
+                    <input type="text" inputMode="decimal" value={addRules.starting} onChange={e=>setAddRules(r=>({...r,starting:N(e.target.value),startTime:r.startTime}))} style={S.inp()}/>
                   </div>
                 </div>
                 <div style={{marginBottom:10}}>
                   <div style={{fontSize:11,color:"#888",marginBottom:3}}>チップレート（円/枚）</div>
-                  <input type="text" inputMode="decimal" value={addRules.chipRate} onChange={e=>setAddRules(r=>({...r,chipRate:N(e.target.value)}))} style={S.inp()}/>
+                  <input type="text" inputMode="decimal" value={addRules.chipRate} onChange={e=>setAddRules(r=>({...r,chipRate:N(e.target.value),startTime:r.startTime}))} style={S.inp()}/>
                 </div>
                 <div style={{marginBottom:10}}>
                   <div style={{fontSize:11,color:"#888",marginBottom:3}}>終了予定時間（任意）</div>
@@ -4438,7 +4441,7 @@ export default function App() {
                 </div>
                 <div style={{marginBottom:10}}>
                   <div style={{fontSize:11,color:"#888",marginBottom:3}}>闘牌場所（任意）</div>
-                  <select value={addRules.venue||""} onChange={e=>setAddRules(r=>({...r,venue:e.target.value}))} style={S.sel()}>
+                  <select value={addRules.venue||""} onChange={e=>setAddRules(r=>({...r,venue:e.target.value,startTime:r.startTime}))} style={S.sel()}>
                     <option value="">未選択</option>
                     {VENUES.map(v=><option key={v} value={v}>{v}</option>)}
                   </select>
