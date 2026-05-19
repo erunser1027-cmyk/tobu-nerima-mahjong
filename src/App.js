@@ -16,6 +16,9 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-05-19
 const CHANGELOG = [
   { date:"2026-05-19", features:[
+    "ハイ&ローをメインメニューに移動（ダッシュボードのサブタブから削除）",
+    "期間フィルターの初期値を「今月」に変更（従来は全期間）",
+    "外馬レースの表記統一（旧：競馬レース）・ルール説明追加",
     "バグ修正：対局開始後にルール設定画面で項目を編集すると開始時刻が上書きされる問題を修正",
   ]},
   { date:"2026-05-18", features:[
@@ -724,7 +727,7 @@ export default function App() {
   });
   const [ci, setCi] = useState(""); const [ce, setCe] = useState(false);
   const [tab, setTab] = useState("dashboard");
-  const [period, setPeriod] = useState("all");
+  const [period, setPeriod] = useState("month");
   const [selectedMonth, setSelectedMonth] = useState(""); // "YYYY-MM" or ""
   const [confettiShown, setConfettiShown] = useState(false);
   const [members, setMembers] = useState([]);
@@ -2061,14 +2064,17 @@ export default function App() {
           </div>
         )}
         <div style={{marginLeft:"auto",display:"flex",gap:3,flexWrap:"wrap",justifyContent:"flex-end"}}>
-          {[["dashboard","📊"],["calendar","🗓"],["history","📅"],["skull","💀"],["sotoba","🏇"],["add","➕"],["members","👥"]].map(([t,l])=>{
+          {[["dashboard","📊"],["calendar","🗓"],["history","📅"],["skull","💀"],["sotoba","🏇"],["hilo","🃏"],["add","➕"],["members","👥"]].map(([t,l])=>{
             const isActive = t==="sotoba"
               ? (tab==="dashboard" && dashSub==="sotoba")
-              : (tab===t && !(t==="dashboard" && dashSub==="sotoba"));
+              : t==="hilo"
+              ? (tab==="dashboard" && dashSub==="hilo")
+              : (tab===t && !(t==="dashboard" && (dashSub==="sotoba" || dashSub==="hilo")));
             return (
               <button key={t} onClick={()=>{
                 if(t==="sotoba"){ setTab("dashboard"); setDashSub("sotoba"); }
-                else { setTab(t); if(t==="dashboard" && dashSub==="sotoba") setDashSub("summary"); }
+                else if(t==="hilo"){ setTab("dashboard"); setDashSub("hilo"); }
+                else { setTab(t); if(t==="dashboard" && (dashSub==="sotoba" || dashSub==="hilo")) setDashSub("summary"); }
               }} style={S.nav(isActive)}>
                 {t==="sotoba" && addStep===2 && <span style={{position:"absolute",marginLeft:14,marginTop:-8,width:7,height:7,borderRadius:"50%",background:"#e74c3c",animation:"pulse 1s infinite",display:"inline-block"}}/>}
                 {l}
@@ -2574,7 +2580,7 @@ export default function App() {
           return (
             <>
               <div style={{display:"flex",gap:4,marginBottom:10,flexWrap:"wrap"}}>
-                {[["summary","📊 概要"],["lifetime","🏆 生涯成績"],["h2h","⚔️ 対人成績"],["yakuman","🀄 役満"],["highscore","👑 最高点"],["chip","💰 チップ王"],["hilo","🃏 ハイ&ロー"]].map(([v,l])=>(
+                {[["summary","📊 概要"],["lifetime","🏆 生涯成績"],["h2h","⚔️ 対人成績"],["yakuman","🀄 役満"],["highscore","👑 最高点"],["chip","💰 チップ王"]].map(([v,l])=>(
                   <button key={v} onClick={()=>setDashSub(v)} style={{padding:"5px 12px",borderRadius:16,border:"none",cursor:"pointer",fontSize:12,fontWeight:500,
                     background:dashSub===v?"#e74c3c":"rgba(255,255,255,0.1)",
                     color:"#fff",position:"relative"}}>
