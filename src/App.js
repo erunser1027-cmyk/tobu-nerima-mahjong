@@ -16,6 +16,7 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-05-19
 const CHANGELOG = [
   { date:"2026-05-19", features:[
+    "UI改善：成績概要のアイコンをタップするとメンバー詳細モーダルを表示（拡大アイコン・成績一覧・生涯成績ページへのリンク）",
     "バグ修正：Mリーグの最高スコアを正しい仕様に修正（70点以上叩いた時の生持ち点ベースに）",
     "バグ修正：Mリーグタブを開くと白い画面になる問題を修正（scoresのデータ構造誤りを修正）",
     "Mリーグ部門名をMリーグ準拠に変更（最高得点賞→最高スコア、4着回避賞→4着回避率、個人スコア賞→個人スコア、最多トップ賞→最多トップ）",
@@ -361,18 +362,19 @@ function calcYonrentanOdds(id1, id2, id3, id4, tanshoOdds) {
   return Math.max(10.0, Math.min(35.0, Math.round(raw * 10) / 10));
 }
 
-function Av({ m, sz }) {
+function Av({ m, sz, onClick }) {
   if (!m) return <div style={{ width:sz, height:sz, borderRadius:"50%", background:"#333", margin:"0 auto" }} />;
+  const style = { width:sz, height:sz, borderRadius:"50%", margin:"0 auto", cursor: onClick ? "pointer" : "default" };
   if (m.photo) return (
-    <div style={{ width:sz, height:sz, borderRadius:"50%", overflow:"hidden", margin:"0 auto" }}>
+    <div style={{ ...style, overflow:"hidden" }} onClick={onClick}>
       <img src={m.photo} alt={m.name} style={{ width:"100%", height:"100%", objectFit:"cover" }} />
     </div>
   );
   const c = mc(m);
   return (
-    <div style={{ width:sz, height:sz, borderRadius:"50%", background:c, color:"#fff",
+    <div style={{ ...style, background:c, color:"#fff",
       display:"flex", alignItems:"center", justifyContent:"center",
-      fontWeight:600, fontSize:Math.round(sz*.4), margin:"0 auto" }}>
+      fontWeight:600, fontSize:Math.round(sz*.4) }} onClick={onClick}>
       {m.name.slice(0,1)}
     </div>
   );
@@ -791,6 +793,7 @@ export default function App() {
   const [trashSessions, setTrashSessions] = useState([]);
   const [trashMembers, setTrashMembers] = useState([]);
   const [auditModal, setAuditModal] = useState(null); // {action:"delete"|"edit", label, onConfirm}
+  const [memberDetailModal, setMemberDetailModal] = useState(null); // {m: member, stats: {...}}
   const [auditWho, setAuditWho] = useState(null);
   const [auditLog, setAuditLog] = useState([]);
   const [memberEditId, setMemberEditId] = useState(null);
@@ -2379,6 +2382,92 @@ export default function App() {
           );
         })()}
 
+        {/* 👤 メンバー詳細モーダル */}
+        {memberDetailModal && (() => {
+          const { m, p } = memberDetailModal;
+          if (!m) return null;
+          return (
+            <div
+              onClick={()=>setMemberDetailModal(null)}
+              style={{
+                position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",
+                display:"flex",alignItems:"center",justifyContent:"center",
+                zIndex:9999,padding:20
+              }}
+            >
+              <div
+                onClick={e=>e.stopPropagation()}
+                style={{
+                  background:"linear-gradient(135deg,#1a1a2e,#16213e)",
+                  border:"1px solid rgba(255,255,255,0.15)",
+                  borderRadius:16,padding:24,width:"100%",maxWidth:340,
+                  position:"relative"
+                }}
+              >
+                {/* 閉じるボタン */}
+                <button
+                  onClick={()=>setMemberDetailModal(null)}
+                  style={{position:"absolute",top:12,right:12,...S.bs()}}
+                >✕</button>
+
+                {/* アイコン（拡大表示） */}
+                <div style={{textAlign:"center",marginBottom:12}}>
+                  {m.photo ? (
+                    <img src={m.photo} alt={m.name} style={{
+                      width:100,height:100,borderRadius:"50%",objectFit:"cover",
+                      border:"3px solid rgba(255,255,255,0.2)",
+                      boxShadow:"0 4px 20px rgba(0,0,0,0.5)"
+                    }}/>
+                  ) : (
+                    <div style={{
+                      width:100,height:100,borderRadius:"50%",background:mc(m),
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      fontSize:40,fontWeight:700,color:"#fff",margin:"0 auto",
+                      border:"3px solid rgba(255,255,255,0.2)",
+                      boxShadow:"0 4px 20px rgba(0,0,0,0.5)"
+                    }}>{m.name.slice(0,1)}</div>
+                  )}
+                  <div style={{fontSize:18,fontWeight:700,color:"#fff",marginTop:10}}>{m.name}</div>
+                </div>
+
+                {/* 成績データ */}
+                {p && (
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8}}>
+                    {[
+                      ["🎯 スコア", fw(p.sc), cc(p.sc)],
+                      ["💰 勝ち分", fwy(p.kati), cc(p.kati)],
+                      ["🧾 清算", fwy(p.seisan), cc(p.seisan)],
+                      ["🎮 半荘数", `${p.games}回`, "#ccc"],
+                      ["🏆 トップ率", `${p.wr}%`, p.wr>=30?"#f1c40f":p.wr>=25?"#f39c12":"#ccc"],
+                      ["📊 平均順位", p.avgRank ? p.avgRank.toFixed(2)+"位" : "-", "#ccc"],
+                    ].map(([label, val, col])=>(
+                      <div key={label} style={{
+                        background:"rgba(255,255,255,0.05)",borderRadius:8,
+                        padding:"8px 10px",textAlign:"center"
+                      }}>
+                        <div style={{fontSize:9,color:"#666",marginBottom:3}}>{label}</div>
+                        <div style={{fontSize:14,fontWeight:700,color:col}}>{val}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* 詳細ページへのボタン */}
+                <button
+                  onClick={()=>{ setMemberDetailModal(null); setDashSub("lifetime"); }}
+                  style={{
+                    width:"100%",marginTop:14,padding:"10px 0",
+                    background:"rgba(231,76,60,0.2)",border:"1px solid rgba(231,76,60,0.4)",
+                    borderRadius:8,color:"#e74c3c",fontSize:12,fontWeight:600,cursor:"pointer"
+                  }}
+                >
+                  📊 生涯成績を見る →
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* 設定モーダル */}
         {showSettings && (
           <div style={{...S.card({background:"rgba(52,152,219,0.06)",border:"1px solid rgba(52,152,219,0.25)",marginBottom:10})}}>
@@ -2793,7 +2882,7 @@ export default function App() {
                             textAlign:"center", padding:10,
                             animation: isMvp ? "cardReveal 0.5s ease both" : "none",
                           })}>
-                            {isMvp ? <MvpAv m={gm(p.id)} sz={36}/> : <Av m={gm(p.id)} sz={36}/>}
+                            {isMvp ? <MvpAv m={gm(p.id)} sz={36}/> : <Av m={gm(p.id)} sz={36} onClick={()=>setMemberDetailModal({m: gm(p.id), p})}/>}
                             <div style={{fontSize:12,fontWeight:500,marginTop:isMvp?8:4}}>
                               {p.name}
                               {ms && <span style={{display:"block",fontSize:9,background:ms.badge,color:ms.badgeColor,fontWeight:"bold",padding:"1px 5px",borderRadius:6,animation:"badgeIn 0.4s ease both",marginTop:2}}>{ms.label}</span>}
