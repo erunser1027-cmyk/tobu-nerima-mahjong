@@ -44,13 +44,13 @@ const CHANGELOG = [
     "バグ修正：LIVE中に外馬モードが表示されない問題を修正",
     "馬券購入受付時間を変更（外馬は結果確定まで、対局メンバーは10分以内）",
     "LIVEバッジのバグ修正（保存後も消えない問題を解消）",
-    "競馬レースが対局中に表示されないバグ修正（LIVE判定を緩和）",
-    "競馬レース機能：フィニッシュ掲示板・写真判定演出・馬券的中ランキング実装",
-    "競馬レース機能：レースを「BGM的に流れる演出」に調整（1周120秒、ゴール意識を排除）",
-    "競馬レース機能：楕円トラックの周回アニメ実装（強さベース＋出遅れ・大逃げ・追い上げ）",
-    "競馬レース機能：馬券購入UI実装（単勝・馬連・三連単・四連単、5分間の購入受付）",
-    "競馬レース機能：オッズ計算ロジック実装（強さスコア・単勝・馬連・三連単・四連単）",
-    "競馬レース機能の準備（既存の1位・最下位予想を撤去、race_betsテーブル接続）",
+    "外馬レースが対局中に表示されないバグ修正（LIVE判定を緩和）",
+    "外馬レース機能：フィニッシュ掲示板・写真判定演出・馬券的中ランキング実装",
+    "外馬レース機能：レースを「BGM的に流れる演出」に調整（1周120秒、ゴール意識を排除）",
+    "外馬レース機能：楕円トラックの周回アニメ実装（強さベース＋出遅れ・大逃げ・追い上げ）",
+    "外馬レース機能：馬券購入UI実装（単勝・馬連・三連単・四連単、5分間の購入受付）",
+    "外馬レース機能：オッズ計算ロジック実装（強さスコア・単勝・馬連・三連単・四連単）",
+    "外馬レース機能の準備（既存の1位・最下位予想を撤去、race_betsテーブル接続）",
     "ゴミ箱機能追加（削除した対局・メンバーを30日間保管、復活・完全削除が可能）",
     "闘牌場所のデフォルトをサクセスに変更",
     "終了予定時間に✕クリアボタンを追加（iOSのブラウザ標準ボタンが動作しない問題を解消）",
@@ -223,7 +223,7 @@ function calcTotals(sess) {
 }
 
 // ========================================================
-// 競馬レース機能：強さスコア・オッズ計算
+// 外馬レース機能：強さスコア・オッズ計算
 // ========================================================
 
 // 各プレイヤーの強さスコアを算出（指定された4人の対局相手リストに対する相対値）
@@ -364,7 +364,7 @@ function Av({ m, sz }) {
 
 // Confetti紙吹雪コンポーネント
 // ========================================================
-// 競馬レース：楕円トラックアニメーション
+// 外馬レース：楕円トラックアニメーション
 // ========================================================
 function RaceTrack({ playingMembers, strengthMap, mySelection, betType }) {
   // 各馬の位置（0〜1の周回進度、1で1周）
@@ -1483,7 +1483,7 @@ export default function App() {
       <div style={{ background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.12)", borderRadius:14, padding:"28px 22px", width:260, textAlign:"center" }}>
         <div style={{ fontSize:38, marginBottom:6 }}>🀄</div>
         <div style={{ color:"#fff", fontSize:15, fontWeight:600, marginBottom:2 }}>東武練馬Tリーグ</div>
-        <div style={{ color:"#e74c3c", fontSize:12, marginBottom:14, fontWeight:500 }}>麻雀スコア表</div>
+        <div style={{ color:"#e74c3c", fontSize:15, marginBottom:14, fontWeight:500 }}>麻雀スコア表</div>
         <input value={ci} onChange={e=>{setCi(e.target.value);setCe(false);}}
           onKeyDown={e=>{if(e.key==="Enter"){if(ci===INVITE){localStorage.setItem("tleague_auth",JSON.stringify({expire:Date.now()+30*24*60*60*1000}));setAuthed(true);}else setCe(true);}}}
           placeholder="招待コードを入力"
@@ -3386,7 +3386,7 @@ export default function App() {
                 );
               })()}
 
-              {/* 外馬モード サブタブ - 競馬レース機能 */}
+              {/* 外馬モード サブタブ - 外馬レース機能 */}
               {dashSub==="sotoba" && (()=>{
                 // 対局中（メンバー選択後〜確認画面まで）はLIVE扱い
                 const isLive = (addStep === 2 || addStep === 3) && addSel.length > 0;
@@ -3583,13 +3583,14 @@ export default function App() {
                 return (
                   <>
                     <div style={{fontSize:13,fontWeight:600,color:"#e74c3c",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
-                      🏇 競馬レース
+                      🏇 外馬レース
                       {isLive && <span style={{fontSize:10,background:"rgba(231,76,60,0.2)",color:"#e74c3c",padding:"2px 7px",borderRadius:6,border:"1px solid rgba(231,76,60,0.4)"}}>LIVE</span>}
                     </div>
 
                     {/* 外馬ルール表記 */}
                     <div style={{fontSize:10,color:"#888",marginBottom:10,background:"rgba(52,152,219,0.08)",borderRadius:6,padding:8,lineHeight:"1.6"}}>
-                      <div style={{fontWeight:600,marginBottom:4,color:"#3498db"}}>🏇 競馬レースのルール</div>
+                      <div style={{fontWeight:600,marginBottom:4,color:"#3498db"}}>🏇 外馬レースのルール</div>
+                      <div style={{marginBottom:6,fontSize:11,color:"#aaa",lineHeight:"1.5"}}>対局している4人の成績を予想して馬券を購入。単勝・馬連・3連単・4連単で、持ちチップ（生涯参加半荘数で貯蓄）を賭けてランキングで遊ぶ</div>
                       <div>
                         ✓ 対局メンバー（その日参加 + 対局）= <span style={{color:"#f39c12",fontWeight:600}}>10分制限</span><br/>
                         ✓ 抜け番メンバー（その日参加 + 非対局）= <span style={{color:"#f39c12",fontWeight:600}}>10分制限</span><br/>
@@ -3612,7 +3613,7 @@ export default function App() {
                     {/* LIVE中：4人参加していない場合 */}
                     {isLive && playingMembers.length !== 4 && (
                       <div style={{textAlign:"center",padding:24,color:"#555",fontSize:12}}>
-                        4人対局のみ競馬レースが楽しめます（現在{playingMembers.length}人）
+                        4人対局のみ外馬レースが楽しめます（現在{playingMembers.length}人）
                       </div>
                     )}
 
