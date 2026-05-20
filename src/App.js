@@ -13,8 +13,15 @@ const SCORE_RATES = [
 const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ", "池袋カクレマ", "池袋PSJ北口"];
 
 // 更新履歴 - 新しい機能は必ず今日の日付で追加してください
-// 今日: 2026-05-19
+// 今日: 2026-05-20
 const CHANGELOG = [
+  { date:"2026-05-20", features:[
+    "Mリーグ個人タイトル：個人スコア・最多トップを「前期・後期制」の規定打席システムで実装（規定打席=その期の全参加者半荘数合計÷参加人数、両方達成なら平均スコアが高い方の期を採用）",
+    "Mリーグ個人タイトル：緩和打席（規定の85%）達成時のスコアペナルティ実装（段階係数：期前半1.0倍・中期0.6倍・後期0.25倍、後半に達成するほど有利）",
+    "Mリーグ個人タイトル：説明を折り畳みメニュー化（規定打席制度・ノミネート条件・緩和打席・段階係数の表示）",
+    "UI改善：Mリーグタブの王冠絵文字（🏆）を削除（生涯成績タブの王冠と被るため）",
+    "UI改善：Mリーグタブの枠線・タイトル・ボタンの色を黄色から青に変更",
+  ]},
   { date:"2026-05-19", features:[
     "UI改善：成績概要のアイコンをタップするとメンバー詳細モーダルを表示（拡大アイコン・成績一覧・生涯成績ページへのリンク）",
     "バグ修正：Mリーグの最高スコアを正しい仕様に修正（70点以上叩いた時の生持ち点ベースに）",
@@ -2223,65 +2230,176 @@ export default function App() {
                 </option>
               ))}
             </select>
-            {/* 🏆 Mリーグタイトル画面 */}
+            {/* Mリーグタイトル画面 */}
             {tab==="dashboard" && (
               <button onClick={()=>setShowMLeague(true)} style={{
                 padding:"4px 10px",borderRadius:13,cursor:"pointer",fontSize:11,
-                background:"linear-gradient(135deg,rgba(231,76,60,0.15),rgba(241,196,15,0.15))",
-                border:"1px solid rgba(241,196,15,0.5)",
-                color:"#f1c40f",fontWeight:600,
+                background:"rgba(52,152,219,0.15)",
+                border:"1px solid rgba(52,152,219,0.5)",
+                color:"#3498db",fontWeight:600,
               }}>
-                🏆 Mリーグ
+                Mリーグ
               </button>
             )}
           </div>
         )}
 
-        {/* 🏆 Mリーグ指標 個人タイトル */}
+        {/* Mリーグ指標 個人タイトル */}
         {showMLeague && (() => {
           const currentYear = new Date().getFullYear();
-          // その年のセッションだけ
           const yearSessions = sessions.filter(s => s.date.startsWith(String(currentYear)));
-          // メンバーごとの統計（参加数・着順用）
-          const stats = {};
+
+          // 月の取得ヘルパー
+          const getMonth = (date) => parseInt(date.slice(5,7), 10);
+          const isFirstHalf = (date) => { const m = getMonth(date); return m >= 1 && m <= 6; };
+          const isSecondHalf = (date) => { const m = getMonth(date); return m >= 7 && m <= 12; };
+
+          // 段階係数(緩和達成時に使用)
+          const getStageCoef = (month) => {
+            if (month === 1 || month === 2 || month === 7 || month === 8) return 1.0;
+            if (month === 3 || month === 4 || month === 9 || month === 10) return 0.6;
+            return 0.25; // 5,6,11,12
+          };
+          const stageLabel = (coef) => coef === 1.0 ? "期前半" : coef === 0.6 ? "中期" : "後期";
+
+          // 現在の月・係数
+          const today = new Date();
+          const todayMonth = today.getMonth() + 1;
+          const isNowFirstHalf = todayMonth >= 1 && todayMonth <= 6;
+          const todayCoef = getStageCoef(todayMonth);
+
+          // 期ごとのセッション
+          const firstHalfSessions = yearSessions.filter(s => isFirstHalf(s.date));
+          const secondHalfSessions = yearSessions.filter(s => isSecondHalf(s.date));
+
+          // 期ごとの統計を計算する関数
+          const calcPeriodStats = (periodSessions, isCurrentPeriod) => {
+            const pstats = {};
+            members.forEach(m => {
+              pstats[m.id] = {
+                id: m.id, name: m.name, photo: m.photo,
+                total: 0, totalScore: 0, ranks: [0,0,0,0]
+              };
+            });
+            periodSessions.forEach(s => {
+              (s.rounds || []).forEach(r => {
+                if (!r.players || !r.scores) return;
+                const sorted = [...r.players].map(pid => ({
+                  pid: Number(pid),
+                  sc: N(r.scores[String(pid)] ?? r.scores[pid])
+                })).sort((a, b) => b.sc - a.sc);
+                sorted.forEach((entry, idx) => {
+                  const id = entry.pid;
+                  if (!pstats[id]) return;
+                  pstats[id].total++;
+                  pstats[id].totalScore += entry.sc;
+                  if (idx >= 0 && idx <= 3) pstats[id].ranks[idx]++;
+                });
+              });
+            });
+            // 規定打席の計算
+            const participantsCount = Object.values(pstats).filter(s => s.total > 0).length;
+            const totalPlayHalves = Object.values(pstats).reduce((acc, s) => acc + s.total, 0);
+            const standardRounds = participantsCount > 0 ? Math.floor(totalPlayHalves / participantsCount) : 0;
+            const easeRounds = Math.floor(standardRounds * 0.85);
+            // 期外なら段階係数は0.25(最終段階)、期中なら今日の係数
+            const coef = isCurrentPeriod ? todayCoef : 0.25;
+            return { stats: pstats, standardRounds, easeRounds, participantsCount, coef };
+          };
+
+          const firstHalf = calcPeriodStats(firstHalfSessions, isNowFirstHalf);
+          const secondHalf = calcPeriodStats(secondHalfSessions, !isNowFirstHalf);
+
+          // 規定/緩和判定とペナルティ計算
+          const calcQual = (s, std, ease, coef, label) => {
+            if (!s || s.total === 0 || std === 0) return null;
+            const avg = s.totalScore / s.total;
+            const topRate = s.ranks[0] / s.total;
+            if (s.total >= std) {
+              return {
+                ...s, period: label, qualified: true, isEase: false,
+                avgScore: avg, topRate,
+                adoptedTotalScore: s.totalScore,
+                adoptedTopCount: s.ranks[0],
+                penaltyScore: 0, penaltyTop: 0,
+                standardRounds: std, easeRounds: ease, coef,
+              };
+            } else if (s.total >= ease) {
+              const shortage = std - s.total;
+              // ペナルティ = (規定 - 実績) × 平均スコア × 段階係数
+              const penaltyScore = shortage * avg * coef;
+              const penaltyTop = shortage * topRate * coef;
+              return {
+                ...s, period: label, qualified: true, isEase: true,
+                avgScore: avg, topRate,
+                adoptedTotalScore: s.totalScore - penaltyScore,
+                adoptedTopCount: s.ranks[0] - penaltyTop,
+                penaltyScore, penaltyTop,
+                standardRounds: std, easeRounds: ease, coef,
+              };
+            }
+            return null;
+          };
+
+          // メンバーごとに前期・後期を判定し、採用期を決定
+          const buildMemberMLeague = (memberId) => {
+            const fhQual = calcQual(firstHalf.stats[memberId], firstHalf.standardRounds, firstHalf.easeRounds, firstHalf.coef, "前期");
+            const shQual = calcQual(secondHalf.stats[memberId], secondHalf.standardRounds, secondHalf.easeRounds, secondHalf.coef, "後期");
+            if (!fhQual && !shQual) return null;
+            // 両方達成 → 平均スコアが高い方
+            if (fhQual && shQual) {
+              return fhQual.avgScore >= shQual.avgScore ? fhQual : shQual;
+            }
+            return fhQual || shQual;
+          };
+
+          const mleagueData = members.map(m => buildMemberMLeague(m.id)).filter(Boolean);
+
+          // 個人スコア(累積)ランキング
+          const personalScoreRanking = [...mleagueData]
+            .sort((a, b) => b.adoptedTotalScore - a.adoptedTotalScore)
+            .slice(0, 6);
+
+          // 最多トップ(回数)ランキング
+          const mostTopRanking = [...mleagueData]
+            .sort((a, b) => b.adoptedTopCount - a.adoptedTopCount)
+            .slice(0, 6);
+
+          // ━━━ 最高スコアと4着回避率は年間ベース(現状維持) ━━━
+          const yearStats = {};
           members.forEach(m => {
-            stats[m.id] = { id: m.id, name: m.name, photo: m.photo, total: 0, maxRaw: null, ranks: [0,0,0,0] };
+            yearStats[m.id] = { id: m.id, name: m.name, photo: m.photo, total: 0, maxRaw: null, ranks: [0,0,0,0] };
           });
           yearSessions.forEach(s => {
             (s.rounds || []).forEach(r => {
               if (!r.players || !r.scores) return;
-              // この半荘のスコアを降順ソートして着順を決定
               const sorted = [...r.players].map(pid => ({
                 pid: Number(pid),
                 sc: N(r.scores[String(pid)] ?? r.scores[pid])
               })).sort((a, b) => b.sc - a.sc);
               sorted.forEach((entry, idx) => {
                 const id = entry.pid;
-                if (!stats[id]) return;
-                stats[id].total++;
-                if (idx >= 0 && idx <= 3) stats[id].ranks[idx]++;
+                if (!yearStats[id]) return;
+                yearStats[id].total++;
+                if (idx >= 0 && idx <= 3) yearStats[id].ranks[idx]++;
               });
-              // 最高点（70点以上叩いた時の生スコア）を個人別に集計
               if (r.highScore && r.highScore.playerId != null && r.highScore.rawScore != null) {
                 const hid = Number(r.highScore.playerId);
                 const raw = Number(r.highScore.rawScore);
-                if (stats[hid]) {
-                  if (stats[hid].maxRaw == null || raw > stats[hid].maxRaw) {
-                    stats[hid].maxRaw = raw;
+                if (yearStats[hid]) {
+                  if (yearStats[hid].maxRaw == null || raw > yearStats[hid].maxRaw) {
+                    yearStats[hid].maxRaw = raw;
                   }
                 }
               }
             });
           });
-          // 20半荘以上参加者だけ抽出
-          const qualified = Object.values(stats).filter(s => s.total >= 20);
-          // 最高スコアランキング（上位6人）- 70点以上を叩いた人のみ
-          const maxRanking = [...qualified]
+          const yearQualified = Object.values(yearStats).filter(s => s.total >= 20);
+          const maxRanking = [...yearQualified]
             .filter(s => s.maxRaw != null)
             .sort((a, b) => b.maxRaw - a.maxRaw)
             .slice(0, 6);
-          // 4着回避率ランキング（上位6人）
-          const avoidLastRanking = [...qualified]
+          const avoidLastRanking = [...yearQualified]
             .map(s => ({ ...s, avoidRate: 1 - (s.ranks[3] / s.total) }))
             .sort((a, b) => b.avoidRate - a.avoidRate)
             .slice(0, 6);
@@ -2289,17 +2407,24 @@ export default function App() {
           const rankColor = (i) => ["#f1c40f","#c0c0c0","#cd7f32","#888","#888","#888"][i] || "#888";
           const rankBg = (i) => ["rgba(241,196,15,0.12)","rgba(192,192,192,0.10)","rgba(205,127,50,0.10)","rgba(255,255,255,0.04)","rgba(255,255,255,0.04)","rgba(255,255,255,0.04)"][i] || "rgba(255,255,255,0.04)";
 
-          const RankList = ({ items, formatter }) => (
+          const RankList = ({ items, formatter, noItemsLabel, showPeriod }) => (
             <div style={{display:"flex",flexDirection:"column",gap:4}}>
               {items.length === 0 ? (
                 <div style={{textAlign:"center",color:"#666",fontSize:11,padding:"12px 0"}}>
-                  対象者なし（20半荘以上参加者がいません）
+                  {noItemsLabel || "対象者なし"}
                 </div>
               ) : items.map((s, i) => (
                 <div key={s.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:rankBg(i),borderRadius:6,border:`1px solid ${i<3?rankColor(i):"rgba(255,255,255,0.04)"}33`}}>
                   <div style={{fontSize:13,fontWeight:700,color:rankColor(i),minWidth:24,textAlign:"center"}}>{i+1}位</div>
                   <Av m={s} sz={24}/>
-                  <div style={{flex:1,minWidth:0,fontSize:12,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
+                  <div style={{flex:1,minWidth:0,fontSize:12,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {s.name}
+                    {showPeriod && s.period && (
+                      <span style={{fontSize:9,color:s.isEase?"#e67e22":"#3498db",marginLeft:4,fontWeight:600}}>
+                        [{s.period}{s.isEase?"★":""}]
+                      </span>
+                    )}
+                  </div>
                   <div style={{fontSize:13,fontWeight:700,color:rankColor(i),whiteSpace:"nowrap"}}>{formatter(s)}</div>
                 </div>
               ))}
@@ -2307,76 +2432,172 @@ export default function App() {
           );
 
           return (
-            <div style={{...S.card({background:"linear-gradient(135deg,rgba(231,76,60,0.06),rgba(241,196,15,0.06))",border:"1px solid rgba(241,196,15,0.3)",marginBottom:10})}}>
+            <div style={{...S.card({background:"rgba(52,152,219,0.04)",border:"1px solid rgba(52,152,219,0.3)",marginBottom:10})}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <div style={{fontSize:14,fontWeight:700,color:"#f1c40f"}}>🏆 Mリーグ指標 個人タイトル</div>
+                <div style={{fontSize:14,fontWeight:700,color:"#3498db"}}>Mリーグ指標 個人タイトル</div>
                 <button onClick={()=>setShowMLeague(false)} style={S.bs()}>✕</button>
               </div>
 
-              {/* 説明文 */}
-              <div style={{
-                padding:"10px 12px",marginBottom:14,
+              {/* 折り畳みメニュー(説明) */}
+              <details style={{
+                marginBottom:10,
                 background:"rgba(0,0,0,0.2)",borderRadius:8,
                 border:"1px solid rgba(255,255,255,0.05)",
-                fontSize:11,color:"#ccc",lineHeight:1.6
+                padding:"8px 12px",
               }}>
-                <div style={{color:"#f1c40f",fontWeight:600,marginBottom:6}}>📖 Mリーグ指標とは</div>
-                プロ麻雀リーグ「Mリーグ」の年間個人タイトルを参考にしたランキングです。
-                <br/>
-                自分の成績がMリーガーと比べてどれくらいなのか、楽しみながら振り返れる指標として設けました。
-                <div style={{marginTop:8,color:"#888",fontSize:10}}>
-                  <span style={{color:"#3498db"}}>● 対象期間：</span>{currentYear}年（1/1〜12/31）
-                  <br/>
-                  <span style={{color:"#3498db"}}>● 参加条件：</span>同年内に20半荘以上参加
-                  <br/>
-                  <span style={{color:"#3498db"}}>● 上限：</span>Mリーグでは最大40半荘ですが、当リーグは上限なし
+                <summary style={{
+                  cursor:"pointer",fontSize:11,
+                  color:"#3498db",fontWeight:600,
+                }}>
+                  📖 Mリーグ指標とは(タップで詳細)
+                </summary>
+                <div style={{marginTop:10,fontSize:10,color:"#ccc",lineHeight:1.7}}>
+                  プロ麻雀リーグ「Mリーグ」の年間個人タイトルを参考にしたランキングです。
+                  自分の成績がMリーガーと比べてどれくらいなのか、楽しみながら振り返れる指標として設けました。
+
+                  <div style={{marginTop:10,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.05)"}}>
+                    <div style={{color:"#3498db",fontWeight:600,marginBottom:4}}>● 規定打席制度(個人スコア・最多トップ)</div>
+                    前期(1〜6月)・後期(7〜12月)で集計します。
+                    <br/>
+                    規定打席 = その期の全参加者の半荘数合計 ÷ 参加人数(小数点切り捨て)
+                    <br/>
+                    例：前期に14人が合計360半荘消化 → 規定 = 360÷14 = 25半荘
+                  </div>
+
+                  <div style={{marginTop:8}}>
+                    <div style={{color:"#3498db",fontWeight:600,marginBottom:4}}>● ノミネート条件</div>
+                    前期または後期のどちらか一方で規定打席達成でランキング入り。
+                    <br/>
+                    両方達成の場合は、平均スコアが高い方の期を採用します。
+                  </div>
+
+                  <div style={{marginTop:8}}>
+                    <div style={{color:"#e67e22",fontWeight:600,marginBottom:4}}>● 緩和打席(チャンス枠) ★マーク</div>
+                    規定打席の85%まで打席数を緩和。ただしスコアにペナルティが入ります。
+                    <br/>
+                    例：規定25 → 21半荘以上で緩和達成
+                    <br/>
+                    ペナルティ = (規定半荘数 − 実績半荘数) × 平均スコア × 段階係数
+                  </div>
+
+                  <div style={{marginTop:8}}>
+                    <div style={{color:"#e67e22",fontWeight:600,marginBottom:4}}>● 段階係数(期末ギリギリでお得)</div>
+                    <table style={{fontSize:10,borderCollapse:"collapse",marginTop:4}}>
+                      <tbody>
+                        <tr>
+                          <td style={{padding:"2px 6px",color:"#888"}}>期前半(1-2月／7-8月)</td>
+                          <td style={{padding:"2px 6px",color:"#e74c3c",fontWeight:600}}>×1.0</td>
+                          <td style={{padding:"2px 6px",color:"#888"}}>ペナルティ全額</td>
+                        </tr>
+                        <tr>
+                          <td style={{padding:"2px 6px",color:"#888"}}>中期(3-4月／9-10月)</td>
+                          <td style={{padding:"2px 6px",color:"#f39c12",fontWeight:600}}>×0.6</td>
+                          <td style={{padding:"2px 6px",color:"#888"}}>40%緩和</td>
+                        </tr>
+                        <tr>
+                          <td style={{padding:"2px 6px",color:"#888"}}>後期(5-6月／11-12月)</td>
+                          <td style={{padding:"2px 6px",color:"#2ecc71",fontWeight:600}}>×0.25</td>
+                          <td style={{padding:"2px 6px",color:"#888"}}>75%緩和</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    後半に達成するほど有利になる仕組みです。
+                  </div>
+
+                  <div style={{marginTop:8}}>
+                    <div style={{color:"#3498db",fontWeight:600,marginBottom:4}}>● 表示マーク</div>
+                    <span style={{color:"#3498db",fontWeight:600}}>[前期]</span> <span style={{color:"#3498db",fontWeight:600}}>[後期]</span> → 採用期(規定達成)
+                    <br/>
+                    <span style={{color:"#e67e22",fontWeight:600}}>[前期★]</span> <span style={{color:"#e67e22",fontWeight:600}}>[後期★]</span> → 緩和達成(ペナルティ適用)
+                  </div>
+
+                  <div style={{marginTop:10,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.05)",color:"#888",fontSize:9}}>
+                    ※ 最高スコア・4着回避率は年間ベース(20半荘以上参加者対象)
+                  </div>
                 </div>
+              </details>
+
+              {/* 現時点の規定打席情報 */}
+              <div style={{
+                padding:"8px 10px",marginBottom:12,
+                background:"rgba(52,152,219,0.06)",borderRadius:6,
+                border:"1px solid rgba(52,152,219,0.15)",
+                fontSize:10,color:"#ccc",lineHeight:1.6
+              }}>
+                <div style={{color:"#3498db",fontWeight:600,marginBottom:4,fontSize:11}}>📊 現時点の規定打席</div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span>前期(1〜6月)</span>
+                  <span>
+                    規定 <span style={{color:"#fff",fontWeight:700,fontSize:11}}>{firstHalf.standardRounds}</span>半荘
+                    ／緩和 <span style={{color:"#e67e22",fontWeight:600}}>{firstHalf.easeRounds}</span>半荘
+                  </span>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:2}}>
+                  <span>後期(7〜12月)</span>
+                  <span>
+                    規定 <span style={{color:"#fff",fontWeight:700,fontSize:11}}>{secondHalf.standardRounds}</span>半荘
+                    ／緩和 <span style={{color:"#e67e22",fontWeight:600}}>{secondHalf.easeRounds}</span>半荘
+                  </span>
+                </div>
+                {((isNowFirstHalf && firstHalf.standardRounds > 0) || (!isNowFirstHalf && secondHalf.standardRounds > 0)) && (
+                  <div style={{marginTop:4,paddingTop:4,borderTop:"1px solid rgba(255,255,255,0.05)",color:"#888",fontSize:9}}>
+                    現在の段階：<span style={{color:todayCoef===1.0?"#e74c3c":todayCoef===0.6?"#f39c12":"#2ecc71",fontWeight:600}}>{stageLabel(todayCoef)}(×{todayCoef})</span>
+                  </div>
+                )}
               </div>
 
-              {/* 💥 最高スコア */}
+              {/* 個人スコア */}
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#3498db",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+                  🏆 個人スコア
+                  <span style={{fontSize:9,color:"#888",fontWeight:400}}>(採用期の累積スコア)</span>
+                </div>
+                <RankList
+                  items={personalScoreRanking}
+                  showPeriod={true}
+                  formatter={(s) => `${s.adoptedTotalScore >= 0 ? "+" : ""}${Math.round(s.adoptedTotalScore)}pt`}
+                  noItemsLabel="対象者なし(規定打席または緩和打席を達成した人がいません)"
+                />
+              </div>
+
+              {/* 最多トップ */}
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#3498db",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+                  👑 最多トップ
+                  <span style={{fontSize:9,color:"#888",fontWeight:400}}>(採用期のトップ回数)</span>
+                </div>
+                <RankList
+                  items={mostTopRanking}
+                  showPeriod={true}
+                  formatter={(s) => `${(Math.round(s.adoptedTopCount * 10) / 10).toFixed(1)}回`}
+                  noItemsLabel="対象者なし(規定打席または緩和打席を達成した人がいません)"
+                />
+              </div>
+
+              {/* 最高スコア */}
               <div style={{marginBottom:14}}>
                 <div style={{fontSize:12,fontWeight:700,color:"#e74c3c",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
                   💥 最高スコア
-                  <span style={{fontSize:9,color:"#888",fontWeight:400}}>（70点以上叩いた個人別の最高持ち点）</span>
+                  <span style={{fontSize:9,color:"#888",fontWeight:400}}>(70点以上叩いた個人別の最高持ち点・年間)</span>
                 </div>
                 <RankList
                   items={maxRanking}
                   formatter={(s) => `${Math.round(s.maxRaw).toLocaleString()}点`}
+                  noItemsLabel="対象者なし(20半荘以上参加者がいません)"
                 />
               </div>
 
-              {/* 🛡️ 4着回避率 */}
-              <div style={{marginBottom:14}}>
+              {/* 4着回避率 */}
+              <div>
                 <div style={{fontSize:12,fontWeight:700,color:"#3498db",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
                   🛡️ 4着回避率
-                  <span style={{fontSize:9,color:"#888",fontWeight:400}}>（4着を避ける安定感）</span>
+                  <span style={{fontSize:9,color:"#888",fontWeight:400}}>(4着を避ける安定感・年間)</span>
                 </div>
                 <RankList
                   items={avoidLastRanking}
                   formatter={(s) => s.avoidRate.toFixed(2)}
+                  noItemsLabel="対象者なし(20半荘以上参加者がいません)"
                 />
-              </div>
-
-              {/* 🏆 個人スコア（実装中） */}
-              <div style={{marginBottom:14}}>
-                <div style={{fontSize:12,fontWeight:700,color:"#666",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
-                  🏆 個人スコア
-                  <span style={{fontSize:9,color:"#888",fontWeight:400}}>（年間累積スコアを競う）</span>
-                </div>
-                <div style={{padding:"12px 10px",background:"rgba(255,255,255,0.03)",borderRadius:6,textAlign:"center",fontSize:11,color:"#666",border:"1px dashed rgba(255,255,255,0.1)"}}>
-                  🚧 実装中（参加数による有利不利を調整中）
-                </div>
-              </div>
-
-              {/* 👑 最多トップ（実装中） */}
-              <div>
-                <div style={{fontSize:12,fontWeight:700,color:"#666",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
-                  👑 最多トップ
-                  <span style={{fontSize:9,color:"#888",fontWeight:400}}>（1位を取った回数を競う）</span>
-                </div>
-                <div style={{padding:"12px 10px",background:"rgba(255,255,255,0.03)",borderRadius:6,textAlign:"center",fontSize:11,color:"#666",border:"1px dashed rgba(255,255,255,0.1)"}}>
-                  🚧 実装中（参加数による有利不利を調整中）
-                </div>
               </div>
             </div>
           );
