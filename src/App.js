@@ -16,6 +16,8 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-05-20
 const CHANGELOG = [
   { date:"2026-05-20", features:[
+    "Mリーグ個人タイトル：個人スコアの表示を「累積非表示・1半荘あたりの平均のみ」に変更(累積スコア表示による嫌味感を回避)",
+    "Mリーグ個人タイトル：最多トップの表示を「規定打席換算回数」に変更(トップ率 × 規定半荘で算出、100%超え問題を解消)",
     "Mリーグ個人タイトル：折り畳みメニュー内の説明文に「ランキング順位の決定方法」セクションを追加(効率ベースのロジックを明示)",
     "Mリーグ個人タイトル：個人スコア・最多トップのランキング基準を「効率」に変更(1半荘あたりの平均で順位決定、累積スコア・トップ回数をメイン表示して実感性を両立)",
     "Mリーグ個人タイトル：個人スコア・最多トップを「前期・後期制」の規定打席システムで実装（規定打席=その期の全参加者半荘数合計÷参加人数、両方達成なら平均スコアが高い方の期を採用）",
@@ -2357,14 +2359,14 @@ export default function App() {
 
           const mleagueData = members.map(m => buildMemberMLeague(m.id)).filter(Boolean);
 
-          // 個人スコア(効率)ランキング - 1半荘あたりの平均で順位決定
+          // 個人スコア(平均)ランキング - 1半荘あたりの平均スコアで順位決定
           const personalScoreRanking = [...mleagueData]
-            .sort((a, b) => (b.adoptedTotalScore / b.standardRounds) - (a.adoptedTotalScore / a.standardRounds))
+            .sort((a, b) => (b.adoptedTotalScore / b.total) - (a.adoptedTotalScore / a.total))
             .slice(0, 6);
 
-          // 最多トップ(効率)ランキング - 1半荘あたりのトップ確率で順位決定
+          // 最多トップ(規定換算)ランキング - 1半荘あたりのトップ率 × 規定半荘 = 換算回数
           const mostTopRanking = [...mleagueData]
-            .sort((a, b) => (b.adoptedTopCount / b.standardRounds) - (a.adoptedTopCount / a.standardRounds))
+            .sort((a, b) => ((b.adoptedTopCount / b.total) * b.standardRounds) - ((a.adoptedTopCount / a.total) * a.standardRounds))
             .slice(0, 6);
 
           // ━━━ 最高スコアと4着回避率は年間ベース(現状維持) ━━━
@@ -2477,13 +2479,15 @@ export default function App() {
                     <div style={{color:"#2ecc71",fontWeight:600,marginBottom:4}}>● ランキング順位の決定方法</div>
                     順位は<span style={{color:"#fff",fontWeight:600}}>「1半荘あたりの効率」</span>で決定します。
                     <br/>
-                    ・個人スコア → 採用スコア ÷ 規定半荘数(1半荘あたりの平均スコア)
+                    ・個人スコア → <span style={{color:"#fff"}}>1半荘あたりの平均スコア</span>(採用スコア ÷ 実績半荘数)
                     <br/>
-                    ・最多トップ → トップ回数 ÷ 規定半荘数(1半荘あたりのトップ確率)
+                    ・最多トップ → <span style={{color:"#fff"}}>規定打席換算のトップ回数</span>(1半荘あたりのトップ率 × 規定半荘数)
                     <br/>
-                    <span style={{color:"#888",fontSize:9}}>※累積スコア・トップ回数は実感のためメイン表示。順位はあくまで効率で決まります。</span>
+                    <span style={{color:"#888",fontSize:9}}>※累積スコアやトップ回数の絶対値ではなく、「効率」で純粋に比較するため、参加数による有利不利がなくなります。</span>
                     <br/>
-                    例：A(規定25、累積+500pt)=効率+20.0/半、B(規定25、累積+576pt、実績30)=効率+19.2/半 → Aが上位
+                    例：A(実績25・累積+500pt) = +20.0/半、B(実績50・累積+1000pt) = +20.0/半 → 同率
+                    <br/>
+                    例：C(実績25・トップ8回) = 換算8.0回、D(実績50・トップ20回) = 換算10.0回 → D上位
                   </div>
 
                   <div style={{marginTop:8}}>
@@ -2565,14 +2569,14 @@ export default function App() {
               <div style={{marginBottom:14}}>
                 <div style={{fontSize:12,fontWeight:700,color:"#3498db",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
                   🏆 個人スコア
-                  <span style={{fontSize:9,color:"#888",fontWeight:400}}>(1半荘あたりの平均スコアで順位決定)</span>
+                  <span style={{fontSize:9,color:"#888",fontWeight:400}}>(1半荘あたりの平均スコア)</span>
                 </div>
                 <RankList
                   items={personalScoreRanking}
                   showPeriod={true}
                   formatter={(s) => {
-                    const efficiencyPerRound = s.adoptedTotalScore / s.standardRounds;
-                    return `${s.adoptedTotalScore >= 0 ? "+" : ""}${Math.round(s.adoptedTotalScore)}pt (${efficiencyPerRound >= 0 ? "+" : ""}${efficiencyPerRound.toFixed(1)}/半)`;
+                    const avg = s.adoptedTotalScore / s.total;
+                    return `${avg >= 0 ? "+" : ""}${avg.toFixed(1)}pt/半`;
                   }}
                   noItemsLabel="対象者なし(規定打席または緩和打席を達成した人がいません)"
                 />
@@ -2582,14 +2586,14 @@ export default function App() {
               <div style={{marginBottom:14}}>
                 <div style={{fontSize:12,fontWeight:700,color:"#3498db",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
                   👑 最多トップ
-                  <span style={{fontSize:9,color:"#888",fontWeight:400}}>(1半荘あたりのトップ確率で順位決定)</span>
+                  <span style={{fontSize:9,color:"#888",fontWeight:400}}>(規定打席換算のトップ回数)</span>
                 </div>
                 <RankList
                   items={mostTopRanking}
                   showPeriod={true}
                   formatter={(s) => {
-                    const topPercentage = (s.adoptedTopCount / s.standardRounds) * 100;
-                    return `${(Math.round(s.adoptedTopCount * 10) / 10).toFixed(1)}回 (${topPercentage.toFixed(1)}%)`;
+                    const converted = (s.adoptedTopCount / s.total) * s.standardRounds;
+                    return `${converted.toFixed(1)}回`;
                   }}
                   noItemsLabel="対象者なし(規定打席または緩和打席を達成した人がいません)"
                 />
