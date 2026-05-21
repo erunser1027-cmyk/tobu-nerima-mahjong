@@ -13,8 +13,11 @@ const SCORE_RATES = [
 const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ", "池袋カクレマ", "池袋PSJ北口"];
 
 // 更新履歴 - 新しい機能は必ず今日の日付で追加してください
-// 今日: 2026-05-20
+// 今日: 2026-05-21
 const CHANGELOG = [
+  { date:"2026-05-21", features:[
+    "Mリーグタブ内に「📋 規定達成状況を見る」折り畳みメニュー追加(前期・後期の規定打席進捗を棒グラフ表示・あと何回で達成かを表示)",
+  ]},
   { date:"2026-05-20", features:[
     "Mリーグ個人タイトル：個人スコアの表示を「累積非表示・1半荘あたりの平均のみ」に変更(累積スコア表示による嫌味感を回避)",
     "Mリーグ個人タイトル：最多トップの表示を「規定打席換算回数」に変更(トップ率 × 規定半荘で算出、100%超え問題を解消)",
@@ -2565,6 +2568,141 @@ export default function App() {
                 )}
               </div>
 
+              {/* 規定達成状況（折り畳みメニュー） */}
+              <details style={{marginBottom:12,background:"rgba(46,204,113,0.06)",border:"1px solid rgba(46,204,113,0.2)",borderRadius:6,padding:"8px 10px"}}>
+                <summary style={{cursor:"pointer",color:"#2ecc71",fontWeight:600,fontSize:11,userSelect:"none"}}>
+                  📋 規定達成状況を見る
+                </summary>
+                <div style={{marginTop:10}}>
+                  {/* 後期 */}
+                  {(() => {
+                    const progress = members
+                      .filter(m => secondHalf.stats[m.id] && secondHalf.stats[m.id].total > 0)
+                      .map(m => {
+                        const s = secondHalf.stats[m.id];
+                        const remaining = Math.max(0, secondHalf.standardRounds - s.total);
+                        const easeRemaining = Math.max(0, secondHalf.easeRounds - s.total);
+                        const percentage = secondHalf.standardRounds > 0 ? Math.min(100, (s.total / secondHalf.standardRounds) * 100) : 0;
+                        return {
+                          ...m, actual: s.total, remaining, easeRemaining, percentage,
+                          achieved: s.total >= secondHalf.standardRounds,
+                          easeAchieved: s.total >= secondHalf.easeRounds && s.total < secondHalf.standardRounds
+                        };
+                      })
+                      .sort((a, b) => b.actual - a.actual);
+                    return (
+                      <div style={{marginBottom:14}}>
+                        <div style={{fontSize:11,fontWeight:700,color:"#fff",marginBottom:8,paddingBottom:4,borderBottom:"1px solid rgba(255,255,255,0.1)"}}>
+                          後期 (7-12月) 規定:{secondHalf.standardRounds} / 緩和:{secondHalf.easeRounds}
+                        </div>
+                        {progress.length === 0 ? (
+                          <div style={{textAlign:"center",padding:10,color:"#555",fontSize:10}}>データなし</div>
+                        ) : (
+                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                            {progress.map(p => (
+                              <div key={p.id}>
+                                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+                                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                    <Av m={p} sz={20} />
+                                    <div style={{fontSize:11,fontWeight:600,color:"#fff"}}>{p.name}</div>
+                                  </div>
+                                  <div style={{fontSize:10,fontWeight:600,color:p.achieved?"#2ecc71":p.easeAchieved?"#f39c12":"#888"}}>
+                                    {p.actual}/{secondHalf.standardRounds}
+                                    {p.achieved ? " ✅" : p.easeAchieved ? " ⭐" : p.remaining > 0 && ` (あと${p.remaining}回)`}
+                                  </div>
+                                </div>
+                                <div style={{background:"rgba(0,0,0,0.3)",borderRadius:4,height:10,overflow:"hidden",position:"relative"}}>
+                                  <div style={{
+                                    width:`${p.percentage}%`,
+                                    height:"100%",
+                                    background: p.achieved ? "linear-gradient(90deg,#2ecc71,#27ae60)" : p.easeAchieved ? "linear-gradient(90deg,#f39c12,#e67e22)" : "linear-gradient(90deg,#3498db,#2980b9)",
+                                    transition:"width 0.3s"
+                                  }}/>
+                                  {secondHalf.easeRounds < secondHalf.standardRounds && secondHalf.standardRounds > 0 && (
+                                    <div style={{
+                                      position:"absolute",
+                                      left:`${(secondHalf.easeRounds / secondHalf.standardRounds) * 100}%`,
+                                      top:0,height:"100%",width:1,
+                                      background:"rgba(255,255,255,0.5)"
+                                    }}/>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* 前期 */}
+                  {(() => {
+                    const progress = members
+                      .filter(m => firstHalf.stats[m.id] && firstHalf.stats[m.id].total > 0)
+                      .map(m => {
+                        const s = firstHalf.stats[m.id];
+                        const remaining = Math.max(0, firstHalf.standardRounds - s.total);
+                        const easeRemaining = Math.max(0, firstHalf.easeRounds - s.total);
+                        const percentage = firstHalf.standardRounds > 0 ? Math.min(100, (s.total / firstHalf.standardRounds) * 100) : 0;
+                        return {
+                          ...m, actual: s.total, remaining, easeRemaining, percentage,
+                          achieved: s.total >= firstHalf.standardRounds,
+                          easeAchieved: s.total >= firstHalf.easeRounds && s.total < firstHalf.standardRounds
+                        };
+                      })
+                      .sort((a, b) => b.actual - a.actual);
+                    return (
+                      <div>
+                        <div style={{fontSize:11,fontWeight:700,color:"#fff",marginBottom:8,paddingBottom:4,borderBottom:"1px solid rgba(255,255,255,0.1)"}}>
+                          前期 (1-6月) 規定:{firstHalf.standardRounds} / 緩和:{firstHalf.easeRounds}
+                        </div>
+                        {progress.length === 0 ? (
+                          <div style={{textAlign:"center",padding:10,color:"#555",fontSize:10}}>データなし</div>
+                        ) : (
+                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                            {progress.map(p => (
+                              <div key={p.id}>
+                                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+                                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                    <Av m={p} sz={20} />
+                                    <div style={{fontSize:11,fontWeight:600,color:"#fff"}}>{p.name}</div>
+                                  </div>
+                                  <div style={{fontSize:10,fontWeight:600,color:p.achieved?"#2ecc71":p.easeAchieved?"#f39c12":"#888"}}>
+                                    {p.actual}/{firstHalf.standardRounds}
+                                    {p.achieved ? " ✅" : p.easeAchieved ? " ⭐" : p.remaining > 0 && ` (あと${p.remaining}回)`}
+                                  </div>
+                                </div>
+                                <div style={{background:"rgba(0,0,0,0.3)",borderRadius:4,height:10,overflow:"hidden",position:"relative"}}>
+                                  <div style={{
+                                    width:`${p.percentage}%`,
+                                    height:"100%",
+                                    background: p.achieved ? "linear-gradient(90deg,#2ecc71,#27ae60)" : p.easeAchieved ? "linear-gradient(90deg,#f39c12,#e67e22)" : "linear-gradient(90deg,#3498db,#2980b9)",
+                                    transition:"width 0.3s"
+                                  }}/>
+                                  {firstHalf.easeRounds < firstHalf.standardRounds && firstHalf.standardRounds > 0 && (
+                                    <div style={{
+                                      position:"absolute",
+                                      left:`${(firstHalf.easeRounds / firstHalf.standardRounds) * 100}%`,
+                                      top:0,height:"100%",width:1,
+                                      background:"rgba(255,255,255,0.5)"
+                                    }}/>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* 凡例 */}
+                  <div style={{marginTop:12,padding:8,background:"rgba(46,204,113,0.05)",borderRadius:4,fontSize:9,color:"#888",lineHeight:1.6}}>
+                    ✅=規定達成 / ⭐=緩和達成(規定85%) / 白い線=緩和打席ライン
+                  </div>
+                </div>
+              </details>
+
               {/* 個人スコア */}
               <div style={{marginBottom:14}}>
                 <div style={{fontSize:12,fontWeight:700,color:"#3498db",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
@@ -4666,6 +4804,7 @@ export default function App() {
                   </>
                 );
               })()}
+
             </>
           );
         })()}
