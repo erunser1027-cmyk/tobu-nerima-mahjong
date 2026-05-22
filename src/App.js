@@ -16,8 +16,7 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-05-21
 const CHANGELOG = [
   { date:"2026-05-21", features:[
-    "ヘッダーバージョン表記をv1.6→v1.7に変更",
-    "メインタブに「🎌 大会モード」を追加（🃏と➕の間に配置・大会前に実装予定の工事中ページ）",
+    "外馬：二重購入防止のためrace_betsテーブルにUNIQUE制約追加(session_date+round_index+bettor_id)・別端末からの重複購入時に専用エラーメッセージを表示",
     "Mリーグタブ内に「📋 規定達成状況を見る」折り畳みメニュー追加(前期・後期の規定打席進捗を棒グラフ表示・あと何回で達成かを表示)",
   ]},
   { date:"2026-05-20", features:[
@@ -2097,7 +2096,7 @@ export default function App() {
         <span style={{fontSize:18}}>🀄</span>
         <div>
           <div style={{fontSize:9,color:"#e74c3c",fontWeight:600,lineHeight:1.2}}>東武練馬Tリーグ</div>
-          <div style={{fontSize:12,fontWeight:500,lineHeight:1.2}}>麻雀スコア表 <span style={{fontSize:9,color:"#666",fontWeight:400}}>v1.7</span></div>
+          <div style={{fontSize:12,fontWeight:500,lineHeight:1.2}}>麻雀スコア表 <span style={{fontSize:9,color:"#666",fontWeight:400}}>v1.6</span></div>
         </div>
         {/* LIVE バッジ：実際にLIVE対局中(addStep===2)のみ表示 */}
         {addStep === 2 && (
@@ -2109,7 +2108,7 @@ export default function App() {
           </div>
         )}
         <div style={{marginLeft:"auto",display:"flex",gap:3,flexWrap:"wrap",justifyContent:"flex-end"}}>
-          {[["dashboard","📊"],["calendar","🗓"],["history","📅"],["skull","💀"],["sotoba","🏇"],["hilo","🃏"],["taikai","🎌"],["add","➕"],["members","👥"]].map(([t,l])=>{
+          {[["dashboard","📊"],["calendar","🗓"],["history","📅"],["skull","💀"],["sotoba","🏇"],["hilo","🃏"],["add","➕"],["members","👥"]].map(([t,l])=>{
             const isActive = t==="sotoba"
               ? (tab==="dashboard" && dashSub==="sotoba")
               : t==="hilo"
@@ -4149,7 +4148,11 @@ export default function App() {
                   }).select().single();
                   if (error) {
                     console.error("race_bets insert error:", error);
-                    showToast("error", `⚠️ 馬券購入失敗: ${error.message || error.code || "原因不明"}`);
+                    if (error.code === "23505") {
+                      showToast("error", "⚠️ この半荘ではすでに馬券を購入済みです（別端末からの購入が確認されました）");
+                    } else {
+                      showToast("error", `⚠️ 馬券購入失敗: ${error.message || error.code || "原因不明"}`);
+                    }
                     setRaceBetSubmitting(false);
                     return;
                   }
@@ -5669,22 +5672,6 @@ export default function App() {
               </div>
             ))}
           </>
-        )}
-        {tab==="taikai" && (
-          <div style={{
-            display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-            padding:"60px 20px",textAlign:"center",
-            background:"rgba(255,255,255,0.04)",borderRadius:12,
-            border:"1px dashed rgba(255,255,255,0.2)",
-            marginTop:20,
-          }}>
-            <div style={{fontSize:72,marginBottom:16,filter:"drop-shadow(0 0 8px rgba(255,193,7,0.4))"}}>🚧</div>
-            <div style={{fontSize:18,fontWeight:600,color:"#ffc107",marginBottom:8,letterSpacing:1}}>大会前に実装予定</div>
-            <div style={{fontSize:12,color:"#aaa",lineHeight:1.6}}>
-              🎌 大会モードは現在準備中です。<br/>
-              大会開催に合わせて機能を実装します。
-            </div>
-          </div>
         )}
       </div>
       {/* confetti */}
