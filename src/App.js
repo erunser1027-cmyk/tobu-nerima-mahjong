@@ -4761,6 +4761,7 @@ export default function App() {
                     {raceBetDetailId !== null && (() => {
                       const m = gm(raceBetDetailId);
                       if (!m) return null;
+                      const betTypeLabelLocal = (k) => ({tansho:"単勝",umaren:"馬連",sanrentan:"三連単",yonrentan:"四連単"})[k] || k;
                       const myBets = raceBets
                         .filter(b => Number(b.bettor_id) === Number(raceBetDetailId) && b.is_hit !== null)
                         .sort((a, b) => {
@@ -4830,7 +4831,7 @@ export default function App() {
                                         <span style={{fontSize:14}}>{b.is_hit ? "✅" : "❌"}</span>
                                         <span style={{fontSize:10,color:"#888"}}>{b.session_date} R{b.round_index + 1}</span>
                                         <span style={{fontSize:10,color:"#f39c12",background:"rgba(243,156,18,0.15)",padding:"1px 5px",borderRadius:4}}>
-                                          {betTypeLabel(b.bet_type)}
+                                          {betTypeLabelLocal(b.bet_type)}
                                         </span>
                                       </div>
                                       <div style={{fontSize:13,fontWeight:700,color: profit >= 0 ? "#2ecc71" : "#e74c3c"}}>
