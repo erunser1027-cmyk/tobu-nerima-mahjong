@@ -4815,7 +4815,7 @@ export default function App() {
                                 <div style={{textAlign:"center",padding:24,color:"#555",fontSize:12}}>履歴なし</div>
                               )}
                               {myBets.map((b, i) => {
-                                const sel = (() => { try { return JSON.parse(b.selection || "[]"); } catch { return []; } })();
+                                const sel = Array.isArray(b.bet_selection) ? b.bet_selection : (() => { try { return JSON.parse(b.bet_selection || "[]"); } catch { return []; } })();
                                 const selNames = sel.map(id => gm(id)?.name || "?").join(" → ");
                                 const betAmt = b.bet_amount || 1;
                                 const payout = b.is_hit ? Math.round(Number(b.payout) * betAmt) : 0;
