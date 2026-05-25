@@ -16,6 +16,9 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-05-21
 const CHANGELOG = [
   { date:"2026-05-21", features:[
+    "外馬：的中ランキングの名前タップで馬券詳細モーダルを表示（日付・ラウンド・馬券種・倍率・賭けチップ・収益を一覧表示、収支サマリーも表示）",
+    "点数入力中に抜け番を変更できる「✏️ 抜け番を変更」ボタンを追加（5人以上の場合のみ表示・押すと抜け番選択に戻り入力点数をリセット）",
+    "外馬：別端末から重複購入時に専用エラーメッセージを表示（UNIQUE制約違反error.code=23505を検知）",
     "ヘッダーバージョン表記をv1.6→v1.7に変更",
     "メインタブに「🎌 大会モード」を追加（🃏と➕の間に配置・大会前に実装予定の工事中ページ）",
     "Mリーグタブ内に「📋 規定達成状況を見る」折り畳みメニュー追加(前期・後期の規定打席進捗を棒グラフ表示・あと何回で達成かを表示)",
@@ -827,6 +830,7 @@ export default function App() {
   const [raceBetSubmitting, setRaceBetSubmitting] = useState(false);
   const [raceBetAmount, setRaceBetAmount] = useState(1); // 賭けチップ枚数
   const [racePersonHistory, setRacePersonHistory] = useState(null); // 個人履歴表示対象ID
+  const [raceBetDetailId, setRaceBetDetailId] = useState(null); // 的中ランキング詳細モーダル
   const [raceStartTimes, setRaceStartTimes] = useState({}); // { [round_index]: timestamp_ms }
   const [, setRaceNowTick] = useState(0); // 5分タイマー更新用ダミーstate
   // raceBetsRef：採点useEffect内でクロージャ問題を防ぐため、常に最新のraceBetsを参照
@@ -4149,7 +4153,11 @@ export default function App() {
                   }).select().single();
                   if (error) {
                     console.error("race_bets insert error:", error);
-                    showToast("error", `⚠️ 馬券購入失敗: ${error.message || error.code || "原因不明"}`);
+                    if (error.code === "23505") {
+                      showToast("error", "⚠️ この半荘ではすでに馬券を購入済みです（別端末からの購入が確認されました）");
+                    } else {
+                      showToast("error", `⚠️ 馬券購入失敗: ${error.message || error.code || "原因不明"}`);
+                    }
                     setRaceBetSubmitting(false);
                     return;
                   }
@@ -4727,7 +4735,9 @@ export default function App() {
                           const m = gm(p.id);
                           const hitRate = p.total > 0 ? Math.round(p.hits/p.total*100) : 0;
                           return (
-                            <div key={p.id} style={{...S.card({background:i===0?"rgba(241,196,15,0.08)":"rgba(255,255,255,0.04)",border:`1px solid ${i===0?"rgba(241,196,15,0.3)":"rgba(255,255,255,0.08)"}`}),padding:"10px 12px"}}>
+                            <div key={p.id}
+                              onClick={() => setRaceBetDetailId(p.id)}
+                              style={{...S.card({background:i===0?"rgba(241,196,15,0.08)":"rgba(255,255,255,0.04)",border:`1px solid ${i===0?"rgba(241,196,15,0.3)":"rgba(255,255,255,0.08)"}`}),padding:"10px 12px",cursor:"pointer"}}>
                               <div style={{display:"flex",alignItems:"center",gap:8}}>
                                 <span style={{fontSize:16,fontWeight:"bold",color:i===0?"#f1c40f":i===1?"#bdc3c7":i===2?"#cd7f32":"#666"}}>{i<3?["🥇","🥈","🥉"][i]:`${i+1}`}</span>
                                 <Av m={m} sz={26}/>
@@ -4739,17 +4749,114 @@ export default function App() {
                                   <div style={{fontSize:16,fontWeight:"bold",color:"#f1c40f"}}>{p.sumPayout.toFixed(1)}</div>
                                   <div style={{fontSize:9,color:"#666"}}>累計配当</div>
                                 </div>
+                                <div style={{fontSize:9,color:"#3498db",marginLeft:2}}>▶</div>
                               </div>
                             </div>
                           );
                         })}
                       </div>
                     )}
+
+                    {/* 馬券詳細モーダル */}
+                    {raceBetDetailId !== null && (() => {
+                      const m = gm(raceBetDetailId);
+                      if (!m) return null;
+                      const myBets = raceBets
+                        .filter(b => Number(b.bettor_id) === Number(raceBetDetailId) && b.is_hit !== null)
+                        .sort((a, b) => {
+                          if (a.session_date !== b.session_date) return b.session_date.localeCompare(a.session_date);
+                          return b.round_index - a.round_index;
+                        });
+                      const totalBet = myBets.reduce((s, b) => s + (b.bet_amount || 1), 0);
+                      const totalPayout = myBets.reduce((s, b) => {
+                        if (b.is_hit) return s + Math.round(Number(b.payout) * (b.bet_amount || 1));
+                        return s;
+                      }, 0);
+                      const netProfit = totalPayout - totalBet;
+                      const hits = myBets.filter(b => b.is_hit).length;
+
+                      return (
+                        <div
+                          onClick={() => setRaceBetDetailId(null)}
+                          style={{position:"fixed",top:0,left:0,width:"100%",height:"100%",background:"rgba(0,0,0,0.75)",zIndex:9000,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+                          <div
+                            onClick={e => e.stopPropagation()}
+                            style={{width:"100%",maxWidth:480,background:"#1a1a2e",borderRadius:"16px 16px 0 0",padding:"20px 16px 32px",maxHeight:"80vh",display:"flex",flexDirection:"column"}}>
+
+                            {/* ヘッダー */}
+                            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+                              <Av m={m} sz={36}/>
+                              <div style={{flex:1}}>
+                                <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>{m.name}の馬券履歴</div>
+                                <div style={{fontSize:10,color:"#888"}}>{myBets.length}件 / {hits}的中</div>
+                              </div>
+                              <button onClick={() => setRaceBetDetailId(null)}
+                                style={{fontSize:18,color:"#666",background:"none",border:"none",cursor:"pointer",padding:"4px 8px"}}>✕</button>
+                            </div>
+
+                            {/* サマリー */}
+                            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
+                              {[
+                                {label:"的中率", value:`${myBets.length > 0 ? Math.round(hits/myBets.length*100) : 0}%`, color:"#2ecc71"},
+                                {label:"消費チップ", value:`-${totalBet}🪙`, color:"#e74c3c"},
+                                {label:"収支", value:`${netProfit >= 0 ? "+" : ""}${netProfit}🪙`, color: netProfit >= 0 ? "#2ecc71" : "#e74c3c"},
+                              ].map(({label, value, color}) => (
+                                <div key={label} style={{background:"rgba(255,255,255,0.05)",borderRadius:8,padding:"8px 4px",textAlign:"center"}}>
+                                  <div style={{fontSize:9,color:"#888",marginBottom:2}}>{label}</div>
+                                  <div style={{fontSize:13,fontWeight:700,color}}>{value}</div>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* 履歴リスト */}
+                            <div style={{overflowY:"auto",flex:1,display:"flex",flexDirection:"column",gap:6}}>
+                              {myBets.length === 0 && (
+                                <div style={{textAlign:"center",padding:24,color:"#555",fontSize:12}}>履歴なし</div>
+                              )}
+                              {myBets.map((b, i) => {
+                                const sel = (() => { try { return JSON.parse(b.selection || "[]"); } catch { return []; } })();
+                                const selNames = sel.map(id => gm(id)?.name || "?").join(" → ");
+                                const betAmt = b.bet_amount || 1;
+                                const payout = b.is_hit ? Math.round(Number(b.payout) * betAmt) : 0;
+                                const profit = b.is_hit ? payout - betAmt : -betAmt;
+                                return (
+                                  <div key={i} style={{
+                                    background: b.is_hit ? "rgba(46,204,113,0.08)" : "rgba(231,76,60,0.06)",
+                                    border: `1px solid ${b.is_hit ? "rgba(46,204,113,0.25)" : "rgba(231,76,60,0.2)"}`,
+                                    borderRadius: 8, padding: "10px 12px"
+                                  }}>
+                                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                        <span style={{fontSize:14}}>{b.is_hit ? "✅" : "❌"}</span>
+                                        <span style={{fontSize:10,color:"#888"}}>{b.session_date} R{b.round_index + 1}</span>
+                                        <span style={{fontSize:10,color:"#f39c12",background:"rgba(243,156,18,0.15)",padding:"1px 5px",borderRadius:4}}>
+                                          {betTypeLabel(b.bet_type)}
+                                        </span>
+                                      </div>
+                                      <div style={{fontSize:13,fontWeight:700,color: profit >= 0 ? "#2ecc71" : "#e74c3c"}}>
+                                        {profit >= 0 ? "+" : ""}{profit}🪙
+                                      </div>
+                                    </div>
+                                    <div style={{fontSize:11,color:"#ccc",marginBottom:2}}>
+                                      予想：<span style={{color:"#fff",fontWeight:600}}>{selNames}</span>
+                                    </div>
+                                    <div style={{fontSize:10,color:"#888",display:"flex",gap:10}}>
+                                      <span>賭け：<span style={{color:"#f1c40f"}}>{betAmt}🪙</span></span>
+                                      <span>倍率：<span style={{color:"#f1c40f"}}>{Number(b.odds).toFixed(1)}倍</span></span>
+                                      {b.is_hit && <span>払戻：<span style={{color:"#2ecc71"}}>{payout}🪙</span></span>}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </>
                 );
               })()}
 
-              {/* チップ王 サブタブ */}
               {dashSub==="chip" && (() => {
                 const chipStats = lifetimeStats.map(p => ({ 
                   ...p, 
@@ -5303,9 +5410,24 @@ export default function App() {
                     // 点数入力画面（抜け番が決まった後、または5人未満の場合）
                     return (
                       <>
-                        <div style={{fontSize:10,color:"#7fb9e0",marginBottom:8,background:"rgba(52,152,219,0.08)",borderRadius:6,padding:6}}>
-                          📌 対局した4人の順位点を入力{rpSkenbans.length > 0 && ` (抜け番: ${rpSkenbans.map(id => gm(id)?.name).join(', ')})`}<br/>
-                          <span style={{fontSize:9,color:"#666"}}>3人入力で残り1人を自動計算（空欄が1人のとき）</span>
+                        <div style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:8}}>
+                          <div style={{flex:1,fontSize:10,color:"#7fb9e0",background:"rgba(52,152,219,0.08)",borderRadius:6,padding:6}}>
+                            📌 対局した4人の順位点を入力{rpSkenbans.length > 0 && ` (抜け番: ${rpSkenbans.map(id => gm(id)?.name).join(', ')})`}<br/>
+                            <span style={{fontSize:9,color:"#666"}}>3人入力で残り1人を自動計算（空欄が1人のとき）</span>
+                          </div>
+                          {is5 && rpSkenbans.length > 0 && (
+                            <button
+                              onClick={() => {
+                                setRpSkenbans([]);
+                                setRpSc(Object.fromEntries(addSel.map(id=>[id,""])));
+                                setRpAutoId(null);
+                                setRpActive(null);
+                                saveDraft(addDate, addRules, addSel, addStep, addRounds, []);
+                              }}
+                              style={{flexShrink:0,fontSize:10,padding:"5px 8px",borderRadius:6,border:"1px solid rgba(243,156,18,0.5)",background:"rgba(243,156,18,0.1)",color:"#f39c12",cursor:"pointer",whiteSpace:"nowrap"}}>
+                              ✏️ 抜け番を変更
+                            </button>
+                          )}
                         </div>
                         <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:8}}>
                           {addSel.filter(id => !rpSkenbans.includes(id)).map(id=>{
