@@ -17,6 +17,7 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 const CHANGELOG = [
   { date:"2026-06-01", features:[
     "バグ修正：観覧者が新規でページを開いたときLIVE状態・スコアが表示されない問題を修正（drafts取得の.single()エラーが原因）",
+    "半荘入力中に「✕ 中止」ボタンを追加（確定ボタン隣・確認ダイアログ付き・入力リセットしてLIVE継続）",
   ]},
   { date:"2026-05-21", features:[
     "外馬：的中ランキングの名前タップで馬券詳細モーダルを表示（日付・ラウンド・馬券種・倍率・賭けチップ・収益を一覧表示、収支サマリーも表示）",
@@ -5547,7 +5548,14 @@ export default function App() {
                           })}
                         </div>
                         {addErr&&<div style={{color:"#e74c3c",fontSize:11,marginBottom:7}}>{addErr}</div>}
-                        <button style={{...S.bb({opacity:filledCount===4?1:0.4})}} disabled={filledCount!==4} onClick={confirmRound}>✔ この半荘を確定</button>
+                        <div style={{display:"flex",gap:8}}>
+                          <button style={{...S.bb({opacity:filledCount===4?1:0.4})}} disabled={filledCount!==4} onClick={confirmRound}>✔ この半荘を確定</button>
+                          <button style={{...S.bg({background:"rgba(180,180,180,0.15)",color:"#aaa",border:"1px solid rgba(255,255,255,0.15)"})}} onClick={()=>{
+                            if(!window.confirm("この半荘を中止しますか？入力中の内容はリセットされます。")) return;
+                            setRpSc(Object.fromEntries(addSel.map(id=>[id,""])));
+                            setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes({}); setRpOpenRiichi([]); setRpDealIn([]); setRpAutoId(null); setRpActive(null); setAddErr("");
+                          }}>✕ 中止</button>
+                        </div>
                       </>
                     );
                   })()}
