@@ -1127,14 +1127,16 @@ export default function App() {
     // Supabase に保存
     try {
       if(draftId){
-        await supabase.from("drafts").update(payload).eq("id",draftId);
+        const { error } = await supabase.from("drafts").update(payload).eq("id",draftId);
+        if(error) throw error;
       } else {
-        const { data } = await supabase.from("drafts").insert(payload).select().single();
-        if(data) setDraftId(data.id);
+        const { data, error } = await supabase.from("drafts").insert(payload).select();
+        if(error) throw error;
+        if(data?.[0]) setDraftId(data[0].id);
       }
     } catch (error) {
       console.error("Error saving draft to Supabase:", error);
-      showToast("error", "⚠️ 通信エラー。下書きはローカル保存されています");
+      showToast("error", "⚠️ 保存失敗: " + (error?.message || JSON.stringify(error)));
     }
   }
 
