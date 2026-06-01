@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+﻿import { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
 
 const INVITE = "とうねり";
@@ -15,6 +15,9 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 更新履歴 - 新しい機能は必ず今日の日付で追加してください
 // 今日: 2026-05-21
 const CHANGELOG = [
+  { date:"2026-06-01", features:[
+    "バグ修正：観覧者が新規でページを開いたときLIVE状態・スコアが表示されない問題を修正（drafts取得の.single()エラーが原因）",
+  ]},
   { date:"2026-05-21", features:[
     "外馬：的中ランキングの名前タップで馬券詳細モーダルを表示（日付・ラウンド・馬券種・倍率・賭けチップ・収益を一覧表示、収支サマリーも表示）",
     "点数入力中に抜け番を変更できる「✏️ 抜け番を変更」ボタンを追加（5人以上の場合のみ表示・押すと抜け番選択に戻り入力点数をリセット）",
@@ -1063,19 +1066,20 @@ export default function App() {
       
       // Supabase から取得試行
       try {
-        const { data } = await supabase.from("drafts").select("*").order("updated_at",{ascending:false}).limit(1).single();
-        if(data && data.date === today){
-          setDraftId(data.id);
-          setAddDate(data.date);
-          setAddRules(data.rules);
-          setAddSel(data.members);
-          setAddRounds(data.rounds);
-          setRpSkenbans(Array.isArray(data.skenbans) ? data.skenbans : []);
+        const { data } = await supabase.from("drafts").select("*").order("updated_at",{ascending:false}).limit(1);
+        const row = data?.[0];
+        if(row && row.date === today){
+          setDraftId(row.id);
+          setAddDate(row.date);
+          setAddRules(row.rules);
+          setAddSel(row.members);
+          setAddRounds(row.rounds);
+          setRpSkenbans(Array.isArray(row.skenbans) ? row.skenbans : []);
           // 保存されたstepを使う。なければ従来ロジックで推定
-          setAddStep(data.step ?? (data.rounds.length>0 ? 2 : (data.members?.length>0 ? 2 : 0)));
+          setAddStep(row.step ?? (row.rounds.length>0 ? 2 : (row.members?.length>0 ? 2 : 0)));
           return;
-        } else if(data) {
-          await supabase.from("drafts").delete().eq("id",data.id);
+        } else if(row) {
+          await supabase.from("drafts").delete().eq("id",row.id);
         }
       } catch (e) {
         console.error("Failed to load draft from Supabase:", e);
@@ -1171,17 +1175,18 @@ export default function App() {
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "drafts" }, () => {
         // LIVE状態の即時同期：他デバイスでLIVE開始/終了/進行が即時反映
-        supabase.from("drafts").select("*").order("updated_at",{ascending:false}).limit(1).single().then(({data}) => {
-          if (data) {
+        supabase.from("drafts").select("*").order("updated_at",{ascending:false}).limit(1).then(({data}) => {
+          const row = data?.[0];
+          if (row) {
             // このデバイスが編集者でない場合のみ反映（観覧者は常に最新を受信）
             if (!iAmEditorRef.current) {
-              setAddDate(data.date);
-              setAddRules(data.rules);
-              setAddSel(data.members);
-              setAddStep(data.step);
-              setAddRounds(data.rounds || []);
-              setRpSkenbans(Array.isArray(data.skenbans) ? data.skenbans : []);
-              setDraftId(data.id);
+              setAddDate(row.date);
+              setAddRules(row.rules);
+              setAddSel(row.members);
+              setAddStep(row.step);
+              setAddRounds(row.rounds || []);
+              setRpSkenbans(Array.isArray(row.skenbans) ? row.skenbans : []);
+              setDraftId(row.id);
             }
           }
         });
