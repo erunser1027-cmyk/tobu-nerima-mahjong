@@ -19,6 +19,7 @@ const CHANGELOG = [
     "バグ修正：観覧者が新規でページを開いたときLIVE状態・スコアが表示されない問題を修正（drafts取得の.single()エラーが原因）",
     "半荘入力中に「✕ 中止」ボタンを追加（確定ボタン隣・確認ダイアログ付き・入力リセットしてLIVE継続）",
     "設定タブのロゴ下に公式Tシャツ販売セクションを追加（画像・価格・購入リンク）",
+    "LIVE中の確定済み半荘✏️編集に点数テンキーを追加（±付き・合計0チェック表示）",
   ]},
   { date:"2026-05-21", features:[
     "外馬：的中ランキングの名前タップで馬券詳細モーダルを表示（日付・ラウンド・馬券種・倍率・賭けチップ・収益を一覧表示、収支サマリーも表示）",
@@ -825,6 +826,7 @@ export default function App() {
   const [memberEditName, setMemberEditName] = useState("");
   const [editKeypadActive, setEditKeypadActive] = useState(null); // "ri-pid"
   const [editChipKeypadActive, setEditChipKeypadActive] = useState(null); // チップ編集用テンキー
+  const [editLiveKeypadActive, setEditLiveKeypadActive] = useState(null); // LIVE編集用テンキー
   const [dashSub, setDashSub] = useState("summary");
   const [showMLeague, setShowMLeague] = useState(false);
   // eslint-disable-next-line no-unused-vars
@@ -1638,7 +1640,11 @@ export default function App() {
 
         {isEditing && (
           <div style={{background:"rgba(52,152,219,0.06)",borderRadius:7,padding:8,marginTop:6}}>
-            <div style={{fontSize:10,color:"#7fb9e0",marginBottom:8}}>📷 写真・🀄 役満・開放立直の追加のみ可能（スコアは変更不可）</div>
+            {(()=>{
+              const total = r.players.reduce((s,pid)=>s+N(r.scores[pid]),0);
+              const isZero = total === 0;
+              return !isZero && <div style={{fontSize:10,color:"#e74c3c",marginBottom:6}}>⚠️ 合計: {total > 0 ? "+" : ""}{total}（0になるよう修正してください）</div>;
+            })()}
             {r.players.map(pid => {
               const m = gm(pid); if (!m) return null;
               const ph = (r.photos?.[pid])||[];
@@ -1646,13 +1652,31 @@ export default function App() {
               const yakumanType = r.yakumanTypes?.[pid]||"";
               const hasOpenRiichi = r.openRiichi && r.openRiichi.includes(pid);
               const hasDealIn = r.dealIn && r.dealIn.includes(pid);
+              const liveKey = `${ri}-${pid}`;
+              const isLiveActive = editLiveKeypadActive === liveKey;
+              const scVal = String(r.scores[pid] ?? "");
               
               return (
                 <div key={pid} style={{background:"rgba(255,255,255,0.04)",borderRadius:6,padding:7,marginBottom:6}}>
                   <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
                     <Av m={m} sz={24}/>
-                    <div style={{fontSize:12,fontWeight:500}}>{m.name}</div>
+                    <div style={{fontSize:12,fontWeight:500,flex:1}}>{m.name}</div>
+                    <div onClick={()=>setEditLiveKeypadActive(isLiveActive?null:liveKey)}
+                      style={{padding:"4px 10px",borderRadius:6,cursor:"pointer",minWidth:60,textAlign:"center",
+                        background:isLiveActive?"rgba(231,76,60,0.12)":"rgba(255,255,255,0.06)",
+                        border:isLiveActive?"1px solid rgba(231,76,60,0.4)":"1px solid rgba(255,255,255,0.1)"}}>
+                      <span style={{fontSize:15,fontWeight:"bold",color:N(scVal)>=0?"#2ecc71":"#e74c3c"}}>
+                        {scVal!==""?(N(scVal)>=0?"+":"")+scVal:"入力"}
+                      </span>
+                    </div>
                   </div>
+                  {isLiveActive && (
+                    <Keypad value={scVal} onChange={val=>{
+                      setAddRounds(prev=>prev.map((rr,idx)=>idx!==ri?rr:{
+                        ...rr, scores:{...rr.scores,[pid]:val}
+                      }));
+                    }}/>
+                  )}
 
                   {/* 写真追加 */}
                   <button onClick={()=>{ setPhotoTgt({t:"cr",ri,id:pid}); fileRef.current.value=""; fileRef.current.click(); }}
