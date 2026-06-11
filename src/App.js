@@ -5676,9 +5676,10 @@ export default function App() {
                         <div style={{display:"flex",gap:8}}>
                           <button style={{...S.bb({opacity:filledCount===4?1:0.4})}} disabled={filledCount!==4} onClick={confirmRound}>✔ この半荘を確定</button>
                           <button style={{...S.bg({background:"rgba(180,180,180,0.15)",color:"#aaa",border:"1px solid rgba(255,255,255,0.15)"})}} onClick={()=>{
-                            if(!window.confirm("この半荘を中止しますか？入力中の内容はリセットされます。")) return;
+                            if(!window.confirm("この半荘を中止しますか？メンバー選択に戻ります。")) return;
                             setRpSc(Object.fromEntries(addSel.map(id=>[id,""])));
                             setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes({}); setRpOpenRiichi([]); setRpDealIn([]); setRpAutoId(null); setRpActive(null); setAddErr("");
+                            setAddSel([]); setAddStep(1);
                           }}>✕ 中止</button>
                         </div>
                       </>
