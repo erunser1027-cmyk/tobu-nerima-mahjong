@@ -16,6 +16,7 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-05-21
 const CHANGELOG = [
   { date:"2026-06-11", features:[
+    "外馬：レーストラックを競馬ゲーム風に全面リニューアル（疾走する馬と騎手のスプライト・スタンド観客・ダートコース・インフィールド着順掲示板・ゴール板）",
     "外馬：三連単を三連複に変更（4人ゲームで3連単は4連単と同義のため・順不同で1〜3位を当てる形式に修正・当選判定・オッズ計算・ラベルすべて更新）",
   ]},
   { date:"2026-06-01", features:[
@@ -410,8 +411,73 @@ function Av({ m, sz, onClick }) {
 
 // Confetti紙吹雪コンポーネント
 // ========================================================
-// 外馬レース：楕円トラックアニメーション
+// 外馬レース：競馬ゲーム風トラックアニメーション v2
 // ========================================================
+// 疾走する馬スプライト（騎手・ゼッケン・ギャロップアニメ付き）
+function HorseSprite({ coat, silk, num, flip, isMine, evType }) {
+  return (
+    <g>
+      {/* 影 */}
+      <ellipse cx="0" cy="9" rx="9" ry="2" fill="rgba(0,0,0,0.28)"/>
+      {/* 自分の馬の金リング */}
+      {isMine && (
+        <ellipse cx="0" cy="9" rx="12" ry="3" fill="none" stroke="#ffd700" strokeWidth="1.2">
+          <animate attributeName="opacity" values="0.9;0.25;0.9" dur="1.2s" repeatCount="indefinite"/>
+        </ellipse>
+      )}
+      {/* 上下バウンド（ギャロップの躍動感） */}
+      <g>
+        <animateTransform attributeName="transform" type="translate" values="0 0;0 -1.4;0 0" dur="0.36s" repeatCount="indefinite"/>
+        {/* 尻尾 */}
+        <path d="M-7.5,-1.5 Q-12,-0.5 -11,4.5" stroke={coat} strokeWidth="1.6" fill="none" strokeLinecap="round"/>
+        {/* 脚（前後ペアが交互にスイング） */}
+        <g stroke={coat} strokeWidth="1.8" strokeLinecap="round" fill="none">
+          <line x1="-5" y1="2" x2="-7.5" y2="8.5">
+            <animateTransform attributeName="transform" type="rotate" values="-24 -5 2;24 -5 2;-24 -5 2" dur="0.36s" repeatCount="indefinite"/>
+          </line>
+          <line x1="-3.8" y1="2" x2="-2" y2="8.5">
+            <animateTransform attributeName="transform" type="rotate" values="20 -3.8 2;-20 -3.8 2;20 -3.8 2" dur="0.36s" repeatCount="indefinite"/>
+          </line>
+          <line x1="4" y1="2" x2="6.5" y2="8.5">
+            <animateTransform attributeName="transform" type="rotate" values="26 4 2;-18 4 2;26 4 2" dur="0.36s" repeatCount="indefinite"/>
+          </line>
+          <line x1="5" y1="2" x2="3.2" y2="8.5">
+            <animateTransform attributeName="transform" type="rotate" values="-18 5 2;26 5 2;-18 5 2" dur="0.36s" repeatCount="indefinite"/>
+          </line>
+        </g>
+        {/* 胴体 */}
+        <ellipse cx="0" cy="0" rx="7.5" ry="3.7" fill={coat}/>
+        {/* 首・頭 */}
+        <path d="M5,-1.8 L9.2,-6.2 Q10.4,-7.4 11.6,-6.4 L13.6,-4.7 Q14.2,-4.2 13.4,-3.7 L10.8,-3 L8.2,1.2 Z" fill={coat}/>
+        {/* たてがみ */}
+        <path d="M5.6,-2.4 Q7.8,-5.8 9.6,-6.6" stroke="#241510" strokeWidth="1.1" fill="none"/>
+        {/* 耳 */}
+        <path d="M9.8,-6.9 l0.6,-1.7 l1,1.2 z" fill={coat}/>
+        {/* ゼッケン（番号は左右反転しても読めるよう打ち消し） */}
+        <rect x="-4.8" y="-2.4" width="5.6" height="4.8" rx="1" fill="#fff" stroke="#333" strokeWidth="0.4"/>
+        <text x={flip === -1 ? 2 : -2} y="1.4" fontSize="4.4" fill="#111" textAnchor="middle" fontWeight="bold" transform={flip === -1 ? "scale(-1,1)" : undefined}>{num}</text>
+        {/* 騎手（勝負服＝レーンカラー） */}
+        <path d="M0.2,-4.6 Q1.8,-3.2 3.4,-4.4 L2.8,-1.6 Q1.4,-0.7 0.4,-1.7 Z" fill={silk}/>
+        <circle cx="1.7" cy="-6.3" r="2" fill={silk} stroke="rgba(0,0,0,0.35)" strokeWidth="0.4"/>
+      </g>
+      {/* ドラマイベント演出 */}
+      {evType === "dash" && (
+        <g stroke="#fff" strokeWidth="0.9" opacity="0.8" strokeLinecap="round">
+          <line x1="-10" y1="-3" x2="-15" y2="-3"/>
+          <line x1="-11" y1="0" x2="-17" y2="0"/>
+          <line x1="-10" y1="3" x2="-15" y2="3"/>
+        </g>
+      )}
+      {evType === "chase" && (
+        <text x={flip === -1 ? 12 : -12} y="-6" fontSize="6" textAnchor="middle" transform={flip === -1 ? "scale(-1,1)" : undefined}>⚡</text>
+      )}
+      {evType === "slow" && (
+        <text x={flip === -1 ? -1 : 1} y="-11" fontSize="6" textAnchor="middle" transform={flip === -1 ? "scale(-1,1)" : undefined}>💤</text>
+      )}
+    </g>
+  );
+}
+
 function RaceTrack({ playingMembers, strengthMap, mySelection, betType }) {
   // 各馬の位置（0〜1の周回進度、1で1周）
   const [positions, setPositions] = useState(() =>
@@ -479,158 +545,179 @@ function RaceTrack({ playingMembers, strengthMap, mySelection, betType }) {
     return () => cancelAnimationFrame(raf);
   }, [playingMembers, strengthMap, baseProgressPerFrame]);
 
-  // 楕円トラック：cx=140, cy=70, rx=110, ry=45
-  const cx = 140, cy = 70, rx = 110, ry = 45;
-  // 馬を異なる半径のレーン上に配置（内側〜外側 4レーン）
+  // トラックジオメトリ
+  const cx = 140, cy = 104, rx = 96, ry = 30;
+  // 4レーン（外側ほど半径大、縦方向は0.55倍で奥行き感）
   const laneOffsets = [0, 7, 14, 21];
 
   // 自分が賭けた馬のID
   const myHorseIds = betType ? mySelection : [];
+  const silks = ["#e74c3c","#3498db","#2ecc71","#f1c40f"];
+  const coats = ["#7B4B2A","#4E342E","#9C6B45","#33231B"];
+
+  // 各馬の描画パラメータ（位置・進行方向への向き）
+  const horseDraw = playingMembers.map((m, i) => {
+    const angle = positions[i] * Math.PI * 2 - Math.PI / 2;
+    const hRx = rx + laneOffsets[i];
+    const hRy = ry + laneOffsets[i] * 0.55;
+    const x = cx + hRx * Math.cos(angle);
+    const y = cy + hRy * Math.sin(angle);
+    // 進行方向ベクトル → 左右反転と傾き
+    const dx = -hRx * Math.sin(angle);
+    const dy = hRy * Math.cos(angle);
+    const flip = dx >= 0 ? 1 : -1;
+    let tilt = Math.atan2(dy, dx) * 180 / Math.PI;
+    if (flip === -1) tilt -= 180;
+    if (tilt > 180) tilt -= 360;
+    if (tilt < -180) tilt += 360;
+    tilt = Math.max(-24, Math.min(24, tilt));
+    return { m, i, x, y, flip, tilt };
+  });
+  // 手前の馬を前面に描画
+  const renderOrder = [...horseDraw].sort((a, b) => a.y - b.y);
+
+  // 現在の着順（進捗順）
+  const ranks = positions.map((p, idx) => ({ idx, p })).sort((a, b) => b.p - a.p);
+
+  // 観客（初回マウント時に固定生成・毎フレーム変わらない）
+  const crowd = useRef(Array.from({ length: 56 }, (_, k) => ({
+    x: 36 + (k % 28) * 7.4 + ((k * 7) % 5),
+    y: 30 + Math.floor(k / 28) * 8 + ((k * 13) % 4),
+    c: ["#ffadad","#ffd6a5","#fdffb6","#caffbf","#9bf6ff","#a0c4ff","#bdb2ff","#ffc6ff","#fffffc"][k % 9]
+  }))).current;
 
   return (
     <div style={{
-      background:"linear-gradient(180deg, #87CEEB 0%, #90EE90 40%, #228B22 100%)",
+      background:"#0d1b2a",
       border:"1px solid rgba(255,255,255,0.15)", borderRadius:10,
-      padding:"8px", marginBottom:10, position:"relative", overflow:"hidden"
+      padding:"6px 6px 4px", marginBottom:10, overflow:"hidden"
     }}>
-      {/* 競馬場背景イラスト */}
-      <svg style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",zIndex:0}} viewBox="0 0 280 140" preserveAspectRatio="none">
-        {/* 太陽 */}
-        <circle cx="240" cy="20" r="15" fill="#FFD700" opacity="0.8"/>
-        
-        {/* 雲 */}
-        <ellipse cx="50" cy="15" rx="20" ry="8" fill="#FFF" opacity="0.6"/>
-        <ellipse cx="65" cy="12" rx="15" ry="6" fill="#FFF" opacity="0.6"/>
-        <ellipse cx="210" cy="25" rx="18" ry="7" fill="#FFF" opacity="0.5"/>
-        <ellipse cx="225" cy="22" rx="14" ry="5" fill="#FFF" opacity="0.5"/>
-        
-        {/* スタンド（観客席） */}
-        <g opacity="0.5">
-          {/* 左スタンド */}
-          <polygon points="10,80 20,50 35,55 25,85" fill="#6B4423"/>
-          <polygon points="20,80 32,48 45,54 35,85" fill="#8B5A3C"/>
-          <polygon points="32,80 43,48 56,54 46,85" fill="#6B4423"/>
-          
-          {/* 右スタンド */}
-          <polygon points="245,80 255,50 270,55 260,85" fill="#6B4423"/>
-          <polygon points="235,80 248,48 260,54 248,85" fill="#8B5A3C"/>
-          <polygon points="223,80 236,48 248,54 237,85" fill="#6B4423"/>
-        </g>
-        
-        {/* 観客シルエット */}
-        <g fill="#000" opacity="0.15">
-          <circle cx="15" cy="65" r="2"/>
-          <circle cx="25" cy="70" r="2"/>
-          <circle cx="35" cy="68" r="2"/>
-          <circle cx="42" cy="72" r="2"/>
-          <circle cx="250" cy="65" r="2"/>
-          <circle cx="260" cy="70" r="2"/>
-          <circle cx="270" cy="68" r="2"/>
-          <circle cx="235" cy="72" r="2"/>
-        </g>
-        
-        {/* フェンス */}
-        <rect x="0" y="115" width="280" height="2" fill="#8B4513" opacity="0.7"/>
-        <line x1="0" y1="110" x2="280" y2="110" stroke="#A0522D" strokeWidth="1" opacity="0.5"/>
-      </svg>
-      
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4,padding:"0 4px",position:"relative",zIndex:1}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4,padding:"0 4px"}}>
         <div style={{fontSize:10,color:"#aaa"}}>🏇 レース実況中継</div>
         <div style={{fontSize:9,color:"#888",display:"flex",alignItems:"center",gap:4}}>
           <span style={{width:5,height:5,borderRadius:"50%",background:"#e74c3c",animation:"pulse 1.5s infinite"}}/>
           LIVE
         </div>
       </div>
-      <svg viewBox="0 0 280 140" style={{width:"100%",height:"auto",display:"block",position:"relative",zIndex:1}}>
-        {/* 楕円トラック（外） */}
-        <ellipse cx={cx} cy={cy} rx={rx+24} ry={ry+24}
-          fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="1"/>
-        {/* 楕円トラック（内） */}
-        <ellipse cx={cx} cy={cy} rx={rx-4} ry={ry-4}
-          fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="1"/>
-        {/* レーン線（4本） */}
-        {laneOffsets.map((o, i) => (
-          <ellipse key={i} cx={cx} cy={cy} rx={rx+o} ry={ry+o}
-            fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="0.5" strokeDasharray="2,2"/>
-        ))}
+      <svg viewBox="0 0 280 168" style={{width:"100%",height:"auto",display:"block",borderRadius:6}}>
+        <defs>
+          <linearGradient id="rtSky" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#3D8FD1"/>
+            <stop offset="100%" stopColor="#BFE3F7"/>
+          </linearGradient>
+          <linearGradient id="rtGrass" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#79B244"/>
+            <stop offset="100%" stopColor="#3E7222"/>
+          </linearGradient>
+          <linearGradient id="rtDirt" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#D9B57C"/>
+            <stop offset="100%" stopColor="#B98F55"/>
+          </linearGradient>
+          <radialGradient id="rtSun" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#FFF7C0"/>
+            <stop offset="60%" stopColor="#FFE066"/>
+            <stop offset="100%" stopColor="rgba(255,224,102,0)"/>
+          </radialGradient>
+        </defs>
 
-        {/* ゴールライン（楕円コース中央下を縦に貫く） */}
+        {/* 空・太陽・雲 */}
+        <rect x="0" y="0" width="280" height="64" fill="url(#rtSky)"/>
+        <circle cx="248" cy="16" r="16" fill="url(#rtSun)"/>
+        <circle cx="248" cy="16" r="7" fill="#FFEE99"/>
+        <g fill="#fff" opacity="0.85">
+          <animateTransform attributeName="transform" type="translate" values="0 0;10 0;0 0" dur="40s" repeatCount="indefinite"/>
+          <ellipse cx="46" cy="13" rx="14" ry="5"/>
+          <ellipse cx="58" cy="10" rx="10" ry="4"/>
+          <ellipse cx="186" cy="18" rx="12" ry="4.5"/>
+          <ellipse cx="196" cy="15" rx="8" ry="3.5"/>
+        </g>
+
+        {/* メインスタンド（屋根・観客・窓） */}
+        <g>
+          <polygon points="22,26 258,26 246,16 34,16" fill="#C8C0B0"/>
+          <rect x="22" y="24" width="236" height="3" fill="#A89F8C"/>
+          <rect x="28" y="26" width="224" height="38" fill="#E8E2D6"/>
+          <rect x="28" y="26" width="224" height="20" fill="#3E4A5A"/>
+          {crowd.map((c, k) => (
+            <circle key={k} cx={c.x} cy={c.y} r="1.7" fill={c.c} opacity="0.9"/>
+          ))}
+          {Array.from({length:13}).map((_, k) => (
+            <rect key={k} x={34 + k * 17} y="48" width="9" height="14" fill="#7D7464" opacity="0.65"/>
+          ))}
+          <text x="140" y="61" fontSize="6" fill="#5d544a" textAnchor="middle" fontWeight="bold" letterSpacing="2">TOBU NERIMA RACECOURSE</text>
+        </g>
+
+        {/* 芝生エリア */}
+        <rect x="0" y="64" width="280" height="104" fill="url(#rtGrass)"/>
+        <g fill="#2E5D1A">
+          <ellipse cx="14" cy="70" rx="13" ry="5"/>
+          <ellipse cx="266" cy="70" rx="13" ry="5"/>
+        </g>
+
+        {/* ダートコース */}
+        <ellipse cx={cx} cy={cy} rx={rx + 29} ry={ry + 24} fill="url(#rtDirt)"/>
+        <ellipse cx={cx} cy={cy} rx={rx + 29} ry={ry + 24} fill="none" stroke="#8a6a3c" strokeWidth="1"/>
+        {/* レーン区切り（破線） */}
+        {[3.5, 10.5, 17.5].map((o, k) => (
+          <ellipse key={k} cx={cx} cy={cy} rx={rx + o} ry={ry + o * 0.55} fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="0.5" strokeDasharray="3,3"/>
+        ))}
+        {/* 白ラチ（内・外） */}
+        <ellipse cx={cx} cy={cy} rx={rx + 27} ry={ry + 22} fill="none" stroke="#fff" strokeWidth="1.2" opacity="0.9"/>
+        <ellipse cx={cx} cy={cy} rx={rx - 8} ry={ry - 8} fill="none" stroke="#fff" strokeWidth="1.4" opacity="0.95"/>
+
+        {/* インフィールド（池・木・着順掲示板） */}
+        <ellipse cx={cx} cy={cy} rx={rx - 9} ry={ry - 9} fill="#5FA838"/>
+        <ellipse cx={cx} cy={cy} rx={rx - 9} ry={ry - 9} fill="none" stroke="#4a8a2a" strokeWidth="1"/>
+        <ellipse cx={cx - 52} cy={cy + 4} rx="13" ry="4.5" fill="#5BB8E8" stroke="#3E92C0" strokeWidth="0.8"/>
+        {[[cx + 40, cy + 3], [cx + 54, cy + 7], [cx + 47, cy - 3]].map(([tx, ty], k) => (
+          <g key={k}>
+            <rect x={tx - 1} y={ty} width="2" height="5" fill="#6D4C2F"/>
+            <circle cx={tx} cy={ty - 2.5} r="4.5" fill="#2F6B1E"/>
+            <circle cx={tx - 2.5} cy={ty - 0.5} r="3" fill="#3B7D27"/>
+          </g>
+        ))}
+        {/* 着順掲示板（リアルタイム更新） */}
+        <g>
+          <rect x={cx - 31} y={cy - 15} width="62" height="22" rx="2" fill="#101820" stroke="#2c3a48" strokeWidth="1"/>
+          <text x={cx} y={cy - 8.5} fontSize="5" fill="#9fb4c8" textAnchor="middle">着 順</text>
+          {ranks.map((r, k) => (
+            <g key={k}>
+              <rect x={cx - 26 + k * 13} y={cy - 5} width="10" height="9" rx="1.5" fill={silks[r.idx]}/>
+              <text x={cx - 21 + k * 13} y={cy + 1.8} fontSize="6" fill="#fff" textAnchor="middle" fontWeight="bold">{r.idx + 1}</text>
+            </g>
+          ))}
+        </g>
+
+        {/* ゴール板（市松模様）＋GOAL看板 */}
         {(() => {
-          const gx = cx;                    // x=140 中央
-          // cy=70, ry=45 → 楕円の最下端=115、外側レーン(offset=21)の最下端=136
-          const gTop = cy + ry + 2;         // コース内側下端より少し下
-          const gBot = cy + ry + 30;        // 外側レーンを確実に越える
-          const lineH = 6;
-          const lineW = 5;
-          const squares = Math.ceil((gBot - gTop) / lineH);
+          const gTop = cy + (ry - 8) + 1;
+          const gBot = cy + (ry + 22) - 1;
+          const sq = 4;
+          const n = Math.ceil((gBot - gTop) / sq);
           return (
             <g>
-              {Array.from({length: squares}).map((_, i) => (
-                <rect key={i}
-                  x={gx - lineW / 2} y={gTop + i * lineH}
-                  width={lineW} height={lineH}
-                  fill={i % 2 === 0 ? "#fff" : "#222"}
-                  opacity="0.95"/>
+              {Array.from({length: n}).map((_, k) => (
+                <g key={k}>
+                  <rect x={cx - 3} y={gTop + k * sq} width="3" height={sq} fill={k % 2 === 0 ? "#fff" : "#111"}/>
+                  <rect x={cx} y={gTop + k * sq} width="3" height={sq} fill={k % 2 === 0 ? "#111" : "#fff"}/>
+                </g>
               ))}
+              <rect x={cx - 9} y={gBot + 1} width="18" height="7" rx="1" fill="#C0392B"/>
+              <text x={cx} y={gBot + 6.2} fontSize="4.6" fill="#fff" textAnchor="middle" fontWeight="bold">GOAL</text>
             </g>
           );
         })()}
 
-        {/* 現在の着順表示（進捗順に着番を計算） */}
-        {playingMembers.map((m, i) => {
-          const angle = positions[i] * Math.PI * 2 - Math.PI/2;
-          const horseRx = rx + laneOffsets[i];
-          const horseRy = ry + laneOffsets[i];
-          const x = cx + horseRx * Math.cos(angle);
-          const y = cy + horseRy * Math.sin(angle);
-          
-          // 現在の周回進度でソートして着順を算出
-          const positionsArray = positions.map((p, idx) => ({ idx, pos: p }));
-          const sorted = [...positionsArray].sort((a, b) => b.pos - a.pos); // 進捗が大きい順
-          const currentRank = sorted.findIndex(s => s.idx === i) + 1;
-          
+        {/* 馬（手前を前面に重ね描画・進行方向に向きと傾き） */}
+        {renderOrder.map(h => {
+          const ev = eventRefs.current[h.i] || {type:"normal"};
           return (
-            <text key={`rank-${m.id}`} x={x} y={y-12} fontSize="8" fill="#fff" textAnchor="middle" fontWeight="bold"
-              style={{background:"rgba(0,0,0,0.5)",textShadow:"0 0 3px rgba(0,0,0,0.8)"}}>
-              {currentRank}着
-            </text>
-          );
-        })}
-
-        {/* 馬 */}
-        {playingMembers.map((m, i) => {
-          // 0=スタートライン（楕円の右端）から時計回り風（実は反時計回り）
-          const angle = positions[i] * Math.PI * 2 - Math.PI/2; // 上から開始
-          const horseRx = rx + laneOffsets[i];
-          const horseRy = ry + laneOffsets[i];
-          const x = cx + horseRx * Math.cos(angle);
-          const y = cy + horseRy * Math.sin(angle);
-          const colors = ["#e74c3c","#3498db","#2ecc71","#f1c40f"];
-          const isMine = myHorseIds.includes(m.id);
-          const ev = eventRefs.current[i];
-          return (
-            <g key={m.id} transform={`translate(${x},${y})`}>
-              {/* 自分の馬は光るリング */}
-              {isMine && (
-                <circle cx="0" cy="0" r="9"
-                  fill="none" stroke="#ffd700" strokeWidth="1.2"
-                  opacity="0.8">
-                  <animate attributeName="r" values="9;12;9" dur="1.2s" repeatCount="indefinite"/>
-                  <animate attributeName="opacity" values="0.9;0.3;0.9" dur="1.2s" repeatCount="indefinite"/>
-                </circle>
-              )}
-              <circle cx="0" cy="0" r="7" fill={colors[i]} stroke="#fff" strokeWidth="1"/>
-              <text x="0" y="2.5" fontSize="7" fill="#fff" textAnchor="middle" fontWeight="bold">{i+1}</text>
-              {/* イベント表示 */}
-              {ev.type === "dash" && (
-                <text x="0" y="-9" fontSize="6" fill="#f39c12" textAnchor="middle">💨</text>
-              )}
-              {ev.type === "chase" && (
-                <text x="0" y="-9" fontSize="6" fill="#3498db" textAnchor="middle">⚡</text>
-              )}
-              {ev.type === "slow" && (
-                <text x="0" y="-9" fontSize="6" fill="#888" textAnchor="middle">💤</text>
-              )}
+            <g key={h.m.id} transform={`translate(${h.x},${h.y}) rotate(${h.tilt}) scale(${h.flip},1)`}>
+              <HorseSprite
+                coat={coats[h.i]} silk={silks[h.i]} num={h.i + 1}
+                flip={h.flip}
+                isMine={myHorseIds.includes(h.m.id)}
+                evType={ev.type}/>
             </g>
           );
         })}
