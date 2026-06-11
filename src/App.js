@@ -15,6 +15,9 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 更新履歴 - 新しい機能は必ず今日の日付で追加してください
 // 今日: 2026-05-21
 const CHANGELOG = [
+  { date:"2026-06-11", features:[
+    "外馬：三連単を三連複に変更（4人ゲームで3連単は4連単と同義のため・順不同で1〜3位を当てる形式に修正・当選判定・オッズ計算・ラベルすべて更新）",
+  ]},
   { date:"2026-06-01", features:[
     "バグ修正：観覧者が新規でページを開いたときLIVE状態・スコアが表示されない問題を修正（drafts取得の.single()エラーが原因）",
     "半荘入力中に「✕ 中止」ボタンを追加（確定ボタン隣・確認ダイアログ付き・入力リセットしてLIVE継続）",
@@ -373,11 +376,11 @@ function calcUmarenOdds(idA, idB, tanshoOdds) {
   return Math.max(2.0, Math.min(15.0, Math.round(raw * 10) / 10));
 }
 
-// 三連単オッズ：単勝オッズの幾何平均ベース、上限25倍
-function calcSanrentanOdds(id1, id2, id3, tanshoOdds) {
+// 三連複オッズ：単勝オッズの幾何平均ベース、上限18倍（順不同のため倍率低め）
+function calcSanrenpukuOdds(id1, id2, id3, tanshoOdds) {
   const avgOdds = Math.pow(tanshoOdds[id1] * tanshoOdds[id2] * tanshoOdds[id3], 1/3);
-  const raw = avgOdds * 3.5;
-  return Math.max(5.0, Math.min(25.0, Math.round(raw * 10) / 10));
+  const raw = avgOdds * 2.8;
+  return Math.max(3.0, Math.min(18.0, Math.round(raw * 10) / 10));
 }
 
 // 四連単オッズ：単勝オッズの幾何平均ベース、上限35倍
@@ -1004,7 +1007,7 @@ export default function App() {
       let isHit = false;
       if(b.bet_type === "tansho") isHit = sel[0] === actualResult[0];
       else if(b.bet_type === "umaren") isHit = (sel[0]===actualResult[0]&&sel[1]===actualResult[1])||(sel[0]===actualResult[1]&&sel[1]===actualResult[0]);
-      else if(b.bet_type === "sanrentan") isHit = sel[0]===actualResult[0]&&sel[1]===actualResult[1]&&sel[2]===actualResult[2];
+      else if(b.bet_type === "sanrenpuku") isHit = [actualResult[0],actualResult[1],actualResult[2]].every(r=>sel.includes(r))&&sel.every(s=>[actualResult[0],actualResult[1],actualResult[2]].includes(s));
       else if(b.bet_type === "yonrentan") isHit = sel[0]===actualResult[0]&&sel[1]===actualResult[1]&&sel[2]===actualResult[2]&&sel[3]===actualResult[3];
       const payout = isHit ? Number(b.odds) : 0;
       return {...b, actual_result: actualResult, is_hit: isHit, payout};
@@ -1420,7 +1423,7 @@ export default function App() {
           let isHit = false;
           if(b.bet_type==="tansho") isHit = sel[0]===actualResult[0];
           else if(b.bet_type==="umaren") isHit=(sel[0]===actualResult[0]&&sel[1]===actualResult[1])||(sel[0]===actualResult[1]&&sel[1]===actualResult[0]);
-          else if(b.bet_type==="sanrentan") isHit=sel[0]===actualResult[0]&&sel[1]===actualResult[1]&&sel[2]===actualResult[2];
+          else if(b.bet_type==="sanrenpuku") isHit=[actualResult[0],actualResult[1],actualResult[2]].every(r=>sel.includes(r))&&sel.every(s=>[actualResult[0],actualResult[1],actualResult[2]].includes(s));
           else if(b.bet_type==="yonrentan") isHit=sel[0]===actualResult[0]&&sel[1]===actualResult[1]&&sel[2]===actualResult[2]&&sel[3]===actualResult[3];
           const payout = isHit ? Number(b.odds) : 0;
           allScored.push({...b, actual_result: actualResult, is_hit: isHit, payout});
@@ -4126,7 +4129,7 @@ export default function App() {
                 const BET_TYPES = [
                   { key:"tansho",    label:"単勝",    desc:"1位を当てる", picks:1 },
                   { key:"umaren",    label:"馬連",    desc:"1・2位（順不同）", picks:2 },
-                  { key:"sanrentan", label:"三連単",  desc:"1〜3位を順番通り", picks:3 },
+                  { key:"sanrenpuku", label:"三連複",  desc:"1〜3位を順不同で", picks:3 },
                   { key:"yonrentan", label:"四連単",  desc:"全順位を順番通り", picks:4 },
                 ];
 
@@ -4166,7 +4169,7 @@ export default function App() {
                 if(selectionsValid && tanshoOdds) {
                   if(raceBetType==="tansho")   currentOdds = tanshoOdds[raceSelection[0]];
                   else if(raceBetType==="umaren")    currentOdds = calcUmarenOdds(raceSelection[0], raceSelection[1], tanshoOdds);
-                  else if(raceBetType==="sanrentan") currentOdds = calcSanrentanOdds(raceSelection[0], raceSelection[1], raceSelection[2], tanshoOdds);
+                  else if(raceBetType==="sanrenpuku") currentOdds = calcSanrenpukuOdds(raceSelection[0], raceSelection[1], raceSelection[2], tanshoOdds);
                   else if(raceBetType==="yonrentan") currentOdds = calcYonrentanOdds(raceSelection[0], raceSelection[1], raceSelection[2], raceSelection[3], tanshoOdds);
                 }
 
@@ -4505,7 +4508,7 @@ export default function App() {
                             const bPayout = Number(b.bet_amount || 1) * Number(b.odds || 1);
                             return bPayout - aPayout;
                           });
-                          const betTypeLabel = (k) => ({tansho:"単勝",umaren:"馬連",sanrentan:"三連単",yonrentan:"四連単"})[k] || k;
+                          const betTypeLabel = (k) => ({tansho:"単勝",umaren:"馬連",sanrenpuku:"三連複",yonrentan:"四連単"})[k] || k;
                           const joinSep = (k) => k === "umaren" ? "," : "→";
                           return (
                             <div style={{...S.card({background:"rgba(52,152,219,0.06)",border:"1px solid rgba(52,152,219,0.25)"}),padding:"10px 12px",marginBottom:10}}>
@@ -4820,7 +4823,7 @@ export default function App() {
                     {raceBetDetailId !== null && (() => {
                       const m = gm(raceBetDetailId);
                       if (!m) return null;
-                      const betTypeLabelLocal = (k) => ({tansho:"単勝",umaren:"馬連",sanrentan:"三連単",yonrentan:"四連単"})[k] || k;
+                      const betTypeLabelLocal = (k) => ({tansho:"単勝",umaren:"馬連",sanrenpuku:"三連複",yonrentan:"四連単"})[k] || k;
                       const myBets = raceBets
                         .filter(b => Number(b.bettor_id) === Number(raceBetDetailId) && b.is_hit !== null)
                         .sort((a, b) => {
