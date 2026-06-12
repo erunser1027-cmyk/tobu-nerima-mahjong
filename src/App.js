@@ -16,6 +16,7 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-05-21
 const CHANGELOG = [
   { date:"2026-06-11", features:[
+    "メインメニューに📖麻雀基礎講座ボタンを追加（大会モード右隣・別タブでhttps://nerima-night-crew.com/mahjong/を開く）",
     "外馬：レーストラックを競馬ゲーム風に全面リニューアル（疾走する馬と騎手のスプライト・スタンド観客・ダートコース・インフィールド着順掲示板・ゴール板）",
     "外馬：三連単を三連複に変更（4人ゲームで3連単は4連単と同義のため・順不同で1〜3位を当てる形式に修正・当選判定・オッズ計算・ラベルすべて更新）",
   ]},
@@ -2252,7 +2253,7 @@ export default function App() {
           </div>
         )}
         <div style={{marginLeft:"auto",display:"flex",gap:3,flexWrap:"wrap",justifyContent:"flex-end"}}>
-          {[["dashboard","📊"],["calendar","🗓"],["history","📅"],["skull","💀"],["sotoba","🏇"],["hilo","🃏"],["taikai","🎌"],["add","➕"],["members","👥"]].map(([t,l])=>{
+          {[["dashboard","📊"],["calendar","🗓"],["history","📅"],["skull","💀"],["sotoba","🏇"],["hilo","🃏"],["taikai","🎌"],["guide","📖"],["add","➕"],["members","👥"]].map(([t,l])=>{
             const isActive = t==="sotoba"
               ? (tab==="dashboard" && dashSub==="sotoba")
               : t==="hilo"
@@ -2262,6 +2263,7 @@ export default function App() {
               <button key={t} onClick={()=>{
                 if(t==="sotoba"){ setTab("dashboard"); setDashSub("sotoba"); }
                 else if(t==="hilo"){ setTab("dashboard"); setDashSub("hilo"); }
+                else if(t==="guide"){ window.open("https://nerima-night-crew.com/mahjong/","_blank","noopener,noreferrer"); }
                 else { setTab(t); if(t==="dashboard" && (dashSub==="sotoba" || dashSub==="hilo")) setDashSub("summary"); }
               }} style={S.nav(isActive)}>
                 {t==="sotoba" && addStep===2 && <span style={{position:"absolute",marginLeft:14,marginTop:-8,width:7,height:7,borderRadius:"50%",background:"#e74c3c",animation:"pulse 1s infinite",display:"inline-block"}}/>}
