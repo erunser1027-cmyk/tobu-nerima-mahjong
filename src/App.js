@@ -16,6 +16,8 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-07-03
 const CHANGELOG = [
   { date:"2026-07-03", features:[
+    "MBTI診断：診断完了時に「answers.reduce is not a function」で必ずクラッシュしていた不具合を修正（ハッシュ値シード計算がanswersをオブジェクトでなく配列として扱っていたことが原因）",
+    "MBTI診断：赤ドラ・リーチをテーマにした設問を4軸各1問ずつ追加し、全28問→全32問に拡張（局面18問＋お題14問）。手牌に赤5を表示するakaTiles対応も追加",
     "MBTI診断：診断結果をLINEでシェアするボタンを追加（対応端末では画像付き共有シート、非対応環境ではLINEのテキスト共有にフォールバック）",
     "MBTI診断：カード画像に既に焼き込まれているキャラ名・レア度バッジとアプリ側テキストの二重表示を解消（キャラ名・レア度バッジのテキストを削除、タイプ名見出しは維持）",
     "MBTI診断：キャラ画像のリサイズ方式をクロップから「縦横比保持の縮小＋透明パディング」に変更（顔や頭部が切れる問題を解消・32枚全て再処理）",
@@ -473,7 +475,7 @@ function MbtiTile({ code, w=40, dora=false, aka=false }) {
   );
 }
 
-// 全28問  side= E/I/S/N/T/F/J/P
+// 全32問  side= E/I/S/N/T/F/J/P
 const MBTI_QUESTIONS = [
   /* ===== S/N（現実 ⇄ 流れ） 7問 ===== */
   { axis:"SN", tag:"現実 ⇄ 流れ", basis:"デジタル(即・和了率) ⇄ 打点/展開",
@@ -515,6 +517,12 @@ const MBTI_QUESTIONS = [
     prompt:"大事な決断。最後に頼るのは、どっち？",
     left:{label:"情報と計算",sub:"根拠を積み上げて決める",side:"S"},
     right:{label:"直感と勢い",sub:"その時の流れに乗る",side:"N"} },
+  { axis:"SN", tag:"赤ドラ ⇄ 打点期待", basis:"愚形でも先制リーチ(S) ⇄ 赤5を活かす好形変化待ち(N)",
+    meta:"南2局 ・ 6巡目 ・ 子 ・ カンチャン待ちに赤5あり",
+    hand:["2m","3m","4m","6m","7m","8m","1p","2p","5p","2s","4s","6s","7s"], doraTiles:[], akaTiles:["5p"],
+    prompt:"赤5(赤ドラ)を使ったカンチャン待ち。愚形だが打点は十分。どうする？",
+    left:{label:"即リーチ",sub:"待ちは悪いが赤で打点は確保",side:"S"},
+    right:{label:"好形への変化を待つ",sub:"赤を活かしつつ広い待ちを狙う",side:"N"} },
 
   /* ===== T/F（損得 ⇄ こだわり） 7問 ===== */
   { axis:"TF", tag:"損得 ⇄ こだわり", basis:"期待値(デジタル) ⇄ 勝負師の気迫",
@@ -556,6 +564,11 @@ const MBTI_QUESTIONS = [
     prompt:"大きな選択、優先するのはどっち？",
     left:{label:"損得・合理",sub:"得か損かで判断する",side:"T"},
     right:{label:"想い・こだわり",sub:"譲れない気持ちで決める",side:"F"} },
+  { axis:"TF", tag:"損得 ⇄ 気遣い", basis:"期待値重視のリーチ(T) ⇄ 相手を思ってのダマ(F)",
+    meta:"オーラス ・ 8巡目 ・ 親 ・ 大差のトップ目で赤5切ればリーチ可能", hand:null,
+    prompt:"オーラス、既に大差のトップ。赤5を切ればリーチできる。あなたは？",
+    left:{label:"迷わずリーチ",sub:"最大価値を追求するのが筋",side:"T"},
+    right:{label:"ダマで静かに終える",sub:"これ以上の失点は誰も望んでいない",side:"F"} },
 
   /* ===== J/P（決め打ち ⇄ 柔軟） 7問 ===== */
   { axis:"JP", tag:"決め打ち ⇄ 柔軟", basis:"役狙い(計画) ⇄ 手なり(柔軟)",
@@ -597,6 +610,12 @@ const MBTI_QUESTIONS = [
     prompt:"物事の進め方、近いのは？",
     left:{label:"計画を立てて",sub:"決めた道を着実に進む",side:"J"},
     right:{label:"流れに任せて",sub:"状況を見て柔軟に動く",side:"P"} },
+  { axis:"JP", tag:"決め打ち ⇄ 柔軟", basis:"今すぐリーチで確定(J) ⇄ 赤引き込みに賭けて手を進化(P)",
+    meta:"東4局 ・ 7巡目 ・ 子 ・ 今リーチ可能、待てば赤5活用の好形も",
+    hand:["1m","2m","3m","5m","6m","7m","3p","4p","5p","7s","8s","9s","9s"], doraTiles:[],
+    prompt:"今すぐリーチできる形。だがもう一巡待てば赤5を活かした好形に化ける未来も見える。どうする？",
+    left:{label:"今すぐリーチ",sub:"形を決めて前進あるのみ",side:"J"},
+    right:{label:"一旦様子見",sub:"赤を引き込む可能性に賭ける",side:"P"} },
 
   /* ===== E/I（場読み ⇄ 没入） 7問 ===== */
   { axis:"EI", tag:"場読み ⇄ 没入", basis:"相手を読む(アナログ) ⇄ 自分の手(デジタル)",
@@ -638,6 +657,11 @@ const MBTI_QUESTIONS = [
     prompt:"力が湧いてくるのは、どっち？",
     left:{label:"人と関わる時",sub:"周りとの掛け合いで乗る",side:"E"},
     right:{label:"一人で集中する時",sub:"自分の世界に入り込む",side:"I"} },
+  { axis:"EI", tag:"場読み ⇄ 没入", basis:"他家の気配で判断(E) ⇄ 自分の手牌だけで判断(I)",
+    meta:"南1局 ・ 9巡目 ・ 上家の様子が怪しい ・ 赤5切りでリーチ可能", hand:null,
+    prompt:"赤5を切ればリーチできる。だが上家の捨て牌が急に慎重になった。あなたは？",
+    left:{label:"上家を警戒して一旦様子見",sub:"場の気配を最優先",side:"E"},
+    right:{label:"気にせずリーチ",sub:"自分の手の価値を信じる",side:"I"} },
 ];
 
 const MBTI_LEANS = [{v:-2,label:"迷わず"},{v:-1,label:"やや"},{v:1,label:"やや"},{v:2,label:"迷わず"}];
@@ -722,7 +746,8 @@ function mbtiTally(answers){
     t[side]=(t[side]||0)+Math.abs(v);
   });
   // 回答パターンからハッシュ値を生成（確定的な乱数シード：同じ回答なら常に同じ結果になる）
-  const answerHash = answers.reduce((h,a,i)=>h+(a||0)*Math.pow(7,i), 0);
+  // answersは配列ではなく{idx: -2|-1|1|2}形式のオブジェクトのためObject.keysで走査する
+  const answerHash = Object.keys(answers).reduce((h,key)=>h+(answers[key]||0)*Math.pow(7,Number(key)), 0);
   const seededRandom = (seed) => {
     const x = Math.sin(seed) * 10000;
     return x - Math.floor(x);
@@ -1261,19 +1286,19 @@ function MbtiQuiz({ onFinish, onCancel }) {
       <div style={{textAlign:"center", paddingTop:10}}>
         <div style={{fontFamily:MBTI_FONT_MIN, color:MBTI_C.brass, letterSpacing:6, fontSize:12}}>東武練馬Tリーグ 公認</div>
         <h1 style={{fontFamily:MBTI_FONT_MIN, fontSize:30, fontWeight:700, margin:"14px 0 6px", lineHeight:1.3}}>雀 打 診 断</h1>
-        <div style={{color:MBTI_C.mute, fontSize:13}}>全28問で、あなたの16タイプを。</div>
+        <div style={{color:MBTI_C.mute, fontSize:13}}>全32問で、あなたの16タイプを。</div>
         <div style={{display:"flex", flexWrap:"nowrap", gap:5, justifyContent:"center", margin:"22px 0 22px"}}>
           {["1m","5p","發","中"].map((c,i)=>(<MbtiTile key={i} code={c} w={44}/>))}
         </div>
         <p style={{color:"#D8CDB4", fontSize:13.5, lineHeight:1.9, textAlign:"left"}}>
           麻雀界で実際に使われる打ち手の分類（デジタル/アナログ、攻撃/守備）を土台に、
-          4つの軸を測ります。局面16問＋お題12問。正解はありません。感覚で。
+          4つの軸を測ります。局面18問＋お題14問。正解はありません。感覚で。
         </p>
         <button onClick={()=>setStage("quiz")}
           style={{marginTop:20, width:"100%", padding:"15px", background:MBTI_C.red, color:"#fff",
             border:"none", borderRadius:10, fontSize:16, fontWeight:700, fontFamily:MBTI_FONT_MIN,
             letterSpacing:2, cursor:"pointer", boxShadow:"0 4px 0 #7f2820"}}>
-          はじめる（全28問）
+          はじめる（全32問）
         </button>
         {onCancel && (
           <button onClick={onCancel}
@@ -1303,7 +1328,7 @@ function MbtiQuiz({ onFinish, onCancel }) {
         <>
           <div style={{margin:"16px 0 8px", padding:"18px 8px", background:"rgba(0,0,0,.16)", borderRadius:12,
             border:"1px solid rgba(0,0,0,.25)", display:"flex", flexWrap:"nowrap", gap:3, justifyContent:"center"}}>
-            {q.hand.map((c,i)=>(<MbtiTile key={i} code={c} w={40} dora={q.doraTiles && q.doraTiles.includes(c)}/>))}
+            {q.hand.map((c,i)=>(<MbtiTile key={i} code={c} w={40} dora={q.doraTiles && q.doraTiles.includes(c)} aka={q.akaTiles && q.akaTiles.includes(c)}/>))}
           </div>
           <p style={{fontFamily:MBTI_FONT_MIN, fontSize:17, textAlign:"center", lineHeight:1.7, margin:"16px 6px 22px"}}>{q.prompt}</p>
         </>
@@ -6992,7 +7017,7 @@ export default function App() {
                 <div style={{fontSize:40,marginBottom:8}}>🎴</div>
                 <div style={{fontSize:15,fontWeight:600,marginBottom:6}}>麻雀MBTI診断</div>
                 <div style={{fontSize:12,color:"#aaa",marginBottom:16,lineHeight:1.6}}>
-                  全28問に答えて、あなたの雀風タイプをドラゴンボールキャラで診断！
+                  全32問に答えて、あなたの雀風タイプをドラゴンボールキャラで診断！
                 </div>
                 <button style={S.br({width:"100%"})} onClick={()=>setMbtiStage("quiz")}>診断をはじめる</button>
               </div>
