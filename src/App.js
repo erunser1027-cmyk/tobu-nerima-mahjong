@@ -16,6 +16,7 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-07-03
 const CHANGELOG = [
   { date:"2026-07-03", features:[
+    "MBTI診断：ゲストメンバー（名前に「ゲスト」を含む参加者）を診断対象・名簿・タイプ制覇カウントから完全に除外",
     "MBTI診断：他メンバーのトレーディングカードを解放する「メンバー名簿」機能を追加（ルートA：対戦10半荘以上＋勝率50%超、ルートB：そのメンバー参加半荘での外馬チップ収支+50枚以上、いずれか達成で解放・未解放は？シルエット表示）",
     "MBTI診断：名簿画面に「タイプ制覇 X/16」の進捗表示を追加",
     "ヘッダーバージョン表記をv1.8→v1.9に変更",
@@ -215,6 +216,7 @@ const fw = n => (n >= 0 ? "+" : "") + Math.round(n).toLocaleString();
 const fwy = n => fw(n) + "円";
 const cc = n => n >= 0 ? "#2ecc71" : "#e74c3c";
 const mc = m => AC[(m.id - 1) % AC.length];
+const isGuestMember = m => !!(m && m.name && m.name.includes("ゲスト"));
 
 // 利用可能な月一覧を生成
 function getMonthList(sessions) {
@@ -849,10 +851,13 @@ function MbtiCard({ result, member }) {
 
 // ---- メンバー名簿（他メンバーカードの解放状況一覧）----
 function MbtiRoster({ members, mbtiResults, sessions, raceBets, raceSelf, onBack, expandId, onToggleExpand }) {
+  const rosterMembers = members.filter(m => !isGuestMember(m));
+  const rosterIds = new Set(rosterMembers.map(m => Number(m.id)));
   const mbtiOf = id => mbtiResults.find(r => Number(r.member_id) === Number(id));
   const coverage = new Set();
   mbtiResults.forEach(r => {
     const mid = Number(r.member_id);
+    if (!rosterIds.has(mid)) return;
     if (mid === Number(raceSelf)) { coverage.add(r.mbti_code); return; }
     if (mbtiUnlockStatus(sessions, raceBets, raceSelf, mid).unlocked) coverage.add(r.mbti_code);
   });
@@ -865,7 +870,7 @@ function MbtiRoster({ members, mbtiResults, sessions, raceBets, raceSelf, onBack
       </div>
       <div style={{fontSize:11, color:"#888", marginBottom:10}}>メンバー名簿</div>
       <div style={{display:"flex", flexDirection:"column", gap:8}}>
-        {members.map(m => {
+        {rosterMembers.map(m => {
           const result = mbtiOf(m.id);
           const isSelf = Number(m.id) === Number(raceSelf);
 
@@ -6621,11 +6626,11 @@ export default function App() {
         )}
         {tab==="shindan" && (
           <div style={{padding:"10px 0"}}>
-            {!raceSelf ? (
+            {(!raceSelf || isGuestMember(gm(raceSelf))) ? (
               <div style={{...S.card({background:"rgba(255,255,255,0.04)"}), marginBottom:10}}>
                 <div style={{fontSize:11,color:"#888",marginBottom:8}}>診断するのはあなたですか？</div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
-                  {members.map(m=>(
+                  {members.filter(m=>!isGuestMember(m)).map(m=>(
                     <div key={m.id} onClick={()=>{setRaceSelf(m.id);setMbtiRosterOpen(false);setMbtiRosterExpand(null);}}
                       style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"8px 4px",borderRadius:8,cursor:"pointer",
                         background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)"}}>
