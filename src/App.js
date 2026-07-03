@@ -13,8 +13,20 @@ const SCORE_RATES = [
 const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ", "池袋カクレマ", "池袋PSJ北口"];
 
 // 更新履歴 - 新しい機能は必ず今日の日付で追加してください
-// 今日: 2026-07-03
+// 今日: 2026-07-04
 const CHANGELOG = [
+  { date:"2026-07-04", features:[
+    "MBTI診断：LINEシェアを合成画像化（ポートレート＋レア度＋★＋戦闘力＋4軸メーターをcanvasで1枚合成、下部に注意文言を透かしで焼き込み）",
+    "MBTI診断：Myカード選択画面の文言を「Myカードを見る or 診断するあなたは誰？」に変更",
+    "MBTI診断：再診断クールダウンを追加（初回診断から30日間は再診断不可。クールダウン中は「🔒再診断まであと◯日」を表示）",
+    "MBTI診断：「🎯みんなのカード全16種類集めよう！」の見出しを常時表示（クイズ中は非表示）",
+    "MBTI診断：なりすまし防止のため「👤別の人で診断」ボタンを削除",
+    "MBTI診断：🎴タブのトップを一覧画面（見出し・覚醒カードティーザー・マイカード/コレクションへの導線）に刷新。マイカード・覚醒カードはフルスクリーンモーダル表示（右上✕で閉じる）に変更",
+    "MBTI診断：覚醒カードティーザーを常時表示（キラキラ演出）。未解放時は「まだ持っていません」＋解放条件（あと◯半荘）を表示",
+    "MBTI診断：「コレクションを見る」ボタンを大きめのカードデザインに刷新",
+    "MBTI診断：コレクションに新着カード演出を追加（前回閲覧時から新たに解放されたカードに「NEW」バッジ＋光る枠）",
+    "MBTI診断：マイカード・コレクション両方のLINEシェアボタン下に利用範囲の注意文言を追加",
+  ]},
   { date:"2026-07-03", features:[
     "MBTI診断：コレクション画面のカード一覧下部にLINEシェアボタンを追加（「麻雀MBTI診断やってみて！」＋?tab=mbtiディープリンク付き）",
     "UI改善：上部メニューの「📊概要」「➕対局開始」「🏇外馬」をアプリ下部の固定メニューに移動（透過・追従表示、アイコン＋短いラベル付き、タップしやすい高さ56px相当）",
@@ -722,34 +734,166 @@ const MBTI_TRAITS = {
 const mbtiPortraitSrc = (code, awakened=false) => `/mbti/${code.toLowerCase()}_${awakened ? "awakened" : "base"}.png`;
 
 const MBTI_APP_URL = "https://tleague.nerima-night-crew.com?tab=mbti";
+// シェア画像・シェアボタン下に表示する注意文言（共通）
+const MBTI_SHARE_CAUTION_LINES = [
+  '🔒 このカードは"とうねり"メンバー内の思い出用です。',
+  'グルチャ・個人LINEでの共有は知人範囲での共有の権利なのでOKです！',
+  'ただし他のSNS等、不特定多数の目に触れる場所への投稿はNGです🙏',
+  '※非公式ファンアートとしてお楽しみください。',
+];
+const MBTI_SHARE_CAUTION_TEXT = MBTI_SHARE_CAUTION_LINES.join("\n");
+
+function mbtiLoadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null); // 画像未配置でも合成自体は継続する
+    img.src = src;
+  });
+}
+function mbtiRoundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+// 素質カード（ポートレート＋レア度＋★＋戦闘力＋4軸メーター＋透かし注意文言）を1枚のcanvasに合成しBlobを返す
+async function mbtiBuildShareImage(result) {
+  const code = result.mbti_code;
+  const [typeName] = MBTI_TYPES[code] || ["?", "?"];
+  const temperament = mbtiTemperament(code);
+  const spread = mbtiSpread(result);
+  const rarity = mbtiRarity(spread);
+  const stars = mbtiStars(spread);
+  const power = mbtiPower(result);
+
+  const W = 720, H = 1520; // ポートレート+タイプ名+星+戦闘力+4軸メーター+透かし注意文言が収まる高さ
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  // 背景
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, "#1a1a2e"); bg.addColorStop(1, "#12121f");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // 外枠（属性カラー）
+  const frameColors = { NT:["#8e2de2","#00c9ff"], NF:["#ff6ec7","#4ade80"], SJ:["#b8860b","#f0c674"], SP:["#e74c3c","#ff8c00"] };
+  const [c1, c2] = frameColors[temperament] || frameColors.NT;
+  const frameGrad = ctx.createLinearGradient(0, 0, W, H);
+  frameGrad.addColorStop(0, c1); frameGrad.addColorStop(1, c2);
+  ctx.strokeStyle = frameGrad; ctx.lineWidth = 10;
+  mbtiRoundRectPath(ctx, 5, 5, W - 10, H - 10, 18); ctx.stroke();
+
+  // レア度バッジ
+  const badgeW = 96, badgeH = 42, badgeX = W - badgeW - 34, badgeY = 34;
+  ctx.fillStyle = "rgba(241,196,15,0.18)";
+  mbtiRoundRectPath(ctx, badgeX, badgeY, badgeW, badgeH, 21); ctx.fill();
+  ctx.strokeStyle = "#f1c40f"; ctx.lineWidth = 2;
+  mbtiRoundRectPath(ctx, badgeX, badgeY, badgeW, badgeH, 21); ctx.stroke();
+  ctx.fillStyle = "#f1c40f"; ctx.font = "bold 22px sans-serif";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(rarity, badgeX + badgeW / 2, badgeY + badgeH / 2 + 1);
+
+  // ポートレート画像
+  const portraitImg = await mbtiLoadImage(mbtiPortraitSrc(code, false));
+  const pW = W - 80, pH = Math.round(pW * 4 / 3), pX = 40, pY = 94;
+  ctx.save();
+  mbtiRoundRectPath(ctx, pX, pY, pW, pH, 16); ctx.clip();
+  if (portraitImg) ctx.drawImage(portraitImg, pX, pY, pW, pH);
+  else { ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.fillRect(pX, pY, pW, pH); }
+  ctx.restore();
+
+  let y = pY + pH + 56;
+  ctx.textBaseline = "alphabetic";
+
+  // タイプ名
+  ctx.fillStyle = "#ddd"; ctx.font = "bold 30px sans-serif"; ctx.textAlign = "center";
+  ctx.fillText(`「${typeName}」`, W / 2, y);
+  y += 52;
+
+  // ★スター（7個）
+  const starGap = 34;
+  const starStartX = W / 2 - (6 * starGap) / 2;
+  ctx.font = "22px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (let i = 0; i < 7; i++) {
+    const sx = starStartX + i * starGap;
+    ctx.beginPath(); ctx.arc(sx, y, 13, 0, Math.PI * 2);
+    ctx.fillStyle = i < stars ? "#f5a623" : "rgba(255,255,255,0.1)";
+    ctx.fill();
+    if (i < stars) { ctx.fillStyle = "#fff8dc"; ctx.fillText("★", sx, y + 1); }
+  }
+  ctx.textBaseline = "alphabetic";
+  y += 56;
+
+  // 戦闘力
+  ctx.textAlign = "center"; ctx.fillStyle = "#888"; ctx.font = "18px sans-serif";
+  ctx.fillText("戦闘力", W / 2 - 80, y);
+  ctx.fillStyle = "#fff"; ctx.font = "bold 28px sans-serif";
+  ctx.fillText(power.toLocaleString(), W / 2 + 40, y);
+  y += 30;
+
+  // 4軸メーター
+  const barX = 60, barW = W - 120, barH = 14;
+  MBTI_AXES.forEach(ax => {
+    const pctA = Number(result[ax.field]);
+    y += 34;
+    ctx.textAlign = "left";
+    ctx.fillStyle = pctA >= 50 ? "#fff" : "#8FA69B";
+    ctx.font = (pctA >= 50 ? "bold " : "") + "16px sans-serif";
+    ctx.fillText(ax.la, barX, y);
+    ctx.textAlign = "right";
+    ctx.fillStyle = pctA < 50 ? "#fff" : "#8FA69B";
+    ctx.font = (pctA < 50 ? "bold " : "") + "16px sans-serif";
+    ctx.fillText(ax.lb, barX + barW, y);
+    y += 12;
+    ctx.fillStyle = "#0c221d"; mbtiRoundRectPath(ctx, barX, y, barW, barH, 6); ctx.fill();
+    const fillW = Math.max(0, Math.min(barW, barW * pctA / 100));
+    ctx.fillStyle = "#C6A24C"; mbtiRoundRectPath(ctx, barX, y, fillW, barH, 6); ctx.fill();
+    ctx.fillStyle = "#2F7A57"; mbtiRoundRectPath(ctx, barX + fillW, y, barW - fillW, barH, 6); ctx.fill();
+  });
+  y += 46;
+
+  // 透かし注意文言（小さいグレー）
+  ctx.fillStyle = "rgba(255,255,255,0.32)"; ctx.font = "13px sans-serif"; ctx.textAlign = "center";
+  MBTI_SHARE_CAUTION_LINES.forEach((line, i) => ctx.fillText(line, W / 2, y + i * 19));
+
+  return new Promise(resolve => canvas.toBlob(resolve, "image/png", 0.92));
+}
 // 診断結果をLINEで共有。feature detection（UA判定はしない）で経路を切り替える：
-// - navigator.share/canShareに対応し、かつファイル共有が可能な環境（主にモバイル）→ カード画像＋テキストを共有シート経由で送る
+// - navigator.share/canShareに対応し、かつファイル共有が可能な環境（主にモバイル）→ 合成画像＋短いテキストを共有シート経由で送る
 // - それ以外（主にPC）→ LINEのURLスキームでテキスト＋URLのみ共有
-async function mbtiShareResult(code, dbName, typeName, onError) {
-  const text = `麻雀MBTI診断やってみた！私は【${dbName}（${typeName}）】でした🀄`;
+async function mbtiShareResult(result, onError) {
+  const code = result.mbti_code;
+  const text = `麻雀MBTI診断やってみた！ ${MBTI_APP_URL}`;
   const canShareApi = typeof navigator !== "undefined" && typeof navigator.share === "function";
 
-  if (canShareApi) {
-    try {
-      if (typeof navigator.canShare === "function") {
-        const res = await fetch(mbtiPortraitSrc(code, false));
-        const blob = await res.blob();
-        const file = new File([blob], `${code.toLowerCase()}_base.png`, { type: blob.type || "image/png" });
+  try {
+    if (canShareApi && typeof navigator.canShare === "function") {
+      const blob = await mbtiBuildShareImage(result);
+      if (blob) {
+        const file = new File([blob], `${code.toLowerCase()}_mbti_card.png`, { type: "image/png" });
         if (navigator.canShare({ files: [file] })) {
-          await navigator.share({ files: [file], text: `${text}\n${MBTI_APP_URL}` });
+          await navigator.share({ files: [file], text });
           return;
         }
       }
+    }
+    if (canShareApi) {
       await navigator.share({ text, url: MBTI_APP_URL });
       return;
-    } catch (e) {
-      if (e.name === "AbortError") return; // ユーザーがシェアをキャンセルした場合は何もしない
-      onError && onError(e);
-      return;
     }
+  } catch (e) {
+    if (e.name === "AbortError") return; // ユーザーがシェアをキャンセルした場合は何もしない
+    onError && onError(e);
+    return;
   }
   // Web Share API非対応環境（主にPC）→ LINEのURLスキームへフォールバック
-  const lineUrl = `line://msg/text/${encodeURIComponent(text + "\n" + MBTI_APP_URL)}`;
+  const lineUrl = `line://msg/text/${encodeURIComponent(text)}`;
   window.location.href = lineUrl;
 }
 const MBTI_AXES = [
@@ -863,6 +1007,14 @@ function mbtiUnlockStatus(sessions, raceBets, selfId, targetId) {
 function mbtiAwakenUnlockStatus(sessions, raceBets, selfId, targetId) {
   const base = mbtiUnlockStatus(sessions, raceBets, selfId, targetId);
   return { unlocked: base.routeA.unlocked && base.profitB >= 50, routeA: base.routeA, profitB: base.profitB };
+}
+// 再診断クールダウン：初回診断日時(created_at、upsertでは上書きされない)から30日は再診断不可
+const MBTI_COOLDOWN_DAYS = 30;
+function mbtiCooldown(result) {
+  if (!result || !result.created_at) return { active: false, daysLeft: 0 };
+  const elapsedDays = (Date.now() - new Date(result.created_at).getTime()) / (1000 * 60 * 60 * 24);
+  if (elapsedDays >= MBTI_COOLDOWN_DAYS) return { active: false, daysLeft: 0 };
+  return { active: true, daysLeft: Math.ceil(MBTI_COOLDOWN_DAYS - elapsedDays) };
 }
 
 // ---- 覚醒カード：規定打席（Mリーグ個人タイトルのbuildMemberMLeagueと同じ計算式を流用） ----
@@ -1204,6 +1356,41 @@ function MbtiRulePanel() {
   );
 }
 
+// ---- フルスクリーンモーダル：マイカード・覚醒カード表示用（右上✕で閉じる） ----
+function MbtiFullModal({ onClose, children }) {
+  return (
+    <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.88)", zIndex:9000, overflowY:"auto", padding:"14px 12px 40px"}}>
+      <div style={{maxWidth:480, width:"100%", margin:"0 auto"}}>
+        <div style={{display:"flex", justifyContent:"flex-end", marginBottom:8}}>
+          <button onClick={onClose} style={{width:34, height:34, borderRadius:"50%", border:"1px solid rgba(255,255,255,0.2)", background:"rgba(255,255,255,0.1)", color:"#fff", fontSize:16, cursor:"pointer"}}>✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ---- 覚醒カードティーザー：常時表示・キラキラ演出。タップで覚醒カードを開く ----
+function MbtiAwakenTeaser({ onClick }) {
+  return (
+    <div onClick={onClick} style={{
+      position:"relative", overflow:"hidden", cursor:"pointer", borderRadius:14, padding:"16px 14px",
+      marginBottom:12, textAlign:"center",
+      background:"linear-gradient(135deg,#3a1f5c,#1a1a3e,#3a1f5c)",
+      border:"1px solid rgba(255,215,0,0.4)", boxShadow:"0 0 16px rgba(255,215,0,0.25)",
+    }}>
+      <div style={{
+        position:"absolute", inset:0, pointerEvents:"none",
+        background:"linear-gradient(115deg, transparent 20%, rgba(255,255,255,0.35) 40%, rgba(255,255,255,0.05) 50%, transparent 60%)",
+        backgroundSize:"250% 250%", mixBlendMode:"overlay", animation:"mbtiHoloSweep 2.6s linear infinite",
+      }}/>
+      <div style={{fontSize:22, marginBottom:4}}>⚡✨</div>
+      <div style={{fontSize:14, fontWeight:800, color:"#ffd700", textShadow:"0 0 10px rgba(255,215,0,0.6)"}}>覚醒カードを見る</div>
+      <div style={{fontSize:10, color:"#c9b8e8", marginTop:3}}>実戦データで進化した、もう一つの姿</div>
+    </div>
+  );
+}
+
 // ---- コレクション：自分が解放済みの素質・覚醒カードだけを並べる ----
 function MbtiCollection({ members, mbtiResults, sessions, raceBets, raceSelf, onBack, expandId, onToggleExpand, awakenExpandId, onToggleAwakenExpand }) {
   const rosterMembers = members.filter(m => !isGuestMember(m));
@@ -1219,10 +1406,21 @@ function MbtiCollection({ members, mbtiResults, sessions, raceBets, raceSelf, on
   const coverage = new Set();
   visible.forEach(m => { const r = mbtiOf(m.id); if (r) coverage.add(r.mbti_code); });
 
+  // ⑩新着カード演出：前回コレクションを開いた時点の解放済みIDリストと比較し、新たに解放されたものをハイライト
+  const seenKey = `tleague_mbti_seen_${raceSelf}`;
+  const [seenIds] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(seenKey) || "[]")); } catch (e) { return new Set(); }
+  });
+  const newIds = new Set(visible.filter(m => !seenIds.has(m.id)).map(m => m.id));
+  const handleBack = () => {
+    try { localStorage.setItem(seenKey, JSON.stringify(visible.map(m => m.id))); } catch (e) {}
+    onBack();
+  };
+
   return (
     <div>
       <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10}}>
-        <button onClick={onBack} style={{padding:"6px 12px", borderRadius:8, border:"1px solid rgba(255,255,255,0.2)", background:"transparent", color:"#aaa", cursor:"pointer", fontSize:12}}>← 戻る</button>
+        <button onClick={handleBack} style={{padding:"6px 12px", borderRadius:8, border:"1px solid rgba(255,255,255,0.2)", background:"transparent", color:"#aaa", cursor:"pointer", fontSize:12}}>← 戻る</button>
         <div style={{fontSize:12, fontWeight:700, color:"#f1c40f"}}>タイプ制覇 {coverage.size}/16</div>
       </div>
 
@@ -1277,8 +1475,17 @@ function MbtiCollection({ members, mbtiResults, sessions, raceBets, raceSelf, on
             }
           }
 
+          const isNew = newIds.has(m.id);
           return (
-            <div key={m.id} style={{background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:10, padding:10}}>
+            <div key={m.id} style={{
+              background:"rgba(255,255,255,0.03)", position:"relative",
+              border: isNew ? "1px solid rgba(255,215,0,0.6)" : "1px solid rgba(255,255,255,0.08)",
+              boxShadow: isNew ? "0 0 12px rgba(255,215,0,0.35)" : "none",
+              borderRadius:10, padding:10,
+            }}>
+              {isNew && (
+                <span style={{position:"absolute", top:-8, right:8, fontSize:9, fontWeight:800, color:"#141414", background:"linear-gradient(90deg,#ffd700,#ffb347)", padding:"2px 8px", borderRadius:8, boxShadow:"0 0 8px rgba(255,215,0,0.6)", animation:"pulse 1.4s ease-in-out infinite"}}>NEW</span>
+              )}
               <div onClick={()=>onToggleExpand(expanded ? null : m.id)} style={{display:"flex", alignItems:"center", gap:10, cursor:"pointer"}}>
                 <Av m={m} sz={32}/>
                 <div style={{flex:1}}>
@@ -1304,6 +1511,7 @@ function MbtiCollection({ members, mbtiResults, sessions, raceBets, raceSelf, on
       }}>
         <span style={{fontSize:16}}>💬</span> LINEでコレクションを紹介する
       </button>
+      <div style={{fontSize:9,color:"#555",textAlign:"center",marginTop:8,lineHeight:1.6,whiteSpace:"pre-line"}}>{MBTI_SHARE_CAUTION_TEXT}</div>
     </div>
   );
 }
@@ -2014,9 +2222,11 @@ export default function App() {
   const [mbtiResults, setMbtiResults] = useState([]); // Supabase由来、全員分
   const [mbtiStage, setMbtiStage] = useState("intro"); // "intro" | "quiz"
   const [mbtiSubmitting, setMbtiSubmitting] = useState(false);
-  const [mbtiRosterOpen, setMbtiRosterOpen] = useState(false);
+  const [mbtiRosterOpen, setMbtiRosterOpen] = useState(false); // コレクションモーダル
   const [mbtiRosterExpand, setMbtiRosterExpand] = useState(null);
   const [mbtiAwakenExpand, setMbtiAwakenExpand] = useState(null);
+  const [mbtiMyCardOpen, setMbtiMyCardOpen] = useState(false); // マイカード/診断モーダル
+  const [mbtiAwakenTeaserOpen, setMbtiAwakenTeaserOpen] = useState(false); // 覚醒カードモーダル
   const mbtiOf = id => mbtiResults.find(r => Number(r.member_id) === Number(id));
 
   // 月一覧（プルダウン用）
@@ -7025,7 +7235,7 @@ export default function App() {
           <div style={{padding:"10px 0"}}>
             {(!raceSelf || isGuestMember(gm(raceSelf))) ? (
               <div style={{...S.card({background:"rgba(255,255,255,0.04)"}), marginBottom:10}}>
-                <div style={{fontSize:11,color:"#888",marginBottom:8}}>診断するのはあなたですか？</div>
+                <div style={{fontSize:11,color:"#888",marginBottom:8}}>Myカードを見る or 診断するあなたは誰？</div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
                   {members.filter(m=>!isGuestMember(m)).map(m=>(
                     <div key={m.id} onClick={()=>{setRaceSelf(m.id);setMbtiRosterOpen(false);setMbtiRosterExpand(null);}}
@@ -7050,37 +7260,120 @@ export default function App() {
                 awakenExpandId={mbtiAwakenExpand}
                 onToggleAwakenExpand={setMbtiAwakenExpand}
               />
-            ) : mbtiStage==="quiz" ? (
-              <MbtiQuiz
-                onFinish={(code,axes,answers)=>saveMbtiResult(raceSelf,code,axes,answers)}
-                onCancel={()=>setMbtiStage("intro")}
-              />
-            ) : mbtiOf(raceSelf) ? (
-              <div>
-                <MbtiCard result={mbtiOf(raceSelf)} member={gm(raceSelf)}/>
-                <div style={{display:"flex",gap:8,marginTop:12}}>
-                  <button style={S.bb({flex:1})} disabled={mbtiSubmitting} onClick={()=>setMbtiStage("quiz")}>🔄 再診断する</button>
-                  <button style={S.bg({flex:1})} disabled={mbtiSubmitting} onClick={()=>{setRaceSelf(null);setMbtiRosterOpen(false);setMbtiRosterExpand(null);}}>👤 別の人で診断</button>
-                </div>
-                <button style={S.bg({width:"100%",marginTop:8})} disabled={mbtiSubmitting} onClick={()=>setMbtiRosterOpen(true)}>🎴 コレクションを見る</button>
-                <button style={{...S.bg({width:"100%",marginTop:8}), background:"rgba(6,199,85,0.12)", border:"1px solid rgba(6,199,85,0.5)", color:"#06C755", fontWeight:600}}
-                  disabled={mbtiSubmitting}
-                  onClick={()=>{
-                    const r = mbtiOf(raceSelf);
-                    const [typeName, dbName] = MBTI_TYPES[r.mbti_code] || ["?","?"];
-                    mbtiShareResult(r.mbti_code, dbName, typeName, ()=>showToast("error","⚠️ 共有に失敗しました"));
-                  }}>📤 診断結果をLINEでシェア</button>
-                <div style={{fontSize:9.5,color:"#666",textAlign:"center",marginTop:4}}>スマホは画像付きで共有シートが開き、PCはLINEでのテキスト共有が開きます</div>
-              </div>
             ) : (
-              <div style={{...S.card(), textAlign:"center", padding:24}}>
-                <div style={{fontSize:40,marginBottom:8}}>🎴</div>
-                <div style={{fontSize:15,fontWeight:600,marginBottom:6}}>麻雀MBTI診断</div>
-                <div style={{fontSize:12,color:"#aaa",marginBottom:16,lineHeight:1.6}}>
-                  全32問に答えて、あなたの雀風タイプをドラゴンボールキャラで診断！
+              <>
+                <div style={{textAlign:"center", fontSize:14, fontWeight:800, color:"#f1c40f", marginBottom:14, lineHeight:1.5}}>
+                  🎯 みんなのカード全16種類集めよう！
                 </div>
-                <button style={S.br({width:"100%"})} onClick={()=>setMbtiStage("quiz")}>診断をはじめる</button>
-              </div>
+
+                <MbtiAwakenTeaser onClick={()=>setMbtiAwakenTeaserOpen(true)}/>
+
+                <button onClick={()=>setMbtiMyCardOpen(true)} style={{
+                  width:"100%", padding:"18px 14px", borderRadius:14, border:"1px solid rgba(231,76,60,0.4)",
+                  background:"linear-gradient(135deg,rgba(231,76,60,0.18),rgba(192,57,43,0.1))",
+                  color:"#fff", cursor:"pointer", marginBottom:12, textAlign:"left",
+                  display:"flex", alignItems:"center", gap:12,
+                }}>
+                  <span style={{fontSize:30}}>🎴</span>
+                  <span style={{flex:1}}>
+                    <div style={{fontSize:15, fontWeight:800}}>マイカードを見る</div>
+                    <div style={{fontSize:10.5, color:"#ccc", marginTop:2}}>{mbtiOf(raceSelf) ? "自分の素質カードを確認・再診断" : "まだ診断していません。タップして診断開始"}</div>
+                  </span>
+                  <span style={{fontSize:18, color:"#e74c3c"}}>›</span>
+                </button>
+
+                <button onClick={()=>setMbtiRosterOpen(true)} style={{
+                  width:"100%", padding:"18px 14px", borderRadius:14, border:"1px solid rgba(52,152,219,0.4)",
+                  background:"linear-gradient(135deg,rgba(52,152,219,0.18),rgba(41,128,185,0.1))",
+                  color:"#fff", cursor:"pointer", textAlign:"left",
+                  display:"flex", alignItems:"center", gap:12,
+                }}>
+                  <span style={{fontSize:30}}>📚</span>
+                  <span style={{flex:1}}>
+                    <div style={{fontSize:15, fontWeight:800}}>コレクションを見る</div>
+                    <div style={{fontSize:10.5, color:"#ccc", marginTop:2}}>みんなの素質・覚醒カードを集めよう</div>
+                  </span>
+                  <span style={{fontSize:18, color:"#3498db"}}>›</span>
+                </button>
+              </>
+            )}
+
+            {/* マイカード/診断モーダル（✕で閉じる） */}
+            {mbtiMyCardOpen && raceSelf && !isGuestMember(gm(raceSelf)) && (
+              <MbtiFullModal onClose={()=>{setMbtiMyCardOpen(false); if(mbtiStage==="quiz") setMbtiStage("intro");}}>
+                {mbtiStage!=="quiz" && (
+                  <div style={{textAlign:"center", fontSize:13, fontWeight:800, color:"#f1c40f", marginBottom:14, lineHeight:1.5}}>
+                    🎯 みんなのカード全16種類集めよう！
+                  </div>
+                )}
+                {mbtiStage==="quiz" ? (
+                  <MbtiQuiz
+                    onFinish={(code,axes,answers)=>saveMbtiResult(raceSelf,code,axes,answers)}
+                    onCancel={()=>{setMbtiStage("intro"); setMbtiMyCardOpen(false);}}
+                  />
+                ) : mbtiOf(raceSelf) ? (() => {
+                  const result = mbtiOf(raceSelf);
+                  const cooldown = mbtiCooldown(result);
+                  return (
+                    <div>
+                      <MbtiCard result={result} member={gm(raceSelf)}/>
+                      {cooldown.active ? (
+                        <div style={{marginTop:12, textAlign:"center", padding:"11px", borderRadius:8, background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", color:"#999", fontSize:13, fontWeight:600}}>
+                          🔒 再診断まであと{cooldown.daysLeft}日
+                        </div>
+                      ) : (
+                        <button style={{...S.bb({width:"100%"}), marginTop:12}} disabled={mbtiSubmitting} onClick={()=>setMbtiStage("quiz")}>🔄 再診断する</button>
+                      )}
+                      <button style={{...S.bg({width:"100%",marginTop:8}), background:"rgba(6,199,85,0.12)", border:"1px solid rgba(6,199,85,0.5)", color:"#06C755", fontWeight:600}}
+                        disabled={mbtiSubmitting}
+                        onClick={()=>{ mbtiShareResult(result, ()=>showToast("error","⚠️ 共有に失敗しました")); }}>📤 診断結果をLINEでシェア</button>
+                      <div style={{fontSize:9.5,color:"#666",textAlign:"center",marginTop:4}}>スマホは画像付きで共有シートが開き、PCはLINEでのテキスト共有が開きます</div>
+                      <div style={{fontSize:9,color:"#555",textAlign:"center",marginTop:8,lineHeight:1.6,whiteSpace:"pre-line"}}>{MBTI_SHARE_CAUTION_TEXT}</div>
+                    </div>
+                  );
+                })() : (
+                  <div style={{...S.card(), textAlign:"center", padding:24}}>
+                    <div style={{fontSize:40,marginBottom:8}}>🎴</div>
+                    <div style={{fontSize:15,fontWeight:600,marginBottom:6}}>麻雀MBTI診断</div>
+                    <div style={{fontSize:12,color:"#aaa",marginBottom:16,lineHeight:1.6}}>
+                      全32問に答えて、あなたの雀風タイプをドラゴンボールキャラで診断！
+                    </div>
+                    <button style={S.br({width:"100%"})} onClick={()=>setMbtiStage("quiz")}>診断をはじめる</button>
+                  </div>
+                )}
+              </MbtiFullModal>
+            )}
+
+            {/* 覚醒カードモーダル（✕で閉じる） */}
+            {mbtiAwakenTeaserOpen && raceSelf && !isGuestMember(gm(raceSelf)) && (
+              <MbtiFullModal onClose={()=>setMbtiAwakenTeaserOpen(false)}>
+                {(() => {
+                  const result = mbtiOf(raceSelf);
+                  if (!result) {
+                    return (
+                      <div style={{...S.card(), textAlign:"center", padding:24}}>
+                        <div style={{fontSize:36,marginBottom:8}}>⚡</div>
+                        <div style={{fontSize:14,fontWeight:700,color:"#ffd700",marginBottom:8}}>まだ持っていません</div>
+                        <div style={{fontSize:12,color:"#aaa",lineHeight:1.6}}>覚醒カードは、まず素質カード（Myカード）の診断を完了すると解放条件の判定が始まります。</div>
+                      </div>
+                    );
+                  }
+                  const qual = mbtiAwakenQual(sessions, members, raceSelf);
+                  if (!qual.qualified) {
+                    return (
+                      <div style={{...S.card(), textAlign:"center", padding:24}}>
+                        <div style={{fontSize:36,marginBottom:8}}>⚡</div>
+                        <div style={{fontSize:14,fontWeight:700,color:"#ffd700",marginBottom:8}}>まだ持っていません</div>
+                        <div style={{fontSize:12,color:"#aaa",lineHeight:1.6}}>
+                          解放条件：Mリーグの規定打席に到達すること{qual.remaining!=null ? `（あと${qual.remaining}半荘）` : ""}
+                        </div>
+                      </div>
+                    );
+                  }
+                  const awaken = mbtiComputeAwaken(sessions, raceBets, members, raceSelf, result);
+                  return <MbtiAwakenCard awaken={awaken} member={gm(raceSelf)}/>;
+                })()}
+              </MbtiFullModal>
             )}
           </div>
         )}
