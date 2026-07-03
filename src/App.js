@@ -16,6 +16,7 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-07-03
 const CHANGELOG = [
   { date:"2026-07-03", features:[
+    "MBTI診断：キャラ画像のリサイズ方式をクロップから「縦横比保持の縮小＋透明パディング」に変更（顔や頭部が切れる問題を解消・32枚全て再処理）",
     "MBTI診断：タイブレーク時に回答パターンハッシュ値をシードに使用、同点時も診断結果を確定的に決定",
     "MBTI診断：タイブレーク時のランダム判定を実装、同点時の公平性を確保",
     "MBTI診断：T/F軸の表現を中立化（「美学に反する」→「物足りない」）",
@@ -670,7 +671,7 @@ const MBTI_AWAKEN_FLAVOR = {
   ESFP:"理屈より本能。危険を察知した瞬間に踏み込む判断力は、誰にも予測できない。",
 };
 // MBTIキャラ画像パス（本人が別途 public/mbti/ に配置。未配置時はimg側のonErrorでフォールバック）
-const mbtiPortraitSrc = (code, awakened=false) => `/mbti/${code.toLowerCase()}_${awakened ? "awakened" : "base"}.jpg`;
+const mbtiPortraitSrc = (code, awakened=false) => `/mbti/${code.toLowerCase()}_${awakened ? "awakened" : "base"}.png`;
 const MBTI_AXES = [
   {key:"EI", field:"axis_ei", la:"場読み型", lb:"没入型"},
   {key:"SN", field:"axis_sn", la:"現実型",   lb:"流れ型"},
