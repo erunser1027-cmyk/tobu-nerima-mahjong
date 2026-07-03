@@ -16,6 +16,7 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-07-03
 const CHANGELOG = [
   { date:"2026-07-03", features:[
+    "MBTI診断：出題画面の牌をSVG手描きから実物写真風PNG画像（37種・赤ドラ込み）に差し替え。画面幅に応じて横一列に自動収縮するレスポンシブサイズに変更",
     "MBTI診断：ゲストメンバー（名前に「ゲスト」を含む参加者）を診断対象・名簿・タイプ制覇カウントから完全に除外",
     "MBTI診断：他メンバーのトレーディングカードを解放する「メンバー名簿」機能を追加（ルートA：対戦10半荘以上＋勝率50%超、ルートB：そのメンバー参加半荘での外馬チップ収支+50枚以上、いずれか達成で解放・未解放は？シルエット表示）",
     "MBTI診断：名簿画面に「タイプ制覇 X/16」の進捗表示を追加",
@@ -430,68 +431,35 @@ const MBTI_C = {
 const MBTI_FONT_MIN = '"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif';
 const MBTI_FONT_GO = '"Hiragino Kaku Gothic ProN","Yu Gothic UI","Noto Sans JP",sans-serif';
 
-const MBTI_KANJI = {1:"一",2:"二",3:"三",4:"四",5:"五",6:"六",7:"七",8:"八",9:"九"};
-function mbtiPosFor(n){
-  const P={
-    1:[[50,67]], 2:[[50,42],[50,92]], 3:[[30,38],[50,67],[70,96]],
-    4:[[33,40],[67,40],[33,94],[67,94]], 5:[[33,40],[67,40],[50,67],[33,94],[67,94]],
-    6:[[33,38],[67,38],[33,67],[67,67],[33,96],[67,96]],
-    7:[[33,32],[67,32],[50,50],[33,68],[67,68],[33,104],[67,104]],
-    8:[[35,32],[65,32],[35,54],[65,54],[35,80],[65,80],[35,104],[65,104]],
-    9:[[30,34],[50,34],[70,34],[30,67],[50,67],[70,67],[30,100],[50,100],[70,100]],
-  };
-  return P[n]||[];
-}
-function mbtiRadiusFor(n){ return n<=4?11:n<=6?9.5:n===7?8.5:7.5; }
-
-function MbtiTile({ code, w=40, dora=false }) {
-  const h=Math.round(w*1.36);
-  const face=(
-    <>
-      <defs>
-        <linearGradient id="mbti-tg" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#FBF6E9"/><stop offset="1" stopColor="#E7DCC3"/>
-        </linearGradient>
-      </defs>
-      <rect x="1.5" y="1.5" width="97" height="131" rx="12" fill="url(#mbti-tg)"
-        stroke={dora?MBTI_C.brass:"#D3C7A8"} strokeWidth={dora?3:2}/>
-      <rect x="1.5" y="118" width="97" height="14.5" rx="6" fill="#00000018"/>
-    </>
-  );
-  let content=null;
-  if(/^[1-9][mps]$/.test(code)){
-    const n=+code[0], s=code[1];
-    if(s==="m"){
-      content=(<>
-        <text x="50" y="52" textAnchor="middle" fontFamily={MBTI_FONT_MIN} fontSize="46" fontWeight="700" fill={MBTI_C.indigo}>{MBTI_KANJI[n]}</text>
-        <text x="50" y="112" textAnchor="middle" fontFamily={MBTI_FONT_MIN} fontSize="42" fontWeight="700" fill={MBTI_C.red}>萬</text>
-      </>);
-    } else if(s==="p"){
-      const r=mbtiRadiusFor(n);
-      content=mbtiPosFor(n).map(([x,y],i)=>(
-        <g key={i}><circle cx={x} cy={y} r={r} fill={n===1?MBTI_C.red:MBTI_C.indigo}/><circle cx={x} cy={y} r={r*0.45} fill="#FBF6E9"/></g>
-      ));
-    } else {
-      const r=mbtiRadiusFor(n);
-      content=mbtiPosFor(n).map(([x,y],i)=>(
-        <g key={i}>
-          <rect x={x-r*0.6} y={y-r*1.25} width={r*1.2} height={r*2.5} rx={r*0.6} fill={MBTI_C.green}/>
-          <rect x={x-r*0.6} y={y-1.5} width={r*1.2} height="3" fill="#1c5a3e"/>
-        </g>
-      ));
-    }
-  } else {
-    const map={"東":MBTI_C.indigo,"南":MBTI_C.indigo,"西":MBTI_C.indigo,"北":MBTI_C.indigo,"中":MBTI_C.red,"發":MBTI_C.green,"白":MBTI_C.indigo};
-    if(code==="白"){
-      content=<rect x="26" y="30" width="48" height="74" rx="4" fill="none" stroke={MBTI_C.indigo} strokeWidth="3"/>;
-    } else {
-      content=<text x="50" y="92" textAnchor="middle" fontFamily={MBTI_FONT_MIN} fontSize="66" fontWeight="700" fill={map[code]||MBTI_C.ink}>{code}</text>;
-    }
+// 牌コード（"1m"〜"9s" or "東南西北中發白"）→ /public/tiles/ 内のPNGファイル名
+const TILE_SUIT_FILE = { m:"man", p:"pin", s:"sou" };
+const TILE_HONOR_FILE = { "東":"ton", "南":"nan", "西":"sha", "北":"pei", "發":"hatsu", "白":"haku", "中":"chun" };
+function tileImageSrc(code, aka=false){
+  const m = /^([1-9])([mps])$/.exec(code);
+  if (m) {
+    const [, num, suit] = m;
+    const suffix = (aka && num === "5") ? "_aka" : "";
+    return `/tiles/${TILE_SUIT_FILE[suit]}${num}${suffix}.png`;
   }
+  const honorFile = TILE_HONOR_FILE[code];
+  return honorFile ? `/tiles/${honorFile}.png` : null;
+}
+
+// 牌画像は66×90px。flex:1で行内に応じて縮小しつつ、maxWidth(w)より大きくは拡大しない
+function MbtiTile({ code, w=40, dora=false, aka=false }) {
+  const src = tileImageSrc(code, aka);
   return (
-    <svg width={w} height={h} viewBox="0 0 100 134" style={{flex:"0 0 auto", filter:"drop-shadow(0 3px 3px rgba(0,0,0,.35))"}}>
-      {face}{content}
-    </svg>
+    <div style={{
+      flex:"1 1 0", minWidth:0, maxWidth:w, aspectRatio:"66 / 90", boxSizing:"border-box",
+      borderRadius:6, overflow:"hidden", background:"#FBF6E9",
+      border: dora ? `2px solid ${MBTI_C.brass}` : "1px solid rgba(0,0,0,0.18)",
+      boxShadow:"0 3px 3px rgba(0,0,0,.35)",
+    }}>
+      {src && (
+        <img src={src} alt={code} draggable={false}
+          style={{ width:"100%", height:"100%", objectFit:"contain", display:"block" }}/>
+      )}
+    </div>
   );
 }
 
@@ -959,8 +927,8 @@ function MbtiQuiz({ onFinish, onCancel }) {
         <div style={{fontFamily:MBTI_FONT_MIN, color:MBTI_C.brass, letterSpacing:6, fontSize:12}}>東武練馬Tリーグ 公認</div>
         <h1 style={{fontFamily:MBTI_FONT_MIN, fontSize:30, fontWeight:700, margin:"14px 0 6px", lineHeight:1.3}}>雀 打 診 断</h1>
         <div style={{color:MBTI_C.mute, fontSize:13}}>全28問で、あなたの16タイプを。</div>
-        <div style={{display:"flex", gap:5, justifyContent:"center", margin:"22px 0 22px"}}>
-          {["1m","5p","發","中"].map((c,i)=>(<MbtiTile key={i} code={c} w={36}/>))}
+        <div style={{display:"flex", flexWrap:"nowrap", gap:5, justifyContent:"center", margin:"22px 0 22px"}}>
+          {["1m","5p","發","中"].map((c,i)=>(<MbtiTile key={i} code={c} w={44}/>))}
         </div>
         <p style={{color:"#D8CDB4", fontSize:13.5, lineHeight:1.9, textAlign:"left"}}>
           麻雀界で実際に使われる打ち手の分類（デジタル/アナログ、攻撃/守備）を土台に、
@@ -998,9 +966,9 @@ function MbtiQuiz({ onFinish, onCancel }) {
 
       {!isOdai ? (
         <>
-          <div style={{margin:"16px 0 8px", padding:"18px 10px", background:"rgba(0,0,0,.16)", borderRadius:12,
-            border:"1px solid rgba(0,0,0,.25)", display:"flex", flexWrap:"wrap", gap:4, justifyContent:"center"}}>
-            {q.hand.map((c,i)=>(<MbtiTile key={i} code={c} w={36} dora={q.doraTiles && q.doraTiles.includes(c)}/>))}
+          <div style={{margin:"16px 0 8px", padding:"18px 8px", background:"rgba(0,0,0,.16)", borderRadius:12,
+            border:"1px solid rgba(0,0,0,.25)", display:"flex", flexWrap:"nowrap", gap:3, justifyContent:"center"}}>
+            {q.hand.map((c,i)=>(<MbtiTile key={i} code={c} w={40} dora={q.doraTiles && q.doraTiles.includes(c)}/>))}
           </div>
           <p style={{fontFamily:MBTI_FONT_MIN, fontSize:17, textAlign:"center", lineHeight:1.7, margin:"16px 6px 22px"}}>{q.prompt}</p>
         </>
