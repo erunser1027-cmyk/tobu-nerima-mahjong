@@ -16,6 +16,7 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-07-03
 const CHANGELOG = [
   { date:"2026-07-03", features:[
+    "MBTI診断：レア度バッジ（N〜LR）を素質・覚醒カードに復活。性格説明（強み・思考の癖・弱点を含む長文）を素質カードに追加。覚醒カードに新フレーバーテキストと実戦成績（1位率・平均着順・ラス率）を反映した一文を追加。LINE共有URLに?tab=mbtiを付与し、共有リンクから直接MBTI診断タブを開けるように変更",
     "MBTI診断：診断完了時に「answers.reduce is not a function」で必ずクラッシュしていた不具合を修正（ハッシュ値シード計算がanswersをオブジェクトでなく配列として扱っていたことが原因）",
     "MBTI診断：赤ドラ・リーチをテーマにした設問を4軸各1問ずつ追加し、全28問→全32問に拡張（局面18問＋お題14問）。手牌に赤5を表示するakaTiles対応も追加",
     "MBTI診断：診断結果をLINEでシェアするボタンを追加（対応端末では画像付き共有シート、非対応環境ではLINEのテキスト共有にフォールバック）",
@@ -679,27 +680,46 @@ const MBTI_TYPES = {
 };
 // 覚醒カード専用フレーバーテキスト（素質＝人柄の説明、覚醒＝実際のプレースタイルの説明）
 const MBTI_AWAKEN_FLAVOR = {
-  INTJ:"序盤から手役の完成形を見据え、誰に何を言われても一点読みを曲げない。安手で妥協するくらいなら潔く沈む。",
-  INTP:"常に受け入れ枚数と期待値を頭の中で計算している。理屈で勝てる牌しか切らないが、たまに数字を信じすぎて痛い目を見る。",
-  ENTJ:"相手の一番嫌がる牌を、一番嫌がるタイミングで叩き込む。勝ち目が見えた瞬間の踏み込みは誰よりも速く、容赦がない。",
-  ENTP:"定石を疑い、誰もやらない仕掛けを平気で試す。当たれば会心の一打、外れても「次はこう来るか」と笑って切り替える。",
-  INFJ:"河と気配から静かに先を読み、勝負所だけ音もなく踏み込む。オリと押しの境界線を誰よりも正確に引く。",
-  INFP:"普段は無理をせず流れに身を任せているが、ここぞという一局だけ人が変わったように踏み込んでくる。本気を出した時が一番怖い。",
-  ENFJ:"卓の空気を自分の味方につけるのがうまい。実力以上の勢いとノリで、気づけば局を支配している。",
-  ENFP:"一発のロマンを追いかけて無謀な手を握りがちだが、その分ハマった時のリターンは誰よりも大きい。",
-  ISTJ:"型を崩さず、決めた打ち方を最後まで貫き通す。派手さはないが、同じミスを二度と繰り返さない鉄の精度。",
-  ISFJ:"大きく攻めるより、最後まで残ることを優先する。地味に見えて、気づけば一番しぶとく生き残っている。",
-  ESTJ:"場全体の流れを把握し、周りに指示するように打ち回す。統率力で局を締めるタイプ。",
-  ESFJ:"場の均衡を大事にし、無理な勝負より丁寧な進行を選ぶ。周りに気を配りすぎて自分の手が遅れることも。",
-  ISTP:"無駄な牌を一枚も切らない、驚くほど機械的で正確な手順。感情を挟まず、最短距離で局を畳む。",
-  ISFP:"自分のペースを崩さず、淡々と一撃を狙う。周りが騒がしくても表情ひとつ変えない。",
-  ESTP:"場数がモノを言う実戦派。理屈より「これは危ない」という嗅覚で切り抜ける、経験に裏打ちされた勝負師。",
-  ESFP:"理屈より本能。危険を察知した瞬間に踏み込む判断力は、誰にも予測できない。",
+  INTJ:"群れることを良しとせず、独りで盤面を支配する。プライドこそが最大の武器。",
+  INTP:"感覚ではなく理論で勝つ。頭の中の計算式が、誰よりも正確な選択を導き出す。",
+  ENTJ:"有利になった瞬間、容赦は消える。支配者の風格で局を終わらせる。",
+  ENTP:"定石を疑い、常に新しい形を試す。予測不能こそが最大の武器。",
+  INFJ:"多くを語らず、静かに全てを見通す。一打の重みが違う、孤高の観察者。",
+  INFP:"本当は優しい。だが追い詰められた時、誰よりも強い一打を放つ。",
+  ENFJ:"場を盛り上げ、皆を巻き込む。勝っても負けても主役はいつも自分。",
+  ENFP:"堅実さより浪漫。一発逆転にすべてを賭ける、その姿がどこか愛おしい。",
+  ISTJ:"揺るがぬ型を、ただひたすらに磨き続ける。基本の正確さこそが最大の強さ。",
+  ISFJ:"目立たず、しかし決して倒れない。粘り強さこそが最大の武器。",
+  ESTJ:"局面を冷静に管理し、無駄なく勝ちへ導く。若きリーダーの風格。",
+  ESFJ:"場の空気とメンバーを気遣いながら打つ。和了より、みんなが笑える卓を大事にする。",
+  ISTP:"無駄な感情を挟まず、手だけが淡々と進む。危険牌の見切りは誰よりも早い。",
+  ISFP:"普段は静か。だがここぞという場面で、誰も予想しない一打を放つ。",
+  ESTP:"理屈より場数。修羅場をくぐり抜けた勘こそが、最大の武器。",
+  ESFP:"考えるより先に手が動く。本能のままに局を制す、生粋の勝負師。",
+};
+// 素質カード用の性格説明（強み・思考の癖・弱点まで含む長文）
+const MBTI_TRAITS = {
+  INTJ: "最終形から逆算して手順を組み立てる、生まれついての戦略家。数値よりも「勝ち筋の物語」を描くタイプで、他人の意見に流されることはほとんどない。孤独を恐れず、むしろ独りで考える時間こそが最高のコンディションを生む。ただし、思い通りにいかない展開が続くと途端に不機嫌になりやすいのが玉に瑕。",
+  INTP: "あらゆる牌姿を確率と期待値で捉える、生粋の理論派。感覚や運に頼ることを嫌い、「なぜその選択が正しいのか」を常に自分の中で言語化している。新しい牌効率の理論や変則手にも興味津々で、探究心が尽きることはない。ただし理屈が通らない相手の一打には、つい黙り込んでしまうことも。",
+  ENTJ: "有利になった瞬間、迷いなく畳みかける支配者気質。感情よりも勝率、情よりも合理を選び、局面全体を俯瞰してコントロールすることに長けている。仲間内でも、勝負となれば手加減しない徹底ぶりが持ち味。ただしその効率至上主義が、時に周囲との温度差を生むこともある。",
+  ENTP: "セオリーより「面白い手」に惹かれる、生まれついての挑戦者。定石を疑い、奇襲や変則手で場をかき回すことに喜びを見出す。議論好きで、自分の打ち筋について語り出すと止まらないことも。ただし飽きっぽい一面もあり、地味な手を我慢して育てるのはやや苦手。",
+  INFJ: "多くを語らずとも、誰よりも深く場を読んでいる観察者タイプ。他家の些細な仕草や捨て牌の変化から、静かに真実を見抜く洞察力を持つ。一打の重みが違う、というのはこのタイプへの最大の賛辞。ただし内に秘めた思考が多いため、何を考えているか周囲には伝わりにくいことも。",
+  INFP: "打ちたい手への憧れが強く、効率よりも美しさを優先することがある夢想家。心の中に「理想の一局」を描き、その実現に向けて静かに手を進める。優しさゆえに強い手を仕掛けるのをためらう場面もあるが、いざという時の集中力は本物。自分の価値観を大切にするタイプ。",
+  ENFJ: "場の空気を作り、皆を巻き込みながら打つムードメーカー。勝っても負けても場を盛り上げることを忘れず、卓全体の雰囲気を大切にする。仲間の調子を気にかけながらも、ここぞという場面ではしっかり主役を張る度胸もある。ただし場を盛り上げようとするあまり、自分の手が疎かになることも。",
+  ENFP: "堅実さよりも浪漫を追いかける、リーチ一発ツモに賭けるタイプ。その場のノリと直感で局を面白くすることに長けており、周囲を飽きさせない打ち筋が魅力。新しい役や珍しい形にすぐ心を奪われる好奇心の持ち主でもある。ただし計画性はやや苦手で、勢い任せの選択が裏目に出ることも。",
+  ISTJ: "セオリー通りに、揺るがず、丁寧に打ち続ける求道者タイプ。基本に忠実な打ち筋こそが最大の武器であり、地味だが着実に成績を積み上げていく。約束事やルールを大切にし、卓の秩序を乱すことを嫌う。ただし想定外の展開への対応にはやや時間がかかることも。",
+  ISFJ: "無理をせず、堅実に局を凌ぐことに長けた縁の下の力持ち。目立たないが、誰よりもラス回避が上手く、粘り強さこそが最大の武器。仲間への気配りを忘れず、場の和を大切にしながら打つ。ただし自分の意見を主張するのは苦手で、控えめな一面が損をすることもある。",
+  ESTJ: "局面をきっちり管理し、無駄のない選択を積み重ねる統率者タイプ。仕切り役が板につき、卓全体をコントロールすることに長けている。決断力があり、迷いなく最善手を選び続ける頼もしさが魅力。ただし自分のやり方に固執しすぎると、柔軟な対応が求められる場面で苦労することも。",
+  ESFJ: "場の空気やメンバーとの関係を大切にしながら打つ、調整型のタイプ。和了そのものよりも「みんなが楽しい卓」を意識し、場の雰囲気を大切にする。困っている仲間には自然と手を差し伸べる優しさも持ち合わせている。ただし場の調和を優先しすぎて、勝負どころで踏み込みが甘くなることも。",
+  ISTP: "無駄なことは言わず、手だけが雄弁に動く職人肌の打ち手。危険牌の見切りが早く、状況判断は誰よりも冷静かつ的確。感情に左右されず、淡々と最適解を積み重ねていくスタイルが持ち味。ただし自分の考えを言葉で説明するのはやや苦手で、周囲に真意が伝わりにくいことも。",
+  ISFP: "普段は淡々としているが、ここぞという場面で牙を剥くマイペースなタイプ。自分のリズムを大切にし、周囲に流されず自分の打ち筋を貫く。感覚的な判断力に優れ、直感で選んだ一打が的中することも多い。ただし気分にムラがあり、調子の波が成績に出やすい一面も。",
+  ESTP: "理屈よりも勝負勘、場数がものを言う実戦型のタイプ。修羅場をくぐり抜けた経験値がそのまま武器になり、緊迫した局面ほど輝きを増す。度胸があり、リスクを取る判断も躊躇しない。ただし理論的な裏付けよりも感覚を優先しがちで、たまに大胆すぎる選択をすることも。",
+  ESFP: "考えるより先に手が動く、生粋の本能派の勝負師。楽しさを最優先に、その場のノリと本能で局を制していく。場を盛り上げるムードメーカーとしても優秀で、一緒に打っていて飽きさせない。ただし長期的な計画を立てるのはやや苦手で、目先の楽しさに流されることもある。",
 };
 // MBTIキャラ画像パス（本人が別途 public/mbti/ に配置。未配置時はimg側のonErrorでフォールバック）
 const mbtiPortraitSrc = (code, awakened=false) => `/mbti/${code.toLowerCase()}_${awakened ? "awakened" : "base"}.png`;
 
-const MBTI_APP_URL = "https://tleague.nerima-night-crew.com";
+const MBTI_APP_URL = "https://tleague.nerima-night-crew.com?tab=mbti";
 // 診断結果をLINEで共有。feature detection（UA判定はしない）で経路を切り替える：
 // - navigator.share/canShareに対応し、かつファイル共有が可能な環境（主にモバイル）→ カード画像＋テキストを共有シート経由で送る
 // - それ以外（主にPC）→ LINEのURLスキームでテキスト＋URLのみ共有
@@ -911,13 +931,23 @@ function mbtiRawStats(sessions, raceBets, memberId) {
   const avgRank = ranks.length ? ranks.reduce((a, b) => a + b, 0) / ranks.length : 0;
   const rankVariance = ranks.length ? ranks.reduce((a, r) => a + (r - avgRank) ** 2, 0) / ranks.length : 0;
   const lastRate = total > 0 ? (lastCount / total) * 100 : 0;
+  const topCount = ranks.filter(r => r === 1).length;
+  const topRate = total > 0 ? (topCount / total) * 100 : 0;
   const yakumanFreq = total > 0 ? yakumanCount / total : 0;
   const winRates = Object.values(vs).filter(v => v.total > 0).map(v => v.wins / v.total);
   const winAvg = winRates.length ? winRates.reduce((a, b) => a + b, 0) / winRates.length : 0;
   const winVariance = winRates.length ? winRates.reduce((a, r) => a + (r - winAvg) ** 2, 0) / winRates.length : 0;
   const myBets = raceBets.filter(b => Number(b.bettor_id) === id).length;
   const betRate = total > 0 ? myBets / total : 0;
-  return { total, lastRate, rankVariance, yakumanFreq, winVariance, betRate };
+  return { total, lastRate, rankVariance, yakumanFreq, winVariance, betRate, avgRank, topRate };
+}
+// 実戦成績（着順・ラス率）から一文を自動生成し、覚醒カードのフレーバー文に添える
+function mbtiAwakenRealLine(raw) {
+  if (raw.total === 0) return "まだ実戦では静かな成績だが、これからの覚醒に期待がかかる。";
+  if (raw.topRate >= 30) return `実戦でも1位率${raw.topRate.toFixed(0)}%を記録し、診断通りの強さを発揮している。`;
+  if (raw.avgRank <= 2.3) return `平均着順${raw.avgRank.toFixed(2)}位と安定した実戦成績を残している。`;
+  if (raw.lastRate <= 15) return `ラス率${raw.lastRate.toFixed(0)}%と堅実な立ち回りで、実戦でも本領を発揮中。`;
+  return "まだ実戦では静かな成績だが、これからの覚醒に期待がかかる。";
 }
 // リーグ内平均値（ゲスト除く、参加半荘のあるメンバーのみ対象）
 function mbtiLeagueBaseline(sessions, raceBets, members) {
@@ -984,7 +1014,7 @@ function mbtiComputeAwaken(sessions, raceBets, members, memberId, baseResult) {
   const boostMul = rarity === "LR" ? 3.5 : 2.8;
   const rankBonus = rarity === "LR" ? 15000 : 9000;
   const power = Math.round(basePower * boostMul + rankBonus);
-  return { qualified: true, axes, code, rarity, spread, power };
+  return { qualified: true, axes, code, rarity, spread, power, raw };
 }
 
 function MbtiStar({ lit }) {
@@ -1002,6 +1032,7 @@ function MbtiStar({ lit }) {
 function MbtiCard({ result, member }) {
   const code = result.mbti_code;
   const [typeName, dbName] = MBTI_TYPES[code] || ["?","?"];
+  const traits = MBTI_TRAITS[code] || "";
   const temperament = mbtiTemperament(code);
   const spread = mbtiSpread(result);
   const rarity = mbtiRarity(spread);
@@ -1038,6 +1069,7 @@ function MbtiCard({ result, member }) {
             <div style={{fontSize:13, fontWeight:700, color:"#fff"}}>{member?.name || "?"}</div>
             <div style={{fontSize:10, color:"#8FA69B", letterSpacing:2}}>{code}</div>
           </div>
+          <div style={{fontSize:10, fontWeight:800, color:"#f1c40f", padding:"2px 8px", borderRadius:10, background:"rgba(241,196,15,0.15)", border:"1px solid rgba(241,196,15,0.4)"}}>{rarity}</div>
         </div>
         <img src={mbtiPortraitSrc(code, false)} alt={dbName} draggable={false}
           onError={(e)=>{ e.currentTarget.style.display="none"; }}
@@ -1045,6 +1077,11 @@ function MbtiCard({ result, member }) {
         <div style={{textAlign:"center", marginBottom:10}}>
           <div style={{fontSize:18, fontWeight:800, color:"#ddd"}}>「{typeName}」</div>
         </div>
+        {traits && (
+          <div style={{fontSize:10.5, color:"#B9C4BD", lineHeight:1.7, textAlign:"left", background:"rgba(0,0,0,0.18)", borderRadius:8, padding:"9px 10px", marginBottom:10}}>
+            {traits}
+          </div>
+        )}
         <div style={{display:"flex", gap:3, justifyContent:"center", marginBottom:10, flexWrap:"wrap"}}>
           {Array.from({length:7}).map((_,i)=>(<MbtiStar key={i} lit={i<stars}/>))}
         </div>
@@ -1064,6 +1101,7 @@ function MbtiAwakenCard({ awaken, member }) {
   const code = awaken.code;
   const [typeName, dbName] = MBTI_TYPES[code] || ["?","?"];
   const flavor = MBTI_AWAKEN_FLAVOR[code] || "";
+  const realLine = awaken.raw ? mbtiAwakenRealLine(awaken.raw) : "";
   const temperament = mbtiTemperament(code);
   const stars = mbtiStars(awaken.spread);
   const isLr = awaken.rarity === "LR";
@@ -1101,6 +1139,7 @@ function MbtiAwakenCard({ awaken, member }) {
             <div style={{fontSize:10, color:"#8FA69B", letterSpacing:2}}>{code}</div>
           </div>
           <div style={{fontSize:9, fontWeight:800, color:"#ffe08a", padding:"2px 7px", borderRadius:10, background:"rgba(255,157,61,0.18)", border:"1px solid rgba(255,157,61,0.5)"}}>⚡ 覚醒</div>
+          <div style={{fontSize:10, fontWeight:800, color: isLr ? "#ffd700" : "#f1c40f", padding:"2px 8px", borderRadius:10, background: isLr ? "rgba(255,215,0,0.18)" : "rgba(241,196,15,0.15)", border: isLr ? "1px solid rgba(255,215,0,0.6)" : "1px solid rgba(241,196,15,0.4)"}}>{awaken.rarity}</div>
         </div>
         <img src={mbtiPortraitSrc(code, true)} alt={dbName} draggable={false}
           onError={(e)=>{ e.currentTarget.style.display="none"; }}
@@ -1108,7 +1147,10 @@ function MbtiAwakenCard({ awaken, member }) {
         <div style={{textAlign:"center", marginBottom:6}}>
           <div style={{fontSize:18, fontWeight:800, color: isLr ? "#ffd700" : "#ddd", textShadow: isLr ? "0 0 12px rgba(255,215,0,0.6)" : "none"}}>「{typeName}」</div>
         </div>
-        <div style={{fontSize:10.5, color:"#B9C4BD", lineHeight:1.6, textAlign:"center", margin:"0 4px 10px", fontStyle:"italic"}}>{flavor}</div>
+        <div style={{fontSize:10.5, color:"#B9C4BD", lineHeight:1.6, textAlign:"center", margin:"0 4px 6px", fontStyle:"italic"}}>{flavor}</div>
+        {realLine && (
+          <div style={{fontSize:10, color: isLr ? "#ffd700" : "#ffb347", lineHeight:1.6, textAlign:"center", margin:"0 4px 10px", fontWeight:600}}>{realLine}</div>
+        )}
         <div style={{display:"flex", gap:3, justifyContent:"center", marginBottom:10, flexWrap:"wrap"}}>
           {Array.from({length:7}).map((_,i)=>(<MbtiStar key={i} lit={i<stars}/>))}
         </div>
@@ -1837,6 +1879,11 @@ export default function App() {
   });
   const [ci, setCi] = useState(""); const [ce, setCe] = useState(false);
   const [tab, setTab] = useState("dashboard");
+  // ?tab=mbti のディープリンクでLINE共有からMBTI診断タブ（内部state値は"shindan"）を直接開けるようにする
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("tab") === "mbti") setTab("shindan");
+  }, []);
   const [period, setPeriod] = useState("month");
   const [selectedMonth, setSelectedMonth] = useState(""); // "YYYY-MM" or ""
   const [confettiShown, setConfettiShown] = useState(false);
