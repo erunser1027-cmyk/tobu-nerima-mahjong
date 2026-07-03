@@ -16,6 +16,8 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-07-03
 const CHANGELOG = [
   { date:"2026-07-03", features:[
+    "MBTI診断：診断結果をLINEでシェアするボタンを追加（対応端末では画像付き共有シート、非対応環境ではLINEのテキスト共有にフォールバック）",
+    "MBTI診断：カード画像に既に焼き込まれているキャラ名・レア度バッジとアプリ側テキストの二重表示を解消（キャラ名・レア度バッジのテキストを削除、タイプ名見出しは維持）",
     "MBTI診断：キャラ画像のリサイズ方式をクロップから「縦横比保持の縮小＋透明パディング」に変更（顔や頭部が切れる問題を解消・32枚全て再処理）",
     "MBTI診断：タイブレーク時に回答パターンハッシュ値をシードに使用、同点時も診断結果を確定的に決定",
     "MBTI診断：タイブレーク時のランダム判定を実装、同点時の公平性を確保",
@@ -672,6 +674,38 @@ const MBTI_AWAKEN_FLAVOR = {
 };
 // MBTIキャラ画像パス（本人が別途 public/mbti/ に配置。未配置時はimg側のonErrorでフォールバック）
 const mbtiPortraitSrc = (code, awakened=false) => `/mbti/${code.toLowerCase()}_${awakened ? "awakened" : "base"}.png`;
+
+const MBTI_APP_URL = "https://tleague.nerima-night-crew.com";
+// 診断結果をLINEで共有。feature detection（UA判定はしない）で経路を切り替える：
+// - navigator.share/canShareに対応し、かつファイル共有が可能な環境（主にモバイル）→ カード画像＋テキストを共有シート経由で送る
+// - それ以外（主にPC）→ LINEのURLスキームでテキスト＋URLのみ共有
+async function mbtiShareResult(code, dbName, typeName, onError) {
+  const text = `麻雀MBTI診断やってみた！私は【${dbName}（${typeName}）】でした🀄`;
+  const canShareApi = typeof navigator !== "undefined" && typeof navigator.share === "function";
+
+  if (canShareApi) {
+    try {
+      if (typeof navigator.canShare === "function") {
+        const res = await fetch(mbtiPortraitSrc(code, false));
+        const blob = await res.blob();
+        const file = new File([blob], `${code.toLowerCase()}_base.png`, { type: blob.type || "image/png" });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], text: `${text}\n${MBTI_APP_URL}` });
+          return;
+        }
+      }
+      await navigator.share({ text, url: MBTI_APP_URL });
+      return;
+    } catch (e) {
+      if (e.name === "AbortError") return; // ユーザーがシェアをキャンセルした場合は何もしない
+      onError && onError(e);
+      return;
+    }
+  }
+  // Web Share API非対応環境（主にPC）→ LINEのURLスキームへフォールバック
+  const lineUrl = `line://msg/text/${encodeURIComponent(text + "\n" + MBTI_APP_URL)}`;
+  window.location.href = lineUrl;
+}
 const MBTI_AXES = [
   {key:"EI", field:"axis_ei", la:"場読み型", lb:"没入型"},
   {key:"SN", field:"axis_sn", la:"現実型",   lb:"流れ型"},
@@ -979,14 +1013,12 @@ function MbtiCard({ result, member }) {
             <div style={{fontSize:13, fontWeight:700, color:"#fff"}}>{member?.name || "?"}</div>
             <div style={{fontSize:10, color:"#8FA69B", letterSpacing:2}}>{code}</div>
           </div>
-          <div style={{fontSize:10, fontWeight:800, color:"#f1c40f", padding:"2px 8px", borderRadius:10, background:"rgba(241,196,15,0.15)", border:"1px solid rgba(241,196,15,0.4)"}}>{rarity}</div>
         </div>
         <img src={mbtiPortraitSrc(code, false)} alt={dbName} draggable={false}
           onError={(e)=>{ e.currentTarget.style.display="none"; }}
           style={{width:"100%", aspectRatio:"3 / 4", objectFit:"cover", borderRadius:10, marginBottom:10, display:"block", background:"rgba(0,0,0,0.25)"}}/>
         <div style={{textAlign:"center", marginBottom:10}}>
-          <div style={{fontSize:26, fontWeight:800, color:"#e74c3c"}}>{dbName}</div>
-          <div style={{fontSize:13, color:"#ddd", marginTop:2}}>「{typeName}」</div>
+          <div style={{fontSize:18, fontWeight:800, color:"#ddd"}}>「{typeName}」</div>
         </div>
         <div style={{display:"flex", gap:3, justifyContent:"center", marginBottom:10, flexWrap:"wrap"}}>
           {Array.from({length:7}).map((_,i)=>(<MbtiStar key={i} lit={i<stars}/>))}
@@ -1044,14 +1076,12 @@ function MbtiAwakenCard({ awaken, member }) {
             <div style={{fontSize:10, color:"#8FA69B", letterSpacing:2}}>{code}</div>
           </div>
           <div style={{fontSize:9, fontWeight:800, color:"#ffe08a", padding:"2px 7px", borderRadius:10, background:"rgba(255,157,61,0.18)", border:"1px solid rgba(255,157,61,0.5)"}}>⚡ 覚醒</div>
-          <div style={{fontSize:10, fontWeight:800, color: isLr ? "#ffd700" : "#f1c40f", padding:"2px 8px", borderRadius:10, background: isLr ? "rgba(255,215,0,0.18)" : "rgba(241,196,15,0.15)", border: isLr ? "1px solid rgba(255,215,0,0.6)" : "1px solid rgba(241,196,15,0.4)"}}>{awaken.rarity}</div>
         </div>
         <img src={mbtiPortraitSrc(code, true)} alt={dbName} draggable={false}
           onError={(e)=>{ e.currentTarget.style.display="none"; }}
           style={{width:"100%", aspectRatio:"3 / 4", objectFit:"cover", borderRadius:10, marginBottom:10, display:"block", background:"rgba(0,0,0,0.3)"}}/>
         <div style={{textAlign:"center", marginBottom:6}}>
-          <div style={{fontSize:27, fontWeight:800, color: isLr ? "#ffd700" : "#e74c3c", textShadow: isLr ? "0 0 12px rgba(255,215,0,0.6)" : "none"}}>{dbName}</div>
-          <div style={{fontSize:13, color:"#ddd", marginTop:2}}>「{typeName}」</div>
+          <div style={{fontSize:18, fontWeight:800, color: isLr ? "#ffd700" : "#ddd", textShadow: isLr ? "0 0 12px rgba(255,215,0,0.6)" : "none"}}>「{typeName}」</div>
         </div>
         <div style={{fontSize:10.5, color:"#B9C4BD", lineHeight:1.6, textAlign:"center", margin:"0 4px 10px", fontStyle:"italic"}}>{flavor}</div>
         <div style={{display:"flex", gap:3, justifyContent:"center", marginBottom:10, flexWrap:"wrap"}}>
@@ -6948,6 +6978,14 @@ export default function App() {
                   <button style={S.bg({flex:1})} disabled={mbtiSubmitting} onClick={()=>{setRaceSelf(null);setMbtiRosterOpen(false);setMbtiRosterExpand(null);}}>👤 別の人で診断</button>
                 </div>
                 <button style={S.bg({width:"100%",marginTop:8})} disabled={mbtiSubmitting} onClick={()=>setMbtiRosterOpen(true)}>🎴 コレクションを見る</button>
+                <button style={{...S.bg({width:"100%",marginTop:8}), background:"rgba(6,199,85,0.12)", border:"1px solid rgba(6,199,85,0.5)", color:"#06C755", fontWeight:600}}
+                  disabled={mbtiSubmitting}
+                  onClick={()=>{
+                    const r = mbtiOf(raceSelf);
+                    const [typeName, dbName] = MBTI_TYPES[r.mbti_code] || ["?","?"];
+                    mbtiShareResult(r.mbti_code, dbName, typeName, ()=>showToast("error","⚠️ 共有に失敗しました"));
+                  }}>📤 診断結果をLINEでシェア</button>
+                <div style={{fontSize:9.5,color:"#666",textAlign:"center",marginTop:4}}>スマホは画像付きで共有シートが開き、PCはLINEでのテキスト共有が開きます</div>
               </div>
             ) : (
               <div style={{...S.card(), textAlign:"center", padding:24}}>
