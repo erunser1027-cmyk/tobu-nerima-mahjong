@@ -16,6 +16,7 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-07-03
 const CHANGELOG = [
   { date:"2026-07-03", features:[
+    "MBTI診断：コレクション画面のカード一覧下部にLINEシェアボタンを追加（「麻雀MBTI診断やってみて！」＋?tab=mbtiディープリンク付き）",
     "UI改善：上部メニューの「📊概要」「➕対局開始」「🏇外馬」をアプリ下部の固定メニューに移動（透過・追従表示、アイコン＋短いラベル付き、タップしやすい高さ56px相当）",
     "MBTI診断：レア度バッジ（N〜LR）を素質・覚醒カードに復活。性格説明（強み・思考の癖・弱点を含む長文）を素質カードに追加。覚醒カードに新フレーバーテキストと実戦成績（1位率・平均着順・ラス率）を反映した一文を追加。LINE共有URLに?tab=mbtiを付与し、共有リンクから直接MBTI診断タブを開けるように変更",
     "MBTI診断：診断完了時に「answers.reduce is not a function」で必ずクラッシュしていた不具合を修正（ハッシュ値シード計算がanswersをオブジェクトでなく配列として扱っていたことが原因）",
@@ -1292,6 +1293,17 @@ function MbtiCollection({ members, mbtiResults, sessions, raceBets, raceSelf, on
           );
         })}
       </div>
+
+      <button onClick={()=>{
+        const text = encodeURIComponent(`麻雀MBTI診断やってみて！\n${MBTI_APP_URL}`);
+        window.open(`https://line.me/R/msg/text/?${text}`, "_blank");
+      }} style={{
+        width:"100%", marginTop:12, padding:"10px", borderRadius:8, border:"1px solid rgba(6,199,85,0.5)",
+        background:"rgba(6,199,85,0.12)", color:"#06c755", fontSize:13, fontWeight:700,
+        cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6,
+      }}>
+        <span style={{fontSize:16}}>💬</span> LINEでコレクションを紹介する
+      </button>
     </div>
   );
 }
