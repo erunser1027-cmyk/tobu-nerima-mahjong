@@ -11,6 +11,9 @@
 # production
 /build
 
+# MBTIキャラ画像のクロップ前オリジナル（ローカルバックアップのみ、リポジトリには含めない）
+public/mbti_backup_original/
+
 # misc
 .DS_Store
 .env.local
