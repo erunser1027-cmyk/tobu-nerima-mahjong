@@ -18,6 +18,7 @@ const SHOW_HILO_ICON = false;
 // 今日: 2026-07-04
 const CHANGELOG = [
   { date:"2026-07-04", features:[
+    "MBTI診断：LINEシェア画像に性格説明の全文（強み・思考の癖・弱点）を複数行で焼き込み",
     "MBTI診断：「自分が誰か」の識別子を外馬(raceSelf)から分離した専用state mbtiSelfに変更（対局リセットの影響を受けず端末に永続化）。🎴タブのトップ画面に選択中メンバーの「変更」リンクを追加。「覚醒カードを見る」を一覧から削除し、マイカードモーダル内の素質カード表示のすぐ上に再配置（一覧はマイカード→コレクションの2ボタン構成に整理）",
     "MBTI診断：🎴タブのメニュー構成を変更（見出し常時表示→マイカードを見る→再診断する（新設・クールダウン無視で即再診断）→覚醒カードを見る→コレクションを見るの順に刷新）",
     "UI変更：ヘッダーの外部リンク（麻雀基礎講座）アイコンを撤廃し、設定メニュー内「当月成績優秀者の演出について」の下に📖麻雀基礎講座メニューとして移動。メインメニューの🃏ハイ&ローアイコンを非表示化（機能・データは維持、表示条件フラグで制御）。成績概要の簡易概要ポップアップにメンバーのMBTI診断カード（未診断は「未診断」、未解放は「🔒未解放」表示）を追加",
@@ -765,6 +766,22 @@ function mbtiRoundRectPath(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
 }
+// 指定幅に収まるよう1文字ずつ折り返す（日本語は分かち書きされないため文字単位でmeasureText判定）
+function mbtiWrapText(ctx, text, maxWidth) {
+  const lines = [];
+  let current = "";
+  for (const ch of text) {
+    const test = current + ch;
+    if (current && ctx.measureText(test).width > maxWidth) {
+      lines.push(current);
+      current = ch;
+    } else {
+      current = test;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
 // 素質カード（ポートレート＋レア度＋★＋戦闘力＋4軸メーター＋透かし注意文言）を1枚のcanvasに合成しBlobを返す
 async function mbtiBuildShareImage(result) {
   const code = result.mbti_code;
@@ -774,11 +791,23 @@ async function mbtiBuildShareImage(result) {
   const rarity = mbtiRarity(spread);
   const stars = mbtiStars(spread);
   const power = mbtiPower(result);
+  const traits = MBTI_TRAITS[code] || "";
 
-  const W = 720, H = 1520; // ポートレート+タイプ名+星+戦闘力+4軸メーター+透かし注意文言が収まる高さ
+  const W = 720;
   const canvas = document.createElement("canvas");
-  canvas.width = W; canvas.height = H;
+  canvas.width = W; canvas.height = 100; // 性格説明の折り返し計測用の仮サイズ
   const ctx = canvas.getContext("2d");
+
+  // 性格説明（上部エリア）の折り返しを先に計算し、必要な高さ分だけ下の要素をずらす
+  const descBoxX = 40, descBoxW = W - 80, descPadX = 20, descPadY = 16, descLineHeight = 20;
+  ctx.font = "12px sans-serif";
+  const descLines = traits ? mbtiWrapText(ctx, traits, descBoxW - descPadX * 2) : [];
+  const descBoxTop = 30;
+  const descBoxH = descLines.length ? descLines.length * descLineHeight + descPadY * 2 : 0;
+  const extra = descLines.length ? descBoxTop + descBoxH + 24 : 0; // 説明ボックス分の押し下げ量
+
+  const H = 1520 + extra; // ポートレート+タイプ名+星+戦闘力+4軸メーター+透かし注意文言が収まる高さ
+  canvas.width = W; canvas.height = H;
 
   // 背景
   const bg = ctx.createLinearGradient(0, 0, 0, H);
@@ -794,8 +823,21 @@ async function mbtiBuildShareImage(result) {
   ctx.strokeStyle = frameGrad; ctx.lineWidth = 10;
   mbtiRoundRectPath(ctx, 5, 5, W - 10, H - 10, 18); ctx.stroke();
 
+  // 性格説明（強み・思考の癖・弱点を含む全文、半透明グラデーション背景に複数行で焼き込み）
+  if (descLines.length) {
+    const descGrad = ctx.createLinearGradient(descBoxX, descBoxTop, descBoxX, descBoxTop + descBoxH);
+    descGrad.addColorStop(0, "rgba(255,255,255,0.10)"); descGrad.addColorStop(1, "rgba(0,0,0,0.22)");
+    ctx.fillStyle = descGrad;
+    mbtiRoundRectPath(ctx, descBoxX, descBoxTop, descBoxW, descBoxH, 12); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1;
+    mbtiRoundRectPath(ctx, descBoxX, descBoxTop, descBoxW, descBoxH, 12); ctx.stroke();
+    ctx.fillStyle = "#B9C4BD"; ctx.font = "12px sans-serif";
+    ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+    descLines.forEach((line, i) => ctx.fillText(line, descBoxX + descPadX, descBoxTop + descPadY + (i + 1) * descLineHeight - 6));
+  }
+
   // レア度バッジ
-  const badgeW = 96, badgeH = 42, badgeX = W - badgeW - 34, badgeY = 34;
+  const badgeW = 96, badgeH = 42, badgeX = W - badgeW - 34, badgeY = 34 + extra;
   ctx.fillStyle = "rgba(241,196,15,0.18)";
   mbtiRoundRectPath(ctx, badgeX, badgeY, badgeW, badgeH, 21); ctx.fill();
   ctx.strokeStyle = "#f1c40f"; ctx.lineWidth = 2;
@@ -806,7 +848,7 @@ async function mbtiBuildShareImage(result) {
 
   // ポートレート画像
   const portraitImg = await mbtiLoadImage(mbtiPortraitSrc(code, false));
-  const pW = W - 80, pH = Math.round(pW * 4 / 3), pX = 40, pY = 94;
+  const pW = W - 80, pH = Math.round(pW * 4 / 3), pX = 40, pY = 94 + extra;
   ctx.save();
   mbtiRoundRectPath(ctx, pX, pY, pW, pH, 16); ctx.clip();
   if (portraitImg) ctx.drawImage(portraitImg, pX, pY, pW, pH);
