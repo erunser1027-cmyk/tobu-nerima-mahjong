@@ -16,6 +16,7 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-07-03
 const CHANGELOG = [
   { date:"2026-07-03", features:[
+    "MBTI診断：タイブレーク時に回答パターンハッシュ値をシードに使用、同点時も診断結果を確定的に決定",
     "MBTI診断：タイブレーク時のランダム判定を実装、同点時の公平性を確保",
     "MBTI診断：T/F軸の表現を中立化（「美学に反する」→「物足りない」）",
     "MBTI診断：図鑑を「メンバー名簿」から自分が解放済みのカードだけを並べる「コレクション」形式に変更",
@@ -685,9 +686,15 @@ function mbtiTally(answers){
     const side=v<0?q.left.side:q.right.side;
     t[side]=(t[side]||0)+Math.abs(v);
   });
+  // 回答パターンからハッシュ値を生成（確定的な乱数シード：同じ回答なら常に同じ結果になる）
+  const answerHash = answers.reduce((h,a,i)=>h+(a||0)*Math.pow(7,i), 0);
+  const seededRandom = (seed) => {
+    const x = Math.sin(seed) * 10000;
+    return x - Math.floor(x);
+  };
   const pick=(a,b)=>{
     const aVal=t[a]||0, bVal=t[b]||0;
-    if(aVal===bVal) return Math.random()<0.5?a:b; // 同点時は乱数でランダムに決定（E/S/T/J側への構造的バイアスを排除）
+    if(aVal===bVal) return seededRandom(answerHash)<0.5?a:b; // 同点時は回答パターンのハッシュ値をシードに確定的に決定
     return aVal>=bVal?a:b;
   };
   const code=pick("E","I")+pick("S","N")+pick("T","F")+pick("J","P");
