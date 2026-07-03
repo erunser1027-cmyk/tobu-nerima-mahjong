@@ -16,6 +16,10 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-07-03
 const CHANGELOG = [
   { date:"2026-07-03", features:[
+    "MBTI診断：図鑑を「メンバー名簿」から自分が解放済みのカードだけを並べる「コレクション」形式に変更",
+    "MBTI診断：実戦データを反映する新形態「覚醒カード」を追加（規定打席到達で本人は自動入手・他人は対戦成績ルート＆外馬ルートの両方達成で解放。診断%と実戦%を50%ずつ反映した4軸で算出、必ずUR以上のレア度＆戦闘力を大幅ブースト、専用フレーバーテキストとLR限定の虹色エフェクトつき）",
+    "MBTI診断：コレクション画面に「？遊び方を見る」の折りたたみ式ルール説明パネルを追加",
+    "ヘッダーバージョン表記をv1.9→v2.0に変更",
     "MBTI診断：出題画面の牌をSVG手描きから実物写真風PNG画像（37種・赤ドラ込み）に差し替え。画面幅に応じて横一列に自動収縮するレスポンシブサイズに変更",
     "MBTI診断：ゲストメンバー（名前に「ゲスト」を含む参加者）を診断対象・名簿・タイプ制覇カウントから完全に除外",
     "MBTI診断：他メンバーのトレーディングカードを解放する「メンバー名簿」機能を追加（ルートA：対戦10半荘以上＋勝率50%超、ルートB：そのメンバー参加半荘での外馬チップ収支+50枚以上、いずれか達成で解放・未解放は？シルエット表示）",
@@ -643,6 +647,27 @@ const MBTI_TYPES = {
   ISTP:["クールな捌き師","18号"], ISFP:["マイペースの一撃","16号"],
   ESTP:["経験がモノを言う実戦派","亀仙人"], ESFP:["本能の勝負師","孫悟空"],
 };
+// 覚醒カード専用フレーバーテキスト（素質＝人柄の説明、覚醒＝実際のプレースタイルの説明）
+const MBTI_AWAKEN_FLAVOR = {
+  INTJ:"序盤から手役の完成形を見据え、誰に何を言われても一点読みを曲げない。安手で妥協するくらいなら潔く沈む。",
+  INTP:"常に受け入れ枚数と期待値を頭の中で計算している。理屈で勝てる牌しか切らないが、たまに数字を信じすぎて痛い目を見る。",
+  ENTJ:"相手の一番嫌がる牌を、一番嫌がるタイミングで叩き込む。勝ち目が見えた瞬間の踏み込みは誰よりも速く、容赦がない。",
+  ENTP:"定石を疑い、誰もやらない仕掛けを平気で試す。当たれば会心の一打、外れても「次はこう来るか」と笑って切り替える。",
+  INFJ:"河と気配から静かに先を読み、勝負所だけ音もなく踏み込む。オリと押しの境界線を誰よりも正確に引く。",
+  INFP:"普段は無理をせず流れに身を任せているが、ここぞという一局だけ人が変わったように踏み込んでくる。本気を出した時が一番怖い。",
+  ENFJ:"卓の空気を自分の味方につけるのがうまい。実力以上の勢いとノリで、気づけば局を支配している。",
+  ENFP:"一発のロマンを追いかけて無謀な手を握りがちだが、その分ハマった時のリターンは誰よりも大きい。",
+  ISTJ:"型を崩さず、決めた打ち方を最後まで貫き通す。派手さはないが、同じミスを二度と繰り返さない鉄の精度。",
+  ISFJ:"大きく攻めるより、最後まで残ることを優先する。地味に見えて、気づけば一番しぶとく生き残っている。",
+  ESTJ:"場全体の流れを把握し、周りに指示するように打ち回す。統率力で局を締めるタイプ。",
+  ESFJ:"場の均衡を大事にし、無理な勝負より丁寧な進行を選ぶ。周りに気を配りすぎて自分の手が遅れることも。",
+  ISTP:"無駄な牌を一枚も切らない、驚くほど機械的で正確な手順。感情を挟まず、最短距離で局を畳む。",
+  ISFP:"自分のペースを崩さず、淡々と一撃を狙う。周りが騒がしくても表情ひとつ変えない。",
+  ESTP:"場数がモノを言う実戦派。理屈より「これは危ない」という嗅覚で切り抜ける、経験に裏打ちされた勝負師。",
+  ESFP:"理屈より本能。危険を察知した瞬間に踏み込む判断力は、誰にも予測できない。",
+};
+// MBTIキャラ画像パス（本人が別途 public/mbti/ に配置。未配置時はimg側のonErrorでフォールバック）
+const mbtiPortraitSrc = (code, awakened=false) => `/mbti/${code.toLowerCase()}_${awakened ? "awakened" : "base"}.jpg`;
 const MBTI_AXES = [
   {key:"EI", field:"axis_ei", la:"場読み型", lb:"没入型"},
   {key:"SN", field:"axis_sn", la:"現実型",   lb:"流れ型"},
@@ -739,11 +764,154 @@ function mbtiUnlockStatus(sessions, raceBets, selfId, targetId) {
   const profitB = mbtiRouteBProfit(sessions, raceBets, selfId, targetId);
   return { unlocked: routeA.unlocked || profitB >= 50, routeA, profitB };
 }
-function mbtiUnlockHint(status) {
-  const remainGames = Math.max(0, 10 - status.routeA.games);
-  const winPct = Math.round(status.routeA.winRate * 100);
-  const chipStr = `${status.profitB >= 0 ? "+" : ""}${status.profitB}`;
-  return `あと${remainGames}試合／勝率${winPct}%／チップ${chipStr}枚`;
+// 覚醒カードの解放にはルートA・Bの両方が必要（素質はどちらか一方でOK）
+function mbtiAwakenUnlockStatus(sessions, raceBets, selfId, targetId) {
+  const base = mbtiUnlockStatus(sessions, raceBets, selfId, targetId);
+  return { unlocked: base.routeA.unlocked && base.profitB >= 50, routeA: base.routeA, profitB: base.profitB };
+}
+
+// ---- 覚醒カード：規定打席（Mリーグ個人タイトルのbuildMemberMLeagueと同じ計算式を流用） ----
+function mbtiAwakenQual(sessions, members, memberId) {
+  const id = Number(memberId);
+  const currentYear = new Date().getFullYear();
+  const yearSessions = sessions.filter(s => s.date && s.date.startsWith(String(currentYear)));
+  const getMonth = d => parseInt(d.slice(5, 7), 10);
+  const firstHalfSessions = yearSessions.filter(s => { const m = getMonth(s.date); return m >= 1 && m <= 6; });
+  const secondHalfSessions = yearSessions.filter(s => { const m = getMonth(s.date); return m >= 7 && m <= 12; });
+
+  const calcPeriod = (periodSessions) => {
+    const totals = {};
+    members.forEach(m => { totals[m.id] = 0; });
+    periodSessions.forEach(s => {
+      (s.rounds || []).forEach(r => {
+        (r.players || []).forEach(pid => {
+          const pidNum = Number(pid);
+          if (totals[pidNum] !== undefined) totals[pidNum]++;
+        });
+      });
+    });
+    const participantsCount = Object.values(totals).filter(t => t > 0).length;
+    const totalPlayHalves = Object.values(totals).reduce((a, b) => a + b, 0);
+    const standardRounds = participantsCount > 0 ? Math.floor(totalPlayHalves / participantsCount) : 0;
+    const easeRounds = Math.floor(standardRounds * 0.85);
+    return { total: totals[id] || 0, easeRounds };
+  };
+
+  const fh = calcPeriod(firstHalfSessions);
+  const sh = calcPeriod(secondHalfSessions);
+  const fhQualified = fh.easeRounds > 0 && fh.total >= fh.easeRounds;
+  const shQualified = sh.easeRounds > 0 && sh.total >= sh.easeRounds;
+  const qualified = fhQualified || shQualified;
+  const shortfalls = [];
+  if (fh.easeRounds > 0 && !fhQualified) shortfalls.push(fh.easeRounds - fh.total);
+  if (sh.easeRounds > 0 && !shQualified) shortfalls.push(sh.easeRounds - sh.total);
+  const remaining = qualified ? 0 : (shortfalls.length ? Math.min(...shortfalls) : null);
+  return { qualified, remaining };
+}
+
+// 実戦データの生集計（1半荘=1round単位）
+function mbtiRawStats(sessions, raceBets, memberId) {
+  const id = Number(memberId);
+  let total = 0, lastCount = 0, yakumanCount = 0;
+  const ranks = [];
+  const vs = {};
+  sessions.forEach(s => {
+    (s.rounds || []).forEach(r => {
+      if (!r.players || !r.scores) return;
+      const rPlayers = r.players.map(Number);
+      if (!rPlayers.includes(id)) return;
+      const myScore = N(r.scores[String(id)] ?? r.scores[id]);
+      const sorted = [...rPlayers].sort((a, b) => N(r.scores[String(b)] ?? r.scores[b]) - N(r.scores[String(a)] ?? r.scores[a]));
+      const rank = sorted.indexOf(id) + 1;
+      total++; ranks.push(rank);
+      if (rank === 4) lastCount++;
+      if (r.yakuman && r.yakuman.map(Number).includes(id)) yakumanCount++;
+      rPlayers.forEach(opId => {
+        if (opId === id) return;
+        if (!vs[opId]) vs[opId] = { wins: 0, total: 0 };
+        const opScore = N(r.scores[String(opId)] ?? r.scores[opId]);
+        vs[opId].total++;
+        if (myScore > opScore) vs[opId].wins++;
+      });
+    });
+  });
+  const avgRank = ranks.length ? ranks.reduce((a, b) => a + b, 0) / ranks.length : 0;
+  const rankVariance = ranks.length ? ranks.reduce((a, r) => a + (r - avgRank) ** 2, 0) / ranks.length : 0;
+  const lastRate = total > 0 ? (lastCount / total) * 100 : 0;
+  const yakumanFreq = total > 0 ? yakumanCount / total : 0;
+  const winRates = Object.values(vs).filter(v => v.total > 0).map(v => v.wins / v.total);
+  const winAvg = winRates.length ? winRates.reduce((a, b) => a + b, 0) / winRates.length : 0;
+  const winVariance = winRates.length ? winRates.reduce((a, r) => a + (r - winAvg) ** 2, 0) / winRates.length : 0;
+  const myBets = raceBets.filter(b => Number(b.bettor_id) === id).length;
+  const betRate = total > 0 ? myBets / total : 0;
+  return { total, lastRate, rankVariance, yakumanFreq, winVariance, betRate };
+}
+// リーグ内平均値（ゲスト除く、参加半荘のあるメンバーのみ対象）
+function mbtiLeagueBaseline(sessions, raceBets, members) {
+  const eligible = members.filter(m => !isGuestMember(m));
+  const stats = eligible.map(m => mbtiRawStats(sessions, raceBets, m.id)).filter(s => s.total > 0);
+  const avg = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+  return {
+    yakumanFreq: avg(stats.map(s => s.yakumanFreq)) || 0.0001,
+    winVariance: avg(stats.map(s => s.winVariance)) || 0.0001,
+    betRate: avg(stats.map(s => s.betRate)) || 0.0001,
+  };
+}
+// 4段階ティア（既存のavgRankCol/topRateCol等と同じ発想：閾値に応じて90/70/50/30点）
+function mbtiTierScore4(value, t1, t2, t3, lowerIsBetter = true) {
+  const cmp = (v, t) => lowerIsBetter ? v <= t : v >= t;
+  if (cmp(value, t1)) return 90;
+  if (cmp(value, t2)) return 70;
+  if (cmp(value, t3)) return 50;
+  return 30;
+}
+// リーグ平均との比率を0-100の傾きスコアに変換（平均=50、倍で+25、半分で-25、上下限クランプ）
+function mbtiRatioScore(ratio) {
+  return Math.max(0, Math.min(100, 50 + (ratio - 1) * 25));
+}
+// 実戦データから4軸の「%第一文字寄り」スコアを算出
+function mbtiPracticalAxes(raw, baseline) {
+  const sScore = mbtiTierScore4(raw.lastRate, 16, 20, 23, true); // 4着回避率が高い(ラス率が低い)ほどS
+  const yakumanRatio = raw.yakumanFreq / baseline.yakumanFreq;
+  const nScoreFromYakuman = mbtiRatioScore(yakumanRatio); // 役満頻度の比率が高いほどN
+  const sn = (sScore + (100 - nScoreFromYakuman)) / 2; // %S
+
+  const jp = mbtiTierScore4(raw.rankVariance, 0.8, 1.1, 1.4, true); // 順位の分散が小さいほどJ
+
+  const winVarianceRatio = raw.winVariance / baseline.winVariance;
+  const fScore = mbtiRatioScore(winVarianceRatio); // 対戦相手ごとの勝率のばらつきが大きいほどF
+  const tf = 100 - fScore; // %T
+
+  const betRatio = raw.betRate / baseline.betRate;
+  const ei = mbtiRatioScore(betRatio); // 外馬参加率が高いほどE
+
+  return { ei, sn, tf, jp };
+}
+// 覚醒カード本体の算出（診断%×0.5＋実戦%×0.5）。未達成時はqualified:falseとremaining半荘数を返す
+function mbtiComputeAwaken(sessions, raceBets, members, memberId, baseResult) {
+  const qual = mbtiAwakenQual(sessions, members, memberId);
+  if (!qual.qualified) return { qualified: false, remaining: qual.remaining };
+  const raw = mbtiRawStats(sessions, raceBets, memberId);
+  const baseline = mbtiLeagueBaseline(sessions, raceBets, members);
+  const practical = mbtiPracticalAxes(raw, baseline);
+  const blend = (base, prac) => Number(base) * 0.5 + prac * 0.5;
+  const axes = {
+    ei: blend(baseResult.axis_ei, practical.ei),
+    sn: blend(baseResult.axis_sn, practical.sn),
+    tf: blend(baseResult.axis_tf, practical.tf),
+    jp: blend(baseResult.axis_jp, practical.jp),
+  };
+  const pick = (v, a, b) => v >= 50 ? a : b;
+  const code = pick(axes.ei, "E", "I") + pick(axes.sn, "S", "N") + pick(axes.tf, "T", "F") + pick(axes.jp, "J", "P");
+  const devs = Object.values(axes).map(v => Math.abs(v - 50));
+  const allStrong = devs.every(d => d >= 30); // 4軸すべてが強く振れていたらLR、それ以外はUR（覚醒は必ずUR以上）
+  const rarity = allStrong ? "LR" : "UR";
+  const spread = devs.reduce((a, b) => a + b, 0) / 4;
+  const basePower = mbtiPower(baseResult);
+  const boostMul = rarity === "LR" ? 3.5 : 2.8;
+  const rankBonus = rarity === "LR" ? 15000 : 9000;
+  const power = Math.round(basePower * boostMul + rankBonus);
+  return { qualified: true, axes, code, rarity, spread, power };
 }
 
 function MbtiStar({ lit }) {
@@ -799,6 +967,9 @@ function MbtiCard({ result, member }) {
           </div>
           <div style={{fontSize:10, fontWeight:800, color:"#f1c40f", padding:"2px 8px", borderRadius:10, background:"rgba(241,196,15,0.15)", border:"1px solid rgba(241,196,15,0.4)"}}>{rarity}</div>
         </div>
+        <img src={mbtiPortraitSrc(code, false)} alt={dbName} draggable={false}
+          onError={(e)=>{ e.currentTarget.style.display="none"; }}
+          style={{width:"100%", aspectRatio:"3 / 4", objectFit:"cover", borderRadius:10, marginBottom:10, display:"block", background:"rgba(0,0,0,0.25)"}}/>
         <div style={{textAlign:"center", marginBottom:10}}>
           <div style={{fontSize:26, fontWeight:800, color:"#e74c3c"}}>{dbName}</div>
           <div style={{fontSize:13, color:"#ddd", marginTop:2}}>「{typeName}」</div>
@@ -817,18 +988,123 @@ function MbtiCard({ result, member }) {
   );
 }
 
+// ---- 覚醒カード：素質カード＋実戦データを反映。必ずUR以上、戦闘力も大幅ブースト ----
+function MbtiAwakenCard({ awaken, member }) {
+  const code = awaken.code;
+  const [typeName, dbName] = MBTI_TYPES[code] || ["?","?"];
+  const flavor = MBTI_AWAKEN_FLAVOR[code] || "";
+  const temperament = mbtiTemperament(code);
+  const stars = mbtiStars(awaken.spread);
+  const isLr = awaken.rarity === "LR";
+
+  const axisRow = (pctA, la, lb) => (
+    <div style={{marginBottom:10}}>
+      <div style={{display:"flex", justifyContent:"space-between", fontSize:10, marginBottom:4}}>
+        <span style={{color:pctA>=50?"#fff":"#8FA69B", fontWeight:pctA>=50?700:400}}>{la}</span>
+        <span style={{color:pctA<50?"#fff":"#8FA69B", fontWeight:pctA<50?700:400}}>{lb}</span>
+      </div>
+      <div style={{height:6, background:"#0c221d", borderRadius:4, overflow:"hidden", display:"flex"}}>
+        <div style={{width:`${pctA}%`, background: isLr ? "#ff9d3d" : "#C6A24C"}}/>
+        <div style={{width:`${100-pctA}%`, background:"#2F7A57"}}/>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{
+      padding:4, borderRadius:18,
+      background: isLr ? "linear-gradient(135deg,#ffd700,#ff3d81,#7c4dff,#00e5ff)" : MBTI_FRAME[temperament],
+      boxShadow:"0 6px 24px rgba(0,0,0,0.6)",
+      animation: isLr ? "mbtiLrRainbow 3.2s linear infinite" : "none",
+    }}>
+      <div style={{position:"relative", borderRadius:15, background:"linear-gradient(160deg,#0c0c17,#161628)", padding:16, overflow:"hidden", border: isLr ? "1px solid rgba(255,215,0,0.5)" : "none"}}>
+        <div style={{
+          position:"absolute", inset:0, borderRadius:"inherit", pointerEvents:"none",
+          background:"linear-gradient(115deg, transparent 20%, rgba(255,255,255,0.6) 40%, rgba(255,255,255,0.08) 50%, transparent 60%)",
+          backgroundSize:"250% 250%", mixBlendMode:"overlay", animation:"mbtiHoloSweep 2.4s linear infinite",
+        }}/>
+        <div style={{display:"flex", alignItems:"center", gap:10, marginBottom:12}}>
+          <Av m={member} sz={40}/>
+          <div style={{flex:1}}>
+            <div style={{fontSize:13, fontWeight:700, color:"#fff"}}>{member?.name || "?"}</div>
+            <div style={{fontSize:10, color:"#8FA69B", letterSpacing:2}}>{code}</div>
+          </div>
+          <div style={{fontSize:9, fontWeight:800, color:"#ffe08a", padding:"2px 7px", borderRadius:10, background:"rgba(255,157,61,0.18)", border:"1px solid rgba(255,157,61,0.5)"}}>⚡ 覚醒</div>
+          <div style={{fontSize:10, fontWeight:800, color: isLr ? "#ffd700" : "#f1c40f", padding:"2px 8px", borderRadius:10, background: isLr ? "rgba(255,215,0,0.18)" : "rgba(241,196,15,0.15)", border: isLr ? "1px solid rgba(255,215,0,0.6)" : "1px solid rgba(241,196,15,0.4)"}}>{awaken.rarity}</div>
+        </div>
+        <img src={mbtiPortraitSrc(code, true)} alt={dbName} draggable={false}
+          onError={(e)=>{ e.currentTarget.style.display="none"; }}
+          style={{width:"100%", aspectRatio:"3 / 4", objectFit:"cover", borderRadius:10, marginBottom:10, display:"block", background:"rgba(0,0,0,0.3)"}}/>
+        <div style={{textAlign:"center", marginBottom:6}}>
+          <div style={{fontSize:27, fontWeight:800, color: isLr ? "#ffd700" : "#e74c3c", textShadow: isLr ? "0 0 12px rgba(255,215,0,0.6)" : "none"}}>{dbName}</div>
+          <div style={{fontSize:13, color:"#ddd", marginTop:2}}>「{typeName}」</div>
+        </div>
+        <div style={{fontSize:10.5, color:"#B9C4BD", lineHeight:1.6, textAlign:"center", margin:"0 4px 10px", fontStyle:"italic"}}>{flavor}</div>
+        <div style={{display:"flex", gap:3, justifyContent:"center", marginBottom:10, flexWrap:"wrap"}}>
+          {Array.from({length:7}).map((_,i)=>(<MbtiStar key={i} lit={i<stars}/>))}
+        </div>
+        <div style={{textAlign:"center", fontSize:11, color:"#888", marginBottom:14}}>
+          戦闘力 <span style={{fontSize:19, fontWeight:900, color: isLr ? "#ffd700" : "#fff", marginLeft:4, textShadow: isLr ? "0 0 10px rgba(255,215,0,0.7)" : "none"}}>{awaken.power.toLocaleString()}</span>
+        </div>
+        <div style={{background:"rgba(0,0,0,0.25)", borderRadius:10, padding:"10px 12px"}}>
+          {MBTI_AXES.map(ax=>(<div key={ax.key}>{axisRow(Number(awaken.axes[ax.field.replace("axis_","")]), ax.la, ax.lb)}</div>))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---- メンバー名簿（他メンバーカードの解放状況一覧）----
-function MbtiRoster({ members, mbtiResults, sessions, raceBets, raceSelf, onBack, expandId, onToggleExpand }) {
+function MbtiRulePanel() {
+  const [open, setOpen] = useState(false);
+  const h = (color, text) => <div style={{fontWeight:600, color, marginTop:12, marginBottom:4}}>{text}</div>;
+  return (
+    <div style={{marginBottom:10, background:"rgba(52,152,219,0.06)", borderRadius:8, border:"1px solid rgba(52,152,219,0.15)"}}>
+      <div onClick={()=>setOpen(p=>!p)} style={{display:"flex", justifyContent:"space-between", alignItems:"center", cursor:"pointer", padding:"9px 12px"}}>
+        <div style={{fontSize:12, fontWeight:600, color:"#3498db"}}>❓ 遊び方を見る</div>
+        <span style={{fontSize:13, color:"#888"}}>{open ? "▲" : "▼"}</span>
+      </div>
+      {open && (
+        <div style={{padding:"0 12px 12px", fontSize:11, color:"#ccc", lineHeight:1.7}}>
+          {h("#3498db","🧠 MBTI診断とは")}
+          <div>本診断は、心理学で実際に使われているMBTI理論（4軸・16タイプ）をベースに、麻雀の場面に置き換えたオリジナル設問で構成されています。単なる話のネタではなく、ちゃんとした性格理論に基づいた診断です。</div>
+
+          {h("#3498db","🎴 素質カードの入手方法")}
+          <div>自分の分：診断を完了すれば即入手できます。</div>
+          <div style={{marginTop:4}}>他人の分：以下のどちらかを満たすと入手できます。</div>
+          <div style={{marginTop:2}}>・対戦成績ルート：その人と半荘10回以上対戦し、勝ち越している</div>
+          <div>・外馬ルート：その人が参加した半荘の外馬で、チップ収支+50枚以上稼ぐ</div>
+
+          {h("#ffb347","⚡ 覚醒カードとは")}
+          <div>覚醒カードは、クイズの回答結果だけでなく、あなたの実際の対局成績・外馬成績を大きく反映（診断結果と実戦データを50%ずつ）して算出される、"クイズでは測れない、実戦で磨かれた本当の麻雀性格"です。</div>
+          <div style={{marginTop:4}}>自分の分：規定半荘数に到達すれば自動的に入手できます。</div>
+          <div style={{marginTop:4}}>他人の分：素質カードの入手条件（対戦成績ルート・外馬ルート）の両方を満たす必要があります（片方だけでは入手不可）。</div>
+
+          {h("#f1c40f","💎 レア度")}
+          <div>N → R → SR → UR → LR（覚醒限定の最上位ランク）の順に希少になります。性格の"尖り具合"や実戦成績で決まります。</div>
+
+          {h("#2ecc71","🏆 タイプ制覇")}
+          <div>16タイプ中いくつのタイプのカードを集めたかを示す進捗です（メンバー内で誰かとタイプが被ることもあります）。</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- コレクション：自分が解放済みの素質・覚醒カードだけを並べる ----
+function MbtiCollection({ members, mbtiResults, sessions, raceBets, raceSelf, onBack, expandId, onToggleExpand, awakenExpandId, onToggleAwakenExpand }) {
   const rosterMembers = members.filter(m => !isGuestMember(m));
-  const rosterIds = new Set(rosterMembers.map(m => Number(m.id)));
   const mbtiOf = id => mbtiResults.find(r => Number(r.member_id) === Number(id));
-  const coverage = new Set();
-  mbtiResults.forEach(r => {
-    const mid = Number(r.member_id);
-    if (!rosterIds.has(mid)) return;
-    if (mid === Number(raceSelf)) { coverage.add(r.mbti_code); return; }
-    if (mbtiUnlockStatus(sessions, raceBets, raceSelf, mid).unlocked) coverage.add(r.mbti_code);
+
+  const visible = rosterMembers.filter(m => {
+    const result = mbtiOf(m.id);
+    if (!result) return false;
+    if (Number(m.id) === Number(raceSelf)) return true;
+    return mbtiUnlockStatus(sessions, raceBets, raceSelf, m.id).unlocked;
   });
+
+  const coverage = new Set();
+  visible.forEach(m => { const r = mbtiOf(m.id); if (r) coverage.add(r.mbti_code); });
 
   return (
     <div>
@@ -836,55 +1112,70 @@ function MbtiRoster({ members, mbtiResults, sessions, raceBets, raceSelf, onBack
         <button onClick={onBack} style={{padding:"6px 12px", borderRadius:8, border:"1px solid rgba(255,255,255,0.2)", background:"transparent", color:"#aaa", cursor:"pointer", fontSize:12}}>← 戻る</button>
         <div style={{fontSize:12, fontWeight:700, color:"#f1c40f"}}>タイプ制覇 {coverage.size}/16</div>
       </div>
-      <div style={{fontSize:11, color:"#888", marginBottom:10}}>メンバー名簿</div>
+
+      <MbtiRulePanel/>
+
+      <div style={{fontSize:11, color:"#888", margin:"4px 0 10px"}}>コレクション（{visible.length}枚）</div>
+
+      {visible.length === 0 && (
+        <div style={{textAlign:"center", padding:24, color:"#666", fontSize:12}}>
+          まだカードがありません。対戦や外馬でカードを集めましょう。
+        </div>
+      )}
+
       <div style={{display:"flex", flexDirection:"column", gap:8}}>
-        {rosterMembers.map(m => {
+        {visible.map(m => {
           const result = mbtiOf(m.id);
           const isSelf = Number(m.id) === Number(raceSelf);
-
-          if (!result) {
-            return (
-              <div key={m.id} style={{display:"flex", alignItems:"center", gap:10, background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:10, padding:10}}>
-                <Av m={m} sz={32}/>
-                <div style={{flex:1}}>
-                  <div style={{fontSize:12, fontWeight:600, color:"#ccc"}}>{m.name}</div>
-                  <div style={{fontSize:10, color:"#666"}}>まだ診断していません</div>
-                </div>
-              </div>
-            );
-          }
-
-          const status = isSelf ? { unlocked:true } : mbtiUnlockStatus(sessions, raceBets, raceSelf, m.id);
           const [typeName, dbName] = MBTI_TYPES[result.mbti_code] || ["?","?"];
           const expanded = expandId === m.id;
+          const awakenExpanded = awakenExpandId === m.id;
+
+          const qual = mbtiAwakenQual(sessions, members, m.id);
+          let awakenBlock = null;
+          if (!qual.qualified) {
+            if (isSelf) {
+              awakenBlock = (
+                <div style={{marginTop:8, fontSize:10, color:"#e08a3c", background:"rgba(230,126,34,0.08)", borderRadius:8, padding:"6px 10px"}}>
+                  ⚡ 覚醒条件未達{qual.remaining!=null ? `（あと${qual.remaining}半荘）` : ""}
+                </div>
+              );
+            }
+          } else {
+            const awakenUnlocked = isSelf || mbtiAwakenUnlockStatus(sessions, raceBets, raceSelf, m.id).unlocked;
+            if (awakenUnlocked) {
+              const awaken = mbtiComputeAwaken(sessions, raceBets, members, m.id, result);
+              awakenBlock = (
+                <div style={{marginTop:8}}>
+                  <div onClick={()=>onToggleAwakenExpand(awakenExpanded ? null : m.id)}
+                    style={{display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer", fontSize:11, color:"#ffb347", fontWeight:600, padding:"4px 2px"}}>
+                    <span>⚡ 覚醒カード（{awaken.rarity}）</span>
+                    <span>{awakenExpanded ? "▲" : "▼"}</span>
+                  </div>
+                  {awakenExpanded && <div style={{marginTop:6}}><MbtiAwakenCard awaken={awaken} member={m}/></div>}
+                </div>
+              );
+            } else {
+              awakenBlock = (
+                <div style={{marginTop:8, fontSize:10, color:"#888", background:"rgba(255,255,255,0.04)", borderRadius:8, padding:"6px 10px"}}>
+                  ⚡ 覚醒：未解放（対戦成績・外馬の両方を満たすと解放）
+                </div>
+              );
+            }
+          }
 
           return (
             <div key={m.id} style={{background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:10, padding:10}}>
-              <div
-                style={{display:"flex", alignItems:"center", gap:10, cursor:status.unlocked?"pointer":"default"}}
-                onClick={()=>{ if (status.unlocked) onToggleExpand(expanded ? null : m.id); }}
-              >
-                {status.unlocked ? <Av m={m} sz={32}/> : (
-                  <div style={{width:32, height:32, borderRadius:"50%", background:"#222", flex:"0 0 auto", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, color:"#555"}}>？</div>
-                )}
+              <div onClick={()=>onToggleExpand(expanded ? null : m.id)} style={{display:"flex", alignItems:"center", gap:10, cursor:"pointer"}}>
+                <Av m={m} sz={32}/>
                 <div style={{flex:1}}>
-                  {status.unlocked ? (
-                    <>
-                      <div style={{fontSize:13, fontWeight:700, color:"#fff"}}>{dbName} <span style={{fontSize:10, color:"#888", fontWeight:400}}>「{typeName}」</span></div>
-                      <div style={{fontSize:10, color:"#888"}}>所有者：{m.name}{isSelf ? "（本人）" : ""}</div>
-                    </>
-                  ) : (
-                    <>
-                      <div style={{fontSize:13, fontWeight:700, color:"#666"}}>？？？</div>
-                      <div style={{fontSize:10, color:"#666"}}>{mbtiUnlockHint(status)}</div>
-                    </>
-                  )}
+                  <div style={{fontSize:13, fontWeight:700, color:"#fff"}}>{dbName} <span style={{fontSize:10, color:"#888", fontWeight:400}}>「{typeName}」</span></div>
+                  <div style={{fontSize:10, color:"#888"}}>所有者：{m.name}{isSelf ? "（本人）" : ""}</div>
                 </div>
-                {status.unlocked && <div style={{fontSize:10, color:"#888"}}>{expanded ? "▲" : "▼"}</div>}
+                <div style={{fontSize:10, color:"#888"}}>{expanded ? "▲" : "▼"}</div>
               </div>
-              {status.unlocked && expanded && (
-                <div style={{marginTop:10}}><MbtiCard result={result} member={m}/></div>
-              )}
+              {expanded && <div style={{marginTop:10}}><MbtiCard result={result} member={m}/></div>}
+              {awakenBlock}
             </div>
           );
         })}
@@ -1454,6 +1745,14 @@ if (!document.getElementById("tleague-animations")) {
       0% { background-position: -150% -150%; }
       100% { background-position: 150% 150%; }
     }
+    @keyframes mbtiLrRainbow {
+      0% { box-shadow: 0 0 18px 4px #ff004c, 0 0 34px 10px #ff004c55; }
+      20% { box-shadow: 0 0 18px 4px #ff8c00, 0 0 34px 10px #ff8c0055; }
+      40% { box-shadow: 0 0 18px 4px #ffee00, 0 0 34px 10px #ffee0055; }
+      60% { box-shadow: 0 0 18px 4px #00e5ff, 0 0 34px 10px #00e5ff55; }
+      80% { box-shadow: 0 0 18px 4px #a742ff, 0 0 34px 10px #a742ff55; }
+      100% { box-shadow: 0 0 18px 4px #ff004c, 0 0 34px 10px #ff004c55; }
+    }
   `;
   document.head.appendChild(style);
 }
@@ -1588,6 +1887,7 @@ export default function App() {
   const [mbtiSubmitting, setMbtiSubmitting] = useState(false);
   const [mbtiRosterOpen, setMbtiRosterOpen] = useState(false);
   const [mbtiRosterExpand, setMbtiRosterExpand] = useState(null);
+  const [mbtiAwakenExpand, setMbtiAwakenExpand] = useState(null);
   const mbtiOf = id => mbtiResults.find(r => Number(r.member_id) === Number(id));
 
   // 月一覧（プルダウン用）
@@ -2881,7 +3181,7 @@ export default function App() {
         <span style={{fontSize:18}}>🀄</span>
         <div>
           <div style={{fontSize:9,color:"#e74c3c",fontWeight:600,lineHeight:1.2}}>東武練馬Tリーグ</div>
-          <div style={{fontSize:12,fontWeight:500,lineHeight:1.2}}>麻雀スコア表 <span style={{fontSize:9,color:"#666",fontWeight:400}}>v1.9</span></div>
+          <div style={{fontSize:12,fontWeight:500,lineHeight:1.2}}>麻雀スコア表 <span style={{fontSize:9,color:"#666",fontWeight:400}}>v2.0</span></div>
         </div>
         {/* LIVE バッジ：実際にLIVE対局中(addStep===2)のみ表示 */}
         {addStep === 2 && (
@@ -6609,15 +6909,17 @@ export default function App() {
                 </div>
               </div>
             ) : mbtiRosterOpen ? (
-              <MbtiRoster
+              <MbtiCollection
                 members={members}
                 mbtiResults={mbtiResults}
                 sessions={sessions}
                 raceBets={raceBets}
                 raceSelf={raceSelf}
-                onBack={()=>{setMbtiRosterOpen(false);setMbtiRosterExpand(null);}}
+                onBack={()=>{setMbtiRosterOpen(false);setMbtiRosterExpand(null);setMbtiAwakenExpand(null);}}
                 expandId={mbtiRosterExpand}
                 onToggleExpand={setMbtiRosterExpand}
+                awakenExpandId={mbtiAwakenExpand}
+                onToggleAwakenExpand={setMbtiAwakenExpand}
               />
             ) : mbtiStage==="quiz" ? (
               <MbtiQuiz
@@ -6631,7 +6933,7 @@ export default function App() {
                   <button style={S.bb({flex:1})} disabled={mbtiSubmitting} onClick={()=>setMbtiStage("quiz")}>🔄 再診断する</button>
                   <button style={S.bg({flex:1})} disabled={mbtiSubmitting} onClick={()=>{setRaceSelf(null);setMbtiRosterOpen(false);setMbtiRosterExpand(null);}}>👤 別の人で診断</button>
                 </div>
-                <button style={S.bg({width:"100%",marginTop:8})} disabled={mbtiSubmitting} onClick={()=>setMbtiRosterOpen(true)}>📖 メンバー名簿を見る</button>
+                <button style={S.bg({width:"100%",marginTop:8})} disabled={mbtiSubmitting} onClick={()=>setMbtiRosterOpen(true)}>🎴 コレクションを見る</button>
               </div>
             ) : (
               <div style={{...S.card(), textAlign:"center", padding:24}}>
