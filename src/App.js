@@ -18,6 +18,7 @@ const SHOW_HILO_ICON = false;
 // 今日: 2026-07-04
 const CHANGELOG = [
   { date:"2026-07-04", features:[
+    "MBTI診断：「自分が誰か」の識別子を外馬(raceSelf)から分離した専用state mbtiSelfに変更（対局リセットの影響を受けず端末に永続化）。🎴タブのトップ画面に選択中メンバーの「変更」リンクを追加。「覚醒カードを見る」を一覧から削除し、マイカードモーダル内の素質カード表示のすぐ上に再配置（一覧はマイカード→コレクションの2ボタン構成に整理）",
     "MBTI診断：🎴タブのメニュー構成を変更（見出し常時表示→マイカードを見る→再診断する（新設・クールダウン無視で即再診断）→覚醒カードを見る→コレクションを見るの順に刷新）",
     "UI変更：ヘッダーの外部リンク（麻雀基礎講座）アイコンを撤廃し、設定メニュー内「当月成績優秀者の演出について」の下に📖麻雀基礎講座メニューとして移動。メインメニューの🃏ハイ&ローアイコンを非表示化（機能・データは維持、表示条件フラグで制御）。成績概要の簡易概要ポップアップにメンバーのMBTI診断カード（未診断は「未診断」、未解放は「🔒未解放」表示）を追加",
     "MBTI診断：LINEシェアを合成画像化（ポートレート＋レア度＋★＋戦闘力＋4軸メーターをcanvasで1枚合成、下部に注意文言を透かしで焼き込み）",
@@ -1396,22 +1397,22 @@ function MbtiAwakenTeaser({ onClick }) {
 }
 
 // ---- コレクション：自分が解放済みの素質・覚醒カードだけを並べる ----
-function MbtiCollection({ members, mbtiResults, sessions, raceBets, raceSelf, onBack, expandId, onToggleExpand, awakenExpandId, onToggleAwakenExpand }) {
+function MbtiCollection({ members, mbtiResults, sessions, raceBets, mbtiSelf, onBack, expandId, onToggleExpand, awakenExpandId, onToggleAwakenExpand }) {
   const rosterMembers = members.filter(m => !isGuestMember(m));
   const mbtiOf = id => mbtiResults.find(r => Number(r.member_id) === Number(id));
 
   const visible = rosterMembers.filter(m => {
     const result = mbtiOf(m.id);
     if (!result) return false;
-    if (Number(m.id) === Number(raceSelf)) return true;
-    return mbtiUnlockStatus(sessions, raceBets, raceSelf, m.id).unlocked;
+    if (Number(m.id) === Number(mbtiSelf)) return true;
+    return mbtiUnlockStatus(sessions, raceBets, mbtiSelf, m.id).unlocked;
   });
 
   const coverage = new Set();
   visible.forEach(m => { const r = mbtiOf(m.id); if (r) coverage.add(r.mbti_code); });
 
   // ⑩新着カード演出：前回コレクションを開いた時点の解放済みIDリストと比較し、新たに解放されたものをハイライト
-  const seenKey = `tleague_mbti_seen_${raceSelf}`;
+  const seenKey = `tleague_mbti_seen_${mbtiSelf}`;
   const [seenIds] = useState(() => {
     try { return new Set(JSON.parse(localStorage.getItem(seenKey) || "[]")); } catch (e) { return new Set(); }
   });
@@ -1441,7 +1442,7 @@ function MbtiCollection({ members, mbtiResults, sessions, raceBets, raceSelf, on
       <div style={{display:"flex", flexDirection:"column", gap:8}}>
         {visible.map(m => {
           const result = mbtiOf(m.id);
-          const isSelf = Number(m.id) === Number(raceSelf);
+          const isSelf = Number(m.id) === Number(mbtiSelf);
           const [typeName, dbName] = MBTI_TYPES[result.mbti_code] || ["?","?"];
           const expanded = expandId === m.id;
           const awakenExpanded = awakenExpandId === m.id;
@@ -1457,7 +1458,7 @@ function MbtiCollection({ members, mbtiResults, sessions, raceBets, raceSelf, on
               );
             }
           } else {
-            const awakenUnlocked = isSelf || mbtiAwakenUnlockStatus(sessions, raceBets, raceSelf, m.id).unlocked;
+            const awakenUnlocked = isSelf || mbtiAwakenUnlockStatus(sessions, raceBets, mbtiSelf, m.id).unlocked;
             if (awakenUnlocked) {
               const awaken = mbtiComputeAwaken(sessions, raceBets, members, m.id, result);
               awakenBlock = (
@@ -2175,6 +2176,10 @@ export default function App() {
   const [raceSelf, setRaceSelf] = useState(() => {
     try { const v = localStorage.getItem("tleague_race_self"); return v ? JSON.parse(v) : null; } catch { return null; }
   });
+  // MBTI診断用の「自分」識別子。外馬(raceSelf)とは独立し、対局リセットの影響を受けず端末に永続化される
+  const [mbtiSelf, setMbtiSelf] = useState(() => {
+    try { const v = localStorage.getItem("tleague_mbti_self"); return v ? JSON.parse(v) : null; } catch { return null; }
+  });
   const [raceBetType, setRaceBetType] = useState(null);
   const [raceSelection, setRaceSelection] = useState([]);
   const [raceBetSubmitting, setRaceBetSubmitting] = useState(false);
@@ -2328,6 +2333,12 @@ export default function App() {
     if (raceSelf === null) localStorage.removeItem("tleague_race_self");
     else localStorage.setItem("tleague_race_self", JSON.stringify(raceSelf));
   },[raceSelf]);
+
+  // MBTI診断の「自分」識別子を永続化（対局リセットの影響を受けない）
+  useEffect(()=>{
+    if (mbtiSelf === null) localStorage.removeItem("tleague_mbti_self");
+    else localStorage.setItem("tleague_mbti_self", JSON.stringify(mbtiSelf));
+  },[mbtiSelf]);
 
   // 対局が初期化された(addStep=0)らrpSkenbansもクリア
   useEffect(()=>{
@@ -4272,8 +4283,8 @@ export default function App() {
                 {/* MBTI診断カード */}
                 {(() => {
                   const mbtiResult = mbtiOf(m.id);
-                  const isSelfMbti = Number(m.id) === Number(raceSelf);
-                  const mbtiUnlocked = isSelfMbti || mbtiUnlockStatus(sessions, raceBets, raceSelf, m.id).unlocked;
+                  const isSelfMbti = Number(m.id) === Number(mbtiSelf);
+                  const mbtiUnlocked = isSelfMbti || mbtiUnlockStatus(sessions, raceBets, mbtiSelf, m.id).unlocked;
                   return (
                     <div style={{marginTop:14}}>
                       <div style={{fontSize:11,fontWeight:600,color:"#f1c40f",marginBottom:8,textAlign:"center"}}>🎴 MBTI診断カード</div>
@@ -7269,12 +7280,12 @@ export default function App() {
         )}
         {tab==="shindan" && (
           <div style={{padding:"10px 0"}}>
-            {(!raceSelf || isGuestMember(gm(raceSelf))) ? (
+            {(!mbtiSelf || isGuestMember(gm(mbtiSelf))) ? (
               <div style={{...S.card({background:"rgba(255,255,255,0.04)"}), marginBottom:10}}>
                 <div style={{fontSize:11,color:"#888",marginBottom:8}}>Myカードを見る or 診断するあなたは誰？</div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
                   {members.filter(m=>!isGuestMember(m)).map(m=>(
-                    <div key={m.id} onClick={()=>{setRaceSelf(m.id);setMbtiRosterOpen(false);setMbtiRosterExpand(null);}}
+                    <div key={m.id} onClick={()=>{setMbtiSelf(m.id);setMbtiRosterOpen(false);setMbtiRosterExpand(null);}}
                       style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"8px 4px",borderRadius:8,cursor:"pointer",
                         background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)"}}>
                       <Av m={m} sz={28}/>
@@ -7289,7 +7300,7 @@ export default function App() {
                 mbtiResults={mbtiResults}
                 sessions={sessions}
                 raceBets={raceBets}
-                raceSelf={raceSelf}
+                mbtiSelf={mbtiSelf}
                 onBack={()=>{setMbtiRosterOpen(false);setMbtiRosterExpand(null);setMbtiAwakenExpand(null);}}
                 expandId={mbtiRosterExpand}
                 onToggleExpand={setMbtiRosterExpand}
@@ -7298,8 +7309,12 @@ export default function App() {
               />
             ) : (
               <>
-                <div style={{textAlign:"center", fontSize:14, fontWeight:800, color:"#f1c40f", marginBottom:14, lineHeight:1.5}}>
+                <div style={{textAlign:"center", fontSize:14, fontWeight:800, color:"#f1c40f", marginBottom:6, lineHeight:1.5}}>
                   🎯 みんなのカード全16種類集めよう！
+                </div>
+                <div style={{textAlign:"center", fontSize:11, color:"#888", marginBottom:14}}>
+                  診断する人：<span style={{color:"#ccc",fontWeight:600}}>{gm(mbtiSelf)?.name}</span>
+                  <span onClick={()=>setMbtiSelf(null)} style={{color:"#3498db",marginLeft:8,cursor:"pointer",textDecoration:"underline"}}>変更</span>
                 </div>
 
                 <button onClick={()=>setMbtiMyCardOpen(true)} style={{
@@ -7311,26 +7326,10 @@ export default function App() {
                   <span style={{fontSize:30}}>🎴</span>
                   <span style={{flex:1}}>
                     <div style={{fontSize:15, fontWeight:800}}>マイカードを見る</div>
-                    <div style={{fontSize:10.5, color:"#ccc", marginTop:2}}>{mbtiOf(raceSelf) ? "自分の素質カードを確認" : "まだ診断していません。タップして診断開始"}</div>
+                    <div style={{fontSize:10.5, color:"#ccc", marginTop:2}}>{mbtiOf(mbtiSelf) ? "自分の素質カードを確認" : "まだ診断していません。タップして診断開始"}</div>
                   </span>
                   <span style={{fontSize:18, color:"#e74c3c"}}>›</span>
                 </button>
-
-                <button onClick={()=>{ setMbtiStage("quiz"); setMbtiMyCardOpen(true); }} style={{
-                  width:"100%", padding:"18px 14px", borderRadius:14, border:"1px solid rgba(243,156,18,0.4)",
-                  background:"linear-gradient(135deg,rgba(243,156,18,0.18),rgba(211,84,0,0.1))",
-                  color:"#fff", cursor:"pointer", marginBottom:12, textAlign:"left",
-                  display:"flex", alignItems:"center", gap:12,
-                }}>
-                  <span style={{fontSize:30}}>🔄</span>
-                  <span style={{flex:1}}>
-                    <div style={{fontSize:15, fontWeight:800}}>再診断する</div>
-                    <div style={{fontSize:10.5, color:"#ccc", marginTop:2}}>もう一度質問に答えて素質カードを診断し直す</div>
-                  </span>
-                  <span style={{fontSize:18, color:"#f39c12"}}>›</span>
-                </button>
-
-                <MbtiAwakenTeaser onClick={()=>setMbtiAwakenTeaserOpen(true)}/>
 
                 <button onClick={()=>setMbtiRosterOpen(true)} style={{
                   width:"100%", padding:"18px 14px", borderRadius:14, border:"1px solid rgba(52,152,219,0.4)",
@@ -7349,7 +7348,7 @@ export default function App() {
             )}
 
             {/* マイカード/診断モーダル（✕で閉じる） */}
-            {mbtiMyCardOpen && raceSelf && !isGuestMember(gm(raceSelf)) && (
+            {mbtiMyCardOpen && mbtiSelf && !isGuestMember(gm(mbtiSelf)) && (
               <MbtiFullModal onClose={()=>{setMbtiMyCardOpen(false); if(mbtiStage==="quiz") setMbtiStage("intro");}}>
                 {mbtiStage!=="quiz" && (
                   <div style={{textAlign:"center", fontSize:13, fontWeight:800, color:"#f1c40f", marginBottom:14, lineHeight:1.5}}>
@@ -7358,15 +7357,16 @@ export default function App() {
                 )}
                 {mbtiStage==="quiz" ? (
                   <MbtiQuiz
-                    onFinish={(code,axes,answers)=>saveMbtiResult(raceSelf,code,axes,answers)}
+                    onFinish={(code,axes,answers)=>saveMbtiResult(mbtiSelf,code,axes,answers)}
                     onCancel={()=>{setMbtiStage("intro"); setMbtiMyCardOpen(false);}}
                   />
-                ) : mbtiOf(raceSelf) ? (() => {
-                  const result = mbtiOf(raceSelf);
+                ) : mbtiOf(mbtiSelf) ? (() => {
+                  const result = mbtiOf(mbtiSelf);
                   const cooldown = mbtiCooldown(result);
                   return (
                     <div>
-                      <MbtiCard result={result} member={gm(raceSelf)}/>
+                      <MbtiAwakenTeaser onClick={()=>setMbtiAwakenTeaserOpen(true)}/>
+                      <MbtiCard result={result} member={gm(mbtiSelf)}/>
                       {cooldown.active ? (
                         <div style={{marginTop:12, textAlign:"center", padding:"11px", borderRadius:8, background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", color:"#999", fontSize:13, fontWeight:600}}>
                           🔒 再診断まであと{cooldown.daysLeft}日
@@ -7395,10 +7395,10 @@ export default function App() {
             )}
 
             {/* 覚醒カードモーダル（✕で閉じる） */}
-            {mbtiAwakenTeaserOpen && raceSelf && !isGuestMember(gm(raceSelf)) && (
+            {mbtiAwakenTeaserOpen && mbtiSelf && !isGuestMember(gm(mbtiSelf)) && (
               <MbtiFullModal onClose={()=>setMbtiAwakenTeaserOpen(false)}>
                 {(() => {
-                  const result = mbtiOf(raceSelf);
+                  const result = mbtiOf(mbtiSelf);
                   if (!result) {
                     return (
                       <div style={{...S.card(), textAlign:"center", padding:24}}>
@@ -7408,7 +7408,7 @@ export default function App() {
                       </div>
                     );
                   }
-                  const qual = mbtiAwakenQual(sessions, members, raceSelf);
+                  const qual = mbtiAwakenQual(sessions, members, mbtiSelf);
                   if (!qual.qualified) {
                     return (
                       <div style={{...S.card(), textAlign:"center", padding:24}}>
@@ -7420,8 +7420,8 @@ export default function App() {
                       </div>
                     );
                   }
-                  const awaken = mbtiComputeAwaken(sessions, raceBets, members, raceSelf, result);
-                  return <MbtiAwakenCard awaken={awaken} member={gm(raceSelf)}/>;
+                  const awaken = mbtiComputeAwaken(sessions, raceBets, members, mbtiSelf, result);
+                  return <MbtiAwakenCard awaken={awaken} member={gm(mbtiSelf)}/>;
                 })()}
               </MbtiFullModal>
             )}
