@@ -16,6 +16,8 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-07-03
 const CHANGELOG = [
   { date:"2026-07-03", features:[
+    "MBTI診断：タイブレーク時のランダム判定を実装、同点時の公平性を確保",
+    "MBTI診断：T/F軸の表現を中立化（「美学に反する」→「物足りない」）",
     "MBTI診断：図鑑を「メンバー名簿」から自分が解放済みのカードだけを並べる「コレクション」形式に変更",
     "MBTI診断：実戦データを反映する新形態「覚醒カード」を追加（規定打席到達で本人は自動入手・他人は対戦成績ルート＆外馬ルートの両方達成で解放。診断%と実戦%を50%ずつ反映した4軸で算出、必ずUR以上のレア度＆戦闘力を大幅ブースト、専用フレーバーテキストとLR限定の虹色エフェクトつき）",
     "MBTI診断：コレクション画面に「？遊び方を見る」の折りたたみ式ルール説明パネルを追加",
@@ -522,7 +524,7 @@ const MBTI_QUESTIONS = [
     hand:["2m","3m","4m","3p","4p","5p","6p","7p","8p","5s","6s","6s","6s"], doraTiles:[],
     prompt:"安手だが即和了でトップ確定。高くする余地もある。どうする？",
     left:{label:"安手で即和了",sub:"確実にトップを取るのが得",side:"T"},
-    right:{label:"高い手で決めたい",sub:"安手で終わるのは美学に反する",side:"F"} },
+    right:{label:"高い手で決めたい",sub:"安手で終わるのは物足りない",side:"F"} },
   { axis:"TF", tag:"損得 ⇄ こだわり", basis:"損得(オリ得) ⇄ 気迫(勝負)",
     meta:"東3局 ・ 13巡目 ・ ラス目 ・ 2軒リーチ",
     hand:["4m","5m","6m","2p","3p","4p","7p","8p","9p","3s","4s","中","中"], doraTiles:[],
@@ -683,7 +685,11 @@ function mbtiTally(answers){
     const side=v<0?q.left.side:q.right.side;
     t[side]=(t[side]||0)+Math.abs(v);
   });
-  const pick=(a,b)=>((t[a]||0)>=(t[b]||0)?a:b);
+  const pick=(a,b)=>{
+    const aVal=t[a]||0, bVal=t[b]||0;
+    if(aVal===bVal) return Math.random()<0.5?a:b; // 同点時は乱数でランダムに決定（E/S/T/J側への構造的バイアスを排除）
+    return aVal>=bVal?a:b;
+  };
   const code=pick("E","I")+pick("S","N")+pick("T","F")+pick("J","P");
   return {code,t};
 }
