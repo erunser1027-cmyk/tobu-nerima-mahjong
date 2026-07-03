@@ -11,11 +11,14 @@ const SCORE_RATES = [
   { label:"0.3レート（1000点=30円）", val:30 },
 ];
 const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ", "池袋カクレマ", "池袋PSJ北口"];
+// ハイ&ロー機能自体は維持したままメインメニューのアイコン表示のみ止める場合はfalseのまま
+const SHOW_HILO_ICON = false;
 
 // 更新履歴 - 新しい機能は必ず今日の日付で追加してください
 // 今日: 2026-07-04
 const CHANGELOG = [
   { date:"2026-07-04", features:[
+    "UI変更：ヘッダーの外部リンク（麻雀基礎講座）アイコンを撤廃し、設定メニュー内「当月成績優秀者の演出について」の下に📖麻雀基礎講座メニューとして移動。メインメニューの🃏ハイ&ローアイコンを非表示化（機能・データは維持、表示条件フラグで制御）。成績概要の簡易概要ポップアップにメンバーのMBTI診断カード（未診断は「未診断」、未解放は「🔒未解放」表示）を追加",
     "MBTI診断：LINEシェアを合成画像化（ポートレート＋レア度＋★＋戦闘力＋4軸メーターをcanvasで1枚合成、下部に注意文言を透かしで焼き込み）",
     "MBTI診断：Myカード選択画面の文言を「Myカードを見る or 診断するあなたは誰？」に変更",
     "MBTI診断：再診断クールダウンを追加（初回診断から30日間は再診断不可。クールダウン中は「🔒再診断まであと◯日」を表示）",
@@ -3532,7 +3535,7 @@ export default function App() {
           </div>
         )}
         <div style={{marginLeft:"auto",display:"flex",gap:3,flexWrap:"wrap",justifyContent:"flex-end"}}>
-          {[["calendar","🗓"],["history","📅"],["skull","💀"],["hilo","🃏"],["shindan","🎴"],["taikai","🎌"],["guide","📖"],["members","👥"]].map(([t,l])=>{
+          {[["calendar","🗓"],["history","📅"],["skull","💀"],["hilo","🃏",SHOW_HILO_ICON],["shindan","🎴"],["taikai","🎌"],["members","👥"]].filter(([,,show])=>show!==false).map(([t,l])=>{
             const isActive = t==="sotoba"
               ? (tab==="dashboard" && dashSub==="sotoba")
               : t==="hilo"
@@ -3542,7 +3545,6 @@ export default function App() {
               <button key={t} onClick={()=>{
                 if(t==="sotoba"){ setTab("dashboard"); setDashSub("sotoba"); }
                 else if(t==="hilo"){ setTab("dashboard"); setDashSub("hilo"); }
-                else if(t==="guide"){ window.open("https://nerima-night-crew.com/mahjong/","_blank","noopener,noreferrer"); }
                 else { setTab(t); if(t==="dashboard" && (dashSub==="sotoba" || dashSub==="hilo")) setDashSub("summary"); }
               }} style={S.nav(isActive)}>
                 {t==="sotoba" && addStep===2 && <span style={{position:"absolute",marginLeft:14,marginTop:-8,width:7,height:7,borderRadius:"50%",background:"#e74c3c",animation:"pulse 1s infinite",display:"inline-block"}}/>}
@@ -4262,6 +4264,26 @@ export default function App() {
                   </div>
                 )}
 
+                {/* MBTI診断カード */}
+                {(() => {
+                  const mbtiResult = mbtiOf(m.id);
+                  const isSelfMbti = Number(m.id) === Number(raceSelf);
+                  const mbtiUnlocked = isSelfMbti || mbtiUnlockStatus(sessions, raceBets, raceSelf, m.id).unlocked;
+                  return (
+                    <div style={{marginTop:14}}>
+                      <div style={{fontSize:11,fontWeight:600,color:"#f1c40f",marginBottom:8,textAlign:"center"}}>🎴 MBTI診断カード</div>
+                      {mbtiResult && mbtiUnlocked ? (
+                        <MbtiCard result={mbtiResult} member={m}/>
+                      ) : (
+                        <div style={{textAlign:"center",padding:"28px 12px",background:"rgba(255,255,255,0.04)",borderRadius:12,border:"1px dashed rgba(255,255,255,0.15)"}}>
+                          <div style={{fontSize:24,marginBottom:6,opacity:0.5}}>🎴</div>
+                          <div style={{fontSize:12,color:"#666"}}>{mbtiResult ? "🔒 未解放（対戦成績・外馬の両方達成で解放）" : "未診断"}</div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* 詳細ページへのボタン */}
                 <button
                   onClick={()=>{ setMemberDetailModal(null); setDashSub("lifetime"); }}
@@ -4331,6 +4353,14 @@ export default function App() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* 麻雀基礎講座（外部リンク）セクション */}
+            <div style={{marginBottom:12}}>
+              <div onClick={()=>window.open("https://nerima-night-crew.com/mahjong/","_blank","noopener,noreferrer")} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",padding:"8px 10px",background:"rgba(255,255,255,0.04)",borderRadius:8}}>
+                <div style={{fontSize:12,fontWeight:500,color:"#ccc"}}>📖 麻雀基礎講座</div>
+                <span style={{fontSize:14,color:"#888"}}>↗</span>
+              </div>
             </div>
 
             {/* 更新履歴セクション */}
