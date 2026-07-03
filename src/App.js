@@ -4212,15 +4212,19 @@ export default function App() {
                 style={{
                   background:"linear-gradient(135deg,#1a1a2e,#16213e)",
                   border:"1px solid rgba(255,255,255,0.15)",
-                  borderRadius:16,padding:24,width:"100%",maxWidth:340,
-                  position:"relative"
+                  borderRadius:16,width:"100%",maxWidth:340,
+                  maxHeight:"85vh",display:"flex",flexDirection:"column",
+                  position:"relative",overflow:"hidden"
                 }}
               >
-                {/* 閉じるボタン */}
+                {/* 閉じるボタン（スクロール領域の外＝常に固定表示） */}
                 <button
                   onClick={()=>setMemberDetailModal(null)}
-                  style={{position:"absolute",top:12,right:12,...S.bs()}}
+                  style={{position:"absolute",top:12,right:12,zIndex:1,...S.bs()}}
                 >✕</button>
+
+                {/* スクロール可能な本文領域 */}
+                <div style={{overflowY:"auto",padding:24}}>
 
                 {/* アイコン（拡大表示） */}
                 <div style={{textAlign:"center",marginBottom:12}}>
@@ -4295,6 +4299,7 @@ export default function App() {
                 >
                   📊 生涯成績を見る →
                 </button>
+                </div>
               </div>
             </div>
           );
