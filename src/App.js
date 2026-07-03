@@ -16,6 +16,9 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-07-03
 const CHANGELOG = [
   { date:"2026-07-03", features:[
+    "MBTI診断：他メンバーのトレーディングカードを解放する「メンバー名簿」機能を追加（ルートA：対戦10半荘以上＋勝率50%超、ルートB：そのメンバー参加半荘での外馬チップ収支+50枚以上、いずれか達成で解放・未解放は？シルエット表示）",
+    "MBTI診断：名簿画面に「タイプ制覇 X/16」の進捗表示を追加",
+    "ヘッダーバージョン表記をv1.8→v1.9に変更",
     "新機能：麻雀MBTI診断＋トレーディングカードを追加（🃏の右隣に🎴タブ新設・全28問でMBTIタイプを診断・結果をドラゴンボールキャラ風トレーディングカードとして表示・Supabaseに保存）",
     "MBTI診断：属性（NT/NF/SJ/SP）ごとにカード枠の色が変化・4軸の振れ幅からレア度（N〜UR）と戦闘力を算出・SR/UR限定でホロ光沢アニメーション演出",
     "ヘッダーバージョン表記をv1.7→v1.8に変更",
@@ -726,6 +729,53 @@ const MBTI_FRAME = {
   SP: "linear-gradient(135deg,#e74c3c,#ff8c00)",
 };
 
+// ---- 他メンバーカード解放判定 ----
+// ルートA：対戦した半荘が10回以上 かつ 勝率50%超（半荘内スコア比較、同点は勝ちに含めない）
+function mbtiRouteAStats(sessions, selfId, targetId) {
+  let games = 0, wins = 0;
+  sessions.forEach(s => {
+    const smembers = (s.members || []).map(Number);
+    if (!smembers.includes(Number(selfId)) || !smembers.includes(Number(targetId))) return;
+    (s.rounds || []).forEach(r => {
+      const rPlayers = (r.players || []).map(Number);
+      if (!rPlayers.includes(Number(selfId)) || !rPlayers.includes(Number(targetId))) return;
+      const selfScore = N(r.scores[String(selfId)] ?? r.scores[selfId]);
+      const targetScore = N(r.scores[String(targetId)] ?? r.scores[targetId]);
+      games++;
+      if (selfScore > targetScore) wins++;
+    });
+  });
+  const winRate = games > 0 ? wins / games : 0;
+  return { games, wins, winRate, unlocked: games >= 10 && winRate > 0.5 };
+}
+// ルートB：対象メンバーが参加した半荘（sessions.members×session_dateで突合）の外馬で、自分のチップ収支合計が+50枚以上
+function mbtiRouteBProfit(sessions, raceBets, selfId, targetId) {
+  const targetDates = new Set(
+    sessions.filter(s => (s.members || []).map(Number).includes(Number(targetId))).map(s => s.date)
+  );
+  let profit = 0;
+  raceBets.forEach(b => {
+    if (Number(b.bettor_id) !== Number(selfId)) return;
+    if (b.is_hit == null) return;
+    if (!targetDates.has(b.session_date)) return;
+    const amt = N(b.bet_amount || 1);
+    profit += b.is_hit ? Math.round(N(b.payout) * amt) - amt : -amt;
+  });
+  return profit;
+}
+// ルートA・Bいずれかを満たせば解放
+function mbtiUnlockStatus(sessions, raceBets, selfId, targetId) {
+  const routeA = mbtiRouteAStats(sessions, selfId, targetId);
+  const profitB = mbtiRouteBProfit(sessions, raceBets, selfId, targetId);
+  return { unlocked: routeA.unlocked || profitB >= 50, routeA, profitB };
+}
+function mbtiUnlockHint(status) {
+  const remainGames = Math.max(0, 10 - status.routeA.games);
+  const winPct = Math.round(status.routeA.winRate * 100);
+  const chipStr = `${status.profitB >= 0 ? "+" : ""}${status.profitB}`;
+  return `あと${remainGames}試合／勝率${winPct}%／チップ${chipStr}枚`;
+}
+
 function MbtiStar({ lit }) {
   return (
     <div style={{
@@ -792,6 +842,79 @@ function MbtiCard({ result, member }) {
         <div style={{background:"rgba(0,0,0,0.2)", borderRadius:10, padding:"10px 12px"}}>
           {MBTI_AXES.map(ax=>(<div key={ax.key}>{axisRow(Number(result[ax.field]), ax.la, ax.lb)}</div>))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- メンバー名簿（他メンバーカードの解放状況一覧）----
+function MbtiRoster({ members, mbtiResults, sessions, raceBets, raceSelf, onBack, expandId, onToggleExpand }) {
+  const mbtiOf = id => mbtiResults.find(r => Number(r.member_id) === Number(id));
+  const coverage = new Set();
+  mbtiResults.forEach(r => {
+    const mid = Number(r.member_id);
+    if (mid === Number(raceSelf)) { coverage.add(r.mbti_code); return; }
+    if (mbtiUnlockStatus(sessions, raceBets, raceSelf, mid).unlocked) coverage.add(r.mbti_code);
+  });
+
+  return (
+    <div>
+      <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10}}>
+        <button onClick={onBack} style={{padding:"6px 12px", borderRadius:8, border:"1px solid rgba(255,255,255,0.2)", background:"transparent", color:"#aaa", cursor:"pointer", fontSize:12}}>← 戻る</button>
+        <div style={{fontSize:12, fontWeight:700, color:"#f1c40f"}}>タイプ制覇 {coverage.size}/16</div>
+      </div>
+      <div style={{fontSize:11, color:"#888", marginBottom:10}}>メンバー名簿</div>
+      <div style={{display:"flex", flexDirection:"column", gap:8}}>
+        {members.map(m => {
+          const result = mbtiOf(m.id);
+          const isSelf = Number(m.id) === Number(raceSelf);
+
+          if (!result) {
+            return (
+              <div key={m.id} style={{display:"flex", alignItems:"center", gap:10, background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:10, padding:10}}>
+                <Av m={m} sz={32}/>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:12, fontWeight:600, color:"#ccc"}}>{m.name}</div>
+                  <div style={{fontSize:10, color:"#666"}}>まだ診断していません</div>
+                </div>
+              </div>
+            );
+          }
+
+          const status = isSelf ? { unlocked:true } : mbtiUnlockStatus(sessions, raceBets, raceSelf, m.id);
+          const [typeName, dbName] = MBTI_TYPES[result.mbti_code] || ["?","?"];
+          const expanded = expandId === m.id;
+
+          return (
+            <div key={m.id} style={{background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:10, padding:10}}>
+              <div
+                style={{display:"flex", alignItems:"center", gap:10, cursor:status.unlocked?"pointer":"default"}}
+                onClick={()=>{ if (status.unlocked) onToggleExpand(expanded ? null : m.id); }}
+              >
+                {status.unlocked ? <Av m={m} sz={32}/> : (
+                  <div style={{width:32, height:32, borderRadius:"50%", background:"#222", flex:"0 0 auto", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, color:"#555"}}>？</div>
+                )}
+                <div style={{flex:1}}>
+                  {status.unlocked ? (
+                    <>
+                      <div style={{fontSize:13, fontWeight:700, color:"#fff"}}>{dbName} <span style={{fontSize:10, color:"#888", fontWeight:400}}>「{typeName}」</span></div>
+                      <div style={{fontSize:10, color:"#888"}}>所有者：{m.name}{isSelf ? "（本人）" : ""}</div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{fontSize:13, fontWeight:700, color:"#666"}}>？？？</div>
+                      <div style={{fontSize:10, color:"#666"}}>{mbtiUnlockHint(status)}</div>
+                    </>
+                  )}
+                </div>
+                {status.unlocked && <div style={{fontSize:10, color:"#888"}}>{expanded ? "▲" : "▼"}</div>}
+              </div>
+              {status.unlocked && expanded && (
+                <div style={{marginTop:10}}><MbtiCard result={result} member={m}/></div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1490,6 +1613,8 @@ export default function App() {
   const [mbtiResults, setMbtiResults] = useState([]); // Supabase由来、全員分
   const [mbtiStage, setMbtiStage] = useState("intro"); // "intro" | "quiz"
   const [mbtiSubmitting, setMbtiSubmitting] = useState(false);
+  const [mbtiRosterOpen, setMbtiRosterOpen] = useState(false);
+  const [mbtiRosterExpand, setMbtiRosterExpand] = useState(null);
   const mbtiOf = id => mbtiResults.find(r => Number(r.member_id) === Number(id));
 
   // 月一覧（プルダウン用）
@@ -2783,7 +2908,7 @@ export default function App() {
         <span style={{fontSize:18}}>🀄</span>
         <div>
           <div style={{fontSize:9,color:"#e74c3c",fontWeight:600,lineHeight:1.2}}>東武練馬Tリーグ</div>
-          <div style={{fontSize:12,fontWeight:500,lineHeight:1.2}}>麻雀スコア表 <span style={{fontSize:9,color:"#666",fontWeight:400}}>v1.8</span></div>
+          <div style={{fontSize:12,fontWeight:500,lineHeight:1.2}}>麻雀スコア表 <span style={{fontSize:9,color:"#666",fontWeight:400}}>v1.9</span></div>
         </div>
         {/* LIVE バッジ：実際にLIVE対局中(addStep===2)のみ表示 */}
         {addStep === 2 && (
@@ -6501,7 +6626,7 @@ export default function App() {
                 <div style={{fontSize:11,color:"#888",marginBottom:8}}>診断するのはあなたですか？</div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
                   {members.map(m=>(
-                    <div key={m.id} onClick={()=>setRaceSelf(m.id)}
+                    <div key={m.id} onClick={()=>{setRaceSelf(m.id);setMbtiRosterOpen(false);setMbtiRosterExpand(null);}}
                       style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"8px 4px",borderRadius:8,cursor:"pointer",
                         background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)"}}>
                       <Av m={m} sz={28}/>
@@ -6510,6 +6635,17 @@ export default function App() {
                   ))}
                 </div>
               </div>
+            ) : mbtiRosterOpen ? (
+              <MbtiRoster
+                members={members}
+                mbtiResults={mbtiResults}
+                sessions={sessions}
+                raceBets={raceBets}
+                raceSelf={raceSelf}
+                onBack={()=>{setMbtiRosterOpen(false);setMbtiRosterExpand(null);}}
+                expandId={mbtiRosterExpand}
+                onToggleExpand={setMbtiRosterExpand}
+              />
             ) : mbtiStage==="quiz" ? (
               <MbtiQuiz
                 onFinish={(code,axes,answers)=>saveMbtiResult(raceSelf,code,axes,answers)}
@@ -6520,8 +6656,9 @@ export default function App() {
                 <MbtiCard result={mbtiOf(raceSelf)} member={gm(raceSelf)}/>
                 <div style={{display:"flex",gap:8,marginTop:12}}>
                   <button style={S.bb({flex:1})} disabled={mbtiSubmitting} onClick={()=>setMbtiStage("quiz")}>🔄 再診断する</button>
-                  <button style={S.bg({flex:1})} disabled={mbtiSubmitting} onClick={()=>setRaceSelf(null)}>👤 別の人で診断</button>
+                  <button style={S.bg({flex:1})} disabled={mbtiSubmitting} onClick={()=>{setRaceSelf(null);setMbtiRosterOpen(false);setMbtiRosterExpand(null);}}>👤 別の人で診断</button>
                 </div>
+                <button style={S.bg({width:"100%",marginTop:8})} disabled={mbtiSubmitting} onClick={()=>setMbtiRosterOpen(true)}>📖 メンバー名簿を見る</button>
               </div>
             ) : (
               <div style={{...S.card(), textAlign:"center", padding:24}}>
