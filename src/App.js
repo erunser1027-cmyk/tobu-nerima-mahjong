@@ -16,6 +16,7 @@ const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ"
 // 今日: 2026-07-03
 const CHANGELOG = [
   { date:"2026-07-03", features:[
+    "UI改善：上部メニューの「📊概要」「➕対局開始」「🏇外馬」をアプリ下部の固定メニューに移動（透過・追従表示、アイコン＋短いラベル付き、タップしやすい高さ56px相当）",
     "MBTI診断：レア度バッジ（N〜LR）を素質・覚醒カードに復活。性格説明（強み・思考の癖・弱点を含む長文）を素質カードに追加。覚醒カードに新フレーバーテキストと実戦成績（1位率・平均着順・ラス率）を反映した一文を追加。LINE共有URLに?tab=mbtiを付与し、共有リンクから直接MBTI診断タブを開けるように変更",
     "MBTI診断：診断完了時に「answers.reduce is not a function」で必ずクラッシュしていた不具合を修正（ハッシュ値シード計算がanswersをオブジェクトでなく配列として扱っていたことが原因）",
     "MBTI診断：赤ドラ・リーチをテーマにした設問を4軸各1問ずつ追加し、全28問→全32問に拡張（局面18問＋お題14問）。手牌に赤5を表示するakaTiles対応も追加",
@@ -2906,7 +2907,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ width:"100%", maxWidth:480, margin:"0 auto", minHeight:"100vh", background:"#0f0f1a", color:"#fff", fontFamily:"sans-serif", boxSizing:"border-box" }}>
+    <div style={{ width:"100%", maxWidth:480, margin:"0 auto", minHeight:"100vh", background:"#0f0f1a", color:"#fff", fontFamily:"sans-serif", boxSizing:"border-box", paddingBottom:"calc(68px + env(safe-area-inset-bottom))" }}>
       <input type="file" accept="image/*" ref={fileRef} style={{display:"none"}} onChange={onFile}/>
       {lb && <div onClick={()=>setLb(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.93)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,cursor:"pointer"}}><img src={lb} alt="" style={{maxWidth:"90%",maxHeight:"80vh",borderRadius:8}}/></div>}
 
@@ -3309,7 +3310,7 @@ export default function App() {
           </div>
         )}
         <div style={{marginLeft:"auto",display:"flex",gap:3,flexWrap:"wrap",justifyContent:"flex-end"}}>
-          {[["dashboard","📊"],["calendar","🗓"],["history","📅"],["skull","💀"],["sotoba","🏇"],["hilo","🃏"],["shindan","🎴"],["taikai","🎌"],["guide","📖"],["add","➕"],["members","👥"]].map(([t,l])=>{
+          {[["calendar","🗓"],["history","📅"],["skull","💀"],["hilo","🃏"],["shindan","🎴"],["taikai","🎌"],["guide","📖"],["members","👥"]].map(([t,l])=>{
             const isActive = t==="sotoba"
               ? (tab==="dashboard" && dashSub==="sotoba")
               : t==="hilo"
@@ -7132,7 +7133,7 @@ export default function App() {
 
       {toast && (
         <div style={{
-          position:"fixed", bottom:20, left:"50%", transform:"translateX(-50%)",
+          position:"fixed", bottom:"calc(76px + env(safe-area-inset-bottom))", left:"50%", transform:"translateX(-50%)",
           background: toast.type==="error" ? "rgba(231,76,60,0.95)" : "rgba(46,204,113,0.95)",
           color:"#fff", padding:"10px 18px", borderRadius:8, fontSize:13, fontWeight:500,
           zIndex:9999, boxShadow:"0 4px 12px rgba(0,0,0,0.4)", maxWidth:"90%",
@@ -7140,6 +7141,30 @@ export default function App() {
           {toast.msg}
         </div>
       )}
+
+      {/* 下部固定メニュー：よく使う3項目（概要・対局開始・外馬） */}
+      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"rgba(20,20,32,0.85)",backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderTop:"1px solid rgba(255,255,255,0.12)",display:"flex",zIndex:70,paddingBottom:"env(safe-area-inset-bottom)",boxSizing:"border-box"}}>
+        {[["dashboard","📊","概要"],["add","➕","対局開始"],["sotoba","🏇","外馬"]].map(([t,icon,label])=>{
+          const isActive = t==="sotoba"
+            ? (tab==="dashboard" && dashSub==="sotoba")
+            : (tab===t && !(t==="dashboard" && (dashSub==="sotoba" || dashSub==="hilo")));
+          return (
+            <button key={t} onClick={()=>{
+              if(t==="sotoba"){ setTab("dashboard"); setDashSub("sotoba"); }
+              else { setTab(t); if(t==="dashboard" && (dashSub==="sotoba" || dashSub==="hilo")) setDashSub("summary"); }
+            }} style={{
+              position:"relative", flex:1, minHeight:56, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+              gap:3, padding:"9px 2px 8px", border:"none", background:"transparent", cursor:"pointer",
+              color:isActive?"#e74c3c":"#aaa", WebkitTapHighlightColor:"transparent",
+            }}>
+              {t==="sotoba" && addStep===2 && <span style={{position:"absolute",top:5,right:"30%",width:8,height:8,borderRadius:"50%",background:"#e74c3c",animation:"pulse 1s infinite",display:"inline-block"}}/>}
+              <span style={{fontSize:23,lineHeight:1}}>{icon}</span>
+              <span style={{fontSize:10,fontWeight:isActive?700:500,lineHeight:1}}>{label}</span>
+              {isActive && <span style={{position:"absolute",top:0,width:32,height:2,borderRadius:1,background:"#e74c3c"}}/>}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
