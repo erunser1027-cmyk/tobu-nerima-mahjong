@@ -13,8 +13,13 @@ const SCORE_RATES = [
 const VENUES = ["サクセス", "下赤塚麻雀カフェ", "下赤塚ポッチ", "池袋カクレマ", "池袋PSJ北口"];
 
 // 更新履歴 - 新しい機能は必ず今日の日付で追加してください
-// 今日: 2026-05-21
+// 今日: 2026-07-03
 const CHANGELOG = [
+  { date:"2026-07-03", features:[
+    "新機能：麻雀MBTI診断＋トレーディングカードを追加（🃏の右隣に🎴タブ新設・全28問でMBTIタイプを診断・結果をドラゴンボールキャラ風トレーディングカードとして表示・Supabaseに保存）",
+    "MBTI診断：属性（NT/NF/SJ/SP）ごとにカード枠の色が変化・4軸の振れ幅からレア度（N〜UR）と戦闘力を算出・SR/UR限定でホロ光沢アニメーション演出",
+    "ヘッダーバージョン表記をv1.7→v1.8に変更",
+  ]},
   { date:"2026-06-11", features:[
     "メインメニューに📖麻雀基礎講座ボタンを追加（大会モード右隣・別タブでhttps://nerima-night-crew.com/mahjong/を開く）",
     "外馬：レーストラックを競馬ゲーム風に全面リニューアル（疾走する馬と騎手のスプライト・スタンド観客・ダートコース・インフィールド着順掲示板・ゴール板）",
@@ -406,6 +411,511 @@ function Av({ m, sz, onClick }) {
       display:"flex", alignItems:"center", justifyContent:"center",
       fontWeight:600, fontSize:Math.round(sz*.4) }} onClick={onClick}>
       {m.name.slice(0,1)}
+    </div>
+  );
+}
+
+// ========================================================
+// 麻雀MBTI診断＋トレーディングカード
+// ========================================================
+const MBTI_C = {
+  table:"#123B32", tableDeep:"#0D2A24", ivory:"#F3ECDB", ink:"#20302B",
+  red:"#B23A2E", green:"#2F7A57", indigo:"#2C5A7A", brass:"#C6A24C", mute:"#8FA69B",
+};
+const MBTI_FONT_MIN = '"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif';
+const MBTI_FONT_GO = '"Hiragino Kaku Gothic ProN","Yu Gothic UI","Noto Sans JP",sans-serif';
+
+const MBTI_KANJI = {1:"一",2:"二",3:"三",4:"四",5:"五",6:"六",7:"七",8:"八",9:"九"};
+function mbtiPosFor(n){
+  const P={
+    1:[[50,67]], 2:[[50,42],[50,92]], 3:[[30,38],[50,67],[70,96]],
+    4:[[33,40],[67,40],[33,94],[67,94]], 5:[[33,40],[67,40],[50,67],[33,94],[67,94]],
+    6:[[33,38],[67,38],[33,67],[67,67],[33,96],[67,96]],
+    7:[[33,32],[67,32],[50,50],[33,68],[67,68],[33,104],[67,104]],
+    8:[[35,32],[65,32],[35,54],[65,54],[35,80],[65,80],[35,104],[65,104]],
+    9:[[30,34],[50,34],[70,34],[30,67],[50,67],[70,67],[30,100],[50,100],[70,100]],
+  };
+  return P[n]||[];
+}
+function mbtiRadiusFor(n){ return n<=4?11:n<=6?9.5:n===7?8.5:7.5; }
+
+function MbtiTile({ code, w=40, dora=false }) {
+  const h=Math.round(w*1.36);
+  const face=(
+    <>
+      <defs>
+        <linearGradient id="mbti-tg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#FBF6E9"/><stop offset="1" stopColor="#E7DCC3"/>
+        </linearGradient>
+      </defs>
+      <rect x="1.5" y="1.5" width="97" height="131" rx="12" fill="url(#mbti-tg)"
+        stroke={dora?MBTI_C.brass:"#D3C7A8"} strokeWidth={dora?3:2}/>
+      <rect x="1.5" y="118" width="97" height="14.5" rx="6" fill="#00000018"/>
+    </>
+  );
+  let content=null;
+  if(/^[1-9][mps]$/.test(code)){
+    const n=+code[0], s=code[1];
+    if(s==="m"){
+      content=(<>
+        <text x="50" y="52" textAnchor="middle" fontFamily={MBTI_FONT_MIN} fontSize="46" fontWeight="700" fill={MBTI_C.indigo}>{MBTI_KANJI[n]}</text>
+        <text x="50" y="112" textAnchor="middle" fontFamily={MBTI_FONT_MIN} fontSize="42" fontWeight="700" fill={MBTI_C.red}>萬</text>
+      </>);
+    } else if(s==="p"){
+      const r=mbtiRadiusFor(n);
+      content=mbtiPosFor(n).map(([x,y],i)=>(
+        <g key={i}><circle cx={x} cy={y} r={r} fill={n===1?MBTI_C.red:MBTI_C.indigo}/><circle cx={x} cy={y} r={r*0.45} fill="#FBF6E9"/></g>
+      ));
+    } else {
+      const r=mbtiRadiusFor(n);
+      content=mbtiPosFor(n).map(([x,y],i)=>(
+        <g key={i}>
+          <rect x={x-r*0.6} y={y-r*1.25} width={r*1.2} height={r*2.5} rx={r*0.6} fill={MBTI_C.green}/>
+          <rect x={x-r*0.6} y={y-1.5} width={r*1.2} height="3" fill="#1c5a3e"/>
+        </g>
+      ));
+    }
+  } else {
+    const map={"東":MBTI_C.indigo,"南":MBTI_C.indigo,"西":MBTI_C.indigo,"北":MBTI_C.indigo,"中":MBTI_C.red,"發":MBTI_C.green,"白":MBTI_C.indigo};
+    if(code==="白"){
+      content=<rect x="26" y="30" width="48" height="74" rx="4" fill="none" stroke={MBTI_C.indigo} strokeWidth="3"/>;
+    } else {
+      content=<text x="50" y="92" textAnchor="middle" fontFamily={MBTI_FONT_MIN} fontSize="66" fontWeight="700" fill={map[code]||MBTI_C.ink}>{code}</text>;
+    }
+  }
+  return (
+    <svg width={w} height={h} viewBox="0 0 100 134" style={{flex:"0 0 auto", filter:"drop-shadow(0 3px 3px rgba(0,0,0,.35))"}}>
+      {face}{content}
+    </svg>
+  );
+}
+
+// 全28問  side= E/I/S/N/T/F/J/P
+const MBTI_QUESTIONS = [
+  /* ===== S/N（現実 ⇄ 流れ） 7問 ===== */
+  { axis:"SN", tag:"現実 ⇄ 流れ", basis:"デジタル(即・和了率) ⇄ 打点/展開",
+    meta:"東1局 ・ 6巡目 ・ 子 ・ 平和のみ",
+    hand:["2m","3m","4m","6m","7m","8m","3p","4p","5p","5s","6s","9m","9m"], doraTiles:[],
+    prompt:"先制で入れる、安いテンパイ。どうする？",
+    left:{label:"即リーチ",sub:"今ある優位を確定させる",side:"S"},
+    right:{label:"ダマで待つ",sub:"手変わり・打点に賭ける",side:"N"} },
+  { axis:"SN", tag:"現実 ⇄ 流れ", basis:"効率・和了率 ⇄ 打点(面前)",
+    meta:"東1局 ・ 7巡目 ・ 子 ・ ドラ 中",
+    hand:["2m","3m","4m","6m","7m","4p","5p","6p","7s","8s","中","中","白"], doraTiles:["中"],
+    prompt:"上家が 中 を捨てた。ポンできる。あなたは？",
+    left:{label:"ポンして速攻",sub:"安いが確実に前へ",side:"S"},
+    right:{label:"スルーして面前",sub:"高い手を仕上げる",side:"N"} },
+  { axis:"SN", tag:"現実 ⇄ 流れ", basis:"先制の確定価値 ⇄ 好形への期待",
+    meta:"南1局 ・ 8巡目 ・ 子 ・ 先制テンパイ",
+    hand:["2m","3m","4m","6m","7m","8m","4p","5p","6p","3s","5s","白","白"], doraTiles:[],
+    prompt:"カンチャン待ちだが先制で入れる。愚形でもリーチする？",
+    left:{label:"即リーチ",sub:"先制の優位は確定情報",side:"S"},
+    right:{label:"好形変化を待つ",sub:"良い待ちになる未来に賭ける",side:"N"} },
+  { axis:"SN", tag:"現実 ⇄ 流れ", basis:"手なり効率 ⇄ 打点(混一)",
+    meta:"東2局 ・ 4巡目 ・ 子 ・ 手が二択",
+    hand:["2s","3s","4s","6s","7s","8s","9s","發","3m","4m","5m","2p","白"], doraTiles:[],
+    prompt:"索子が濃く、發も。安く早い手か、高い混一か。寄せるなら？",
+    left:{label:"手なりで安く早く",sub:"効率よく和了率を取る",side:"S"},
+    right:{label:"混一色で高く",sub:"打点の可能性に賭ける",side:"N"} },
+  { axis:"SN", tag:"麻雀観 ・ 勝負観", basis:"デジタル(確率) ⇄ オカルト(流れ・ツキ)",
+    meta:"接戦の終盤 ・ 最後の一打", hand:null,
+    prompt:"最後の判断を後押しするのは、どっち？",
+    left:{label:"これまでの数字",sub:"確率と期待値を信じる",side:"S"},
+    right:{label:"場の流れ",sub:"自分のツキを信じる",side:"N"} },
+  { axis:"SN", tag:"麻雀観 ・ 勝負観", basis:"デジタル(再現性) ⇄ アナログ(勝負勘)",
+    meta:"あなたが憧れる打ち手は？", hand:null,
+    prompt:"“強い”と思う打ち手は、どっち？",
+    left:{label:"ミスなく最善",sub:"いつも確率通りに打てる人",side:"S"},
+    right:{label:"流れを掴む",sub:"ここぞで魅せる手を打てる人",side:"N"} },
+  { axis:"SN", tag:"麻雀観 ・ 人生観", basis:"論理型 ⇄ 直感型",
+    meta:"麻雀を離れて ・ 人生の岐路", hand:null,
+    prompt:"大事な決断。最後に頼るのは、どっち？",
+    left:{label:"情報と計算",sub:"根拠を積み上げて決める",side:"S"},
+    right:{label:"直感と勢い",sub:"その時の流れに乗る",side:"N"} },
+
+  /* ===== T/F（損得 ⇄ こだわり） 7問 ===== */
+  { axis:"TF", tag:"損得 ⇄ こだわり", basis:"期待値(デジタル) ⇄ 勝負師の気迫",
+    meta:"南2局 ・ 11巡目 ・ 2着目 ・ 親リーチ",
+    hand:["3m","4m","5m","6m","7m","8m","3p","4p","5p","5s","6s","發","發"], doraTiles:["發"],
+    prompt:"發ドラ2の良形テンパイ。親リーチに無スジ。どちらの気持ちで押す？",
+    left:{label:"押し得だから押す",sub:"打点と受けで期待値はプラス",side:"T"},
+    right:{label:"引けないから押す",sub:"ここで引いたら悔いが残る",side:"F"} },
+  { axis:"TF", tag:"損得 ⇄ こだわり", basis:"損得(確実性) ⇄ 美意識(安手を嫌う)",
+    meta:"南4局 ・ オーラス ・ トップ目 ・ 余裕あり",
+    hand:["2m","3m","4m","3p","4p","5p","6p","7p","8p","5s","6s","6s","6s"], doraTiles:[],
+    prompt:"安手だが即和了でトップ確定。高くする余地もある。どうする？",
+    left:{label:"安手で即和了",sub:"確実にトップを取るのが得",side:"T"},
+    right:{label:"高い手で決めたい",sub:"安手で終わるのは美学に反する",side:"F"} },
+  { axis:"TF", tag:"損得 ⇄ こだわり", basis:"損得(オリ得) ⇄ 気迫(勝負)",
+    meta:"東3局 ・ 13巡目 ・ ラス目 ・ 2軒リーチ",
+    hand:["4m","5m","6m","2p","3p","4p","7p","8p","9p","3s","4s","中","中"], doraTiles:[],
+    prompt:"2軒リーチにテンパイ復活。放銃なら大ラス濃厚。あなたは？",
+    left:{label:"損得でオリる",sub:"放銃リスクが見合わない",side:"T"},
+    right:{label:"意地でも押す",sub:"ここで逃げる自分が許せない",side:"F"} },
+  { axis:"TF", tag:"損得 ⇄ こだわり", basis:"損得(確実な加点) ⇄ こだわり(打ちたい手)",
+    meta:"東1局 ・ 9巡目 ・ 子 ・ 手が二択",
+    hand:["2m","3m","4m","6m","7m","8m","2p","3p","4p","7s","8s","西","西"], doraTiles:[],
+    prompt:"すぐ和了れる安い形か、待ち替えて高い勝負手か。惹かれるのは？",
+    left:{label:"確実に和了る",sub:"取れる点は確実に取るのが得",side:"T"},
+    right:{label:"勝負手にこだわる",sub:"打ちたい手を打ってこそ",side:"F"} },
+  { axis:"TF", tag:"麻雀観 ・ 勝負観", basis:"期待値至上 ⇄ 勝負師の矜持",
+    meta:"あなたにとって ・ 良い一打とは", hand:null,
+    prompt:"“良い一打”に近いのは、どっち？",
+    left:{label:"損得で最善",sub:"収支がプラスになる選択",side:"T"},
+    right:{label:"悔いの残らない",sub:"自分が納得できる選択",side:"F"} },
+  { axis:"TF", tag:"麻雀観 ・ 勝負観", basis:"合理 ⇄ 美学",
+    meta:"負けている時 ・ あなたの心は", hand:null,
+    prompt:"劣勢の終盤、あなたを支えるのは？",
+    left:{label:"冷静な計算",sub:"まだ拾える手を淡々と探す",side:"T"},
+    right:{label:"熱い気持ち",sub:"一発逆転を狙う気迫",side:"F"} },
+  { axis:"TF", tag:"麻雀観 ・ 人生観", basis:"論理型 ⇄ 情熱型",
+    meta:"麻雀を離れて ・ あなたの決め方", hand:null,
+    prompt:"大きな選択、優先するのはどっち？",
+    left:{label:"損得・合理",sub:"得か損かで判断する",side:"T"},
+    right:{label:"想い・こだわり",sub:"譲れない気持ちで決める",side:"F"} },
+
+  /* ===== J/P（決め打ち ⇄ 柔軟） 7問 ===== */
+  { axis:"JP", tag:"決め打ち ⇄ 柔軟", basis:"役狙い(計画) ⇄ 手なり(柔軟)",
+    meta:"東2局 ・ 4巡目 ・ 自風 南 ・ ドラ 發",
+    hand:["2s","3s","4s","5s","6s","7s","8s","9s","發","發","3m","5p","東"], doraTiles:["發"],
+    prompt:"索子が伸び、發はドラの対子。序盤の方針は？",
+    left:{label:"混一色へ一直線",sub:"他色を払って決め打ち",side:"J"},
+    right:{label:"手なりで柔軟に",sub:"来た形に合わせて進める",side:"P"} },
+  { axis:"JP", tag:"決め打ち ⇄ 柔軟", basis:"完成形を描く ⇄ ツモ任せ",
+    meta:"東1局 ・ 3巡目 ・ 子 ・ 好配牌",
+    hand:["2m","3m","4m","5m","6m","4p","5p","6p","3s","4s","5s","白","白"], doraTiles:[],
+    prompt:"きれいな好配牌。あなたの頭の中は？",
+    left:{label:"完成形を決める",sub:"最終形を描いて一直線",side:"J"},
+    right:{label:"ツモ次第で伸ばす",sub:"良く伸びた方に乗る",side:"P"} },
+  { axis:"JP", tag:"決め打ち ⇄ 柔軟", basis:"方針を貫く ⇄ 乗り換える",
+    meta:"南1局 ・ 9巡目 ・ 子 ・ テンパイ間近",
+    hand:["3m","4m","5m","6m","7m","3p","4p","5p","6s","7s","8s","2m","2m"], doraTiles:[],
+    prompt:"狙いの形が見えたが、別の高い形にも変えられる。どうする？",
+    left:{label:"当初の形を貫く",sub:"決めた手を最後まで",side:"J"},
+    right:{label:"高い形へ乗り換え",sub:"良い変化には柔軟に",side:"P"} },
+  { axis:"JP", tag:"決め打ち ⇄ 柔軟", basis:"構想優先 ⇄ 状況対応",
+    meta:"東3局 ・ 7巡目 ・ 子 ・ 仕掛けどころ",
+    hand:["3m","4m","5m","7m","8m","2p","3p","4p","6s","7s","發","發","西"], doraTiles:["發"],
+    prompt:"發が出た。鳴けば形は変わるが早い。あなたは？",
+    left:{label:"構想通りに面前",sub:"描いた手を崩さない",side:"J"},
+    right:{label:"鳴いて形を変える",sub:"状況に合わせて動く",side:"P"} },
+  { axis:"JP", tag:"麻雀観 ・ 勝負観", basis:"計画型 ⇄ 適応型",
+    meta:"あなたの ・ 手作りの流儀", hand:null,
+    prompt:"手作りで気持ちいいのは、どっち？",
+    left:{label:"狙い通り完成",sub:"描いた手を仕上げる快感",side:"J"},
+    right:{label:"何にでも化ける",sub:"来た牌で最善を作る快感",side:"P"} },
+  { axis:"JP", tag:"麻雀観 ・ 勝負観", basis:"一貫性 ⇄ 臨機応変",
+    meta:"卓に着く前 ・ あなたの構え", hand:null,
+    prompt:"あなたの麻雀に近いのは？",
+    left:{label:"型を持つ",sub:"自分のスタイルを貫く",side:"J"},
+    right:{label:"型を持たない",sub:"その場に合わせて変える",side:"P"} },
+  { axis:"JP", tag:"麻雀観 ・ 人生観", basis:"計画型 ⇄ 柔軟型",
+    meta:"麻雀を離れて ・ あなたの進み方", hand:null,
+    prompt:"物事の進め方、近いのは？",
+    left:{label:"計画を立てて",sub:"決めた道を着実に進む",side:"J"},
+    right:{label:"流れに任せて",sub:"状況を見て柔軟に動く",side:"P"} },
+
+  /* ===== E/I（場読み ⇄ 没入） 7問 ===== */
+  { axis:"EI", tag:"場読み ⇄ 没入", basis:"相手を読む(アナログ) ⇄ 自分の手(デジタル)",
+    meta:"南2局 ・ 12巡目 ・ 上家が2副露(高そう)",
+    hand:["3m","4m","5m","5m","6m","7m","3p","4p","5p","6s","7s","9p","東"], doraTiles:[],
+    prompt:"1シャンテンで無スジをツモ。上家の仕掛けが不気味。あなたは？",
+    left:{label:"警戒して受ける",sub:"上家の気配を最優先",side:"E"},
+    right:{label:"自分の手を最速で",sub:"他家は気にしない",side:"I"} },
+  { axis:"EI", tag:"場読み ⇄ 没入", basis:"他家の河を読む ⇄ 自分の効率",
+    meta:"東1局 ・ 9巡目 ・ 全員が無仕掛け",
+    hand:["2m","3m","4m","5m","6m","7p","8p","4s","5s","6s","7s","南","南"], doraTiles:[],
+    prompt:"切る牌を選ぶとき、まず見るのは？",
+    left:{label:"他家3人の河",sub:"何が危険で何が安全か",side:"E"},
+    right:{label:"自分の受け入れ",sub:"一番手が進む切り方",side:"I"} },
+  { axis:"EI", tag:"場読み ⇄ 没入", basis:"相手に合わせる ⇄ 自分を通す",
+    meta:"東3局 ・ 6巡目 ・ 下家が絶好調",
+    hand:["3m","4m","2p","3p","4p","6p","7p","8p","5s","6s","7s","發","發"], doraTiles:[],
+    prompt:"下家が連荘中で伸び伸び打ってる。あなたの意識は？",
+    left:{label:"下家を止めにいく",sub:"好調者を意識して打つ",side:"E"},
+    right:{label:"自分の手に集中",sub:"誰が好調でも関係ない",side:"I"} },
+  { axis:"EI", tag:"場読み ⇄ 没入", basis:"読みで決める ⇄ 効率で決める",
+    meta:"南3局 ・ 11巡目 ・ リーチに無スジ2択",
+    hand:["4m","5m","6m","3p","4p","5p","7p","8p","9p","2s","3s","北","北"], doraTiles:[],
+    prompt:"リーチに押す。切る危険牌は2つ。選ぶ基準は？",
+    left:{label:"相手の待ちを読む",sub:"河から通りそうな方を",side:"E"},
+    right:{label:"自分の手が進む方",sub:"受け入れが良い方を",side:"I"} },
+  { axis:"EI", tag:"麻雀観 ・ 勝負観", basis:"対人重視 ⇄ 自分重視",
+    meta:"あなたの ・ 勝ち方の軸", hand:null,
+    prompt:"勝つために大事なのは、どっち？",
+    left:{label:"相手を読むこと",sub:"3人の動きを制する",side:"E"},
+    right:{label:"自分を貫くこと",sub:"己の最善を積み上げる",side:"I"} },
+  { axis:"EI", tag:"麻雀観 ・ 勝負観", basis:"場の空気を読む ⇄ 我が道",
+    meta:"卓に着いた時 ・ あなたの視線", hand:null,
+    prompt:"打っている間、意識が向くのは？",
+    left:{label:"場の全員",sub:"表情・仕草・河を見ている",side:"E"},
+    right:{label:"自分の手牌",sub:"手の中の構想に没頭する",side:"I"} },
+  { axis:"EI", tag:"麻雀観 ・ 人生観", basis:"外向型 ⇄ 内向型",
+    meta:"麻雀を離れて ・ あなたの充電法", hand:null,
+    prompt:"力が湧いてくるのは、どっち？",
+    left:{label:"人と関わる時",sub:"周りとの掛け合いで乗る",side:"E"},
+    right:{label:"一人で集中する時",sub:"自分の世界に入り込む",side:"I"} },
+];
+
+const MBTI_LEANS = [{v:-2,label:"迷わず"},{v:-1,label:"やや"},{v:1,label:"やや"},{v:2,label:"迷わず"}];
+
+// 16タイプ配役表：MBTIコード → [麻雀タイプ名, ドラゴンボールキャラ名]
+const MBTI_TYPES = {
+  INTJ:["孤高の戦略家","ベジータ"], INTP:["牌効率の探究者","ブルマ"],
+  ENTJ:["冷徹な処刑人","フリーザ"], ENTP:["盤上の実験者","セル"],
+  INFJ:["静かなる読み師","ピッコロ"], INFP:["秘めたる理想家","孫悟飯"],
+  ENFJ:["卓の主人公","ミスターサタン"], ENFP:["一発ロマンの風来坊","ヤムチャ"],
+  ISTJ:["鉄の求道者","天津飯"], ISFJ:["不屈の生存者","クリリン"],
+  ESTJ:["盤面の統率者","未来トランクス"], ESFJ:["和を重んじる調整型","チチ"],
+  ISTP:["クールな捌き師","18号"], ISFP:["マイペースの一撃","16号"],
+  ESTP:["経験がモノを言う実戦派","亀仙人"], ESFP:["本能の勝負師","孫悟空"],
+};
+const MBTI_AXES = [
+  {key:"EI", field:"axis_ei", la:"場読み型", lb:"没入型"},
+  {key:"SN", field:"axis_sn", la:"現実型",   lb:"流れ型"},
+  {key:"TF", field:"axis_tf", la:"期待値型", lb:"美学型"},
+  {key:"JP", field:"axis_jp", la:"決め打ち型", lb:"変幻型"},
+];
+
+// 回答（{idx: -2|-1|1|2}）からMBTIコードと各軸の生スコアを算出
+function mbtiTally(answers){
+  const t={};
+  MBTI_QUESTIONS.forEach((q,i)=>{
+    const v=answers[i]; if(v==null) return;
+    const side=v<0?q.left.side:q.right.side;
+    t[side]=(t[side]||0)+Math.abs(v);
+  });
+  const pick=(a,b)=>((t[a]||0)>=(t[b]||0)?a:b);
+  const code=pick("E","I")+pick("S","N")+pick("T","F")+pick("J","P");
+  return {code,t};
+}
+// 生スコア→DB保存用（各軸1文字目側の%）に変換
+function mbtiAxesToDb(t){
+  const pct=(a,b)=>{ const av=t[a]||0, bv=t[b]||0, total=av+bv||1; return Math.round((av/total)*100); };
+  return { ei: pct("E","I"), sn: pct("S","N"), tf: pct("T","F"), jp: pct("J","P") };
+}
+
+// ---- トレーディングカード ----
+function mbtiTemperament(code){
+  const isN = code[1]==="N", isT = code[2]==="T", isJ = code[3]==="J";
+  if (isN && isT) return "NT";
+  if (isN && !isT) return "NF";
+  if (!isN && isJ) return "SJ";
+  return "SP";
+}
+function mbtiSpread(r){
+  return (Math.abs(r.axis_ei-50)+Math.abs(r.axis_sn-50)+Math.abs(r.axis_tf-50)+Math.abs(r.axis_jp-50))/4;
+}
+// レア度閾値は初期案。実データを見て後日調整可
+function mbtiRarity(spread){
+  if (spread >= 35) return "UR";
+  if (spread >= 25) return "SR";
+  if (spread >= 15) return "R";
+  return "N";
+}
+function mbtiStars(spread){ return Math.max(1, Math.min(7, Math.round(1 + spread/50*6))); }
+// 乱数不使用：同じ診断結果なら常に同じ戦闘力になる（演出用の数値）
+function mbtiPower(r){
+  const spread = mbtiSpread(r);
+  return Math.round(3000 + spread*160 + (Number(r.axis_ei)+Number(r.axis_sn)+Number(r.axis_tf)+Number(r.axis_jp))*3);
+}
+const MBTI_FRAME = {
+  NT: "linear-gradient(135deg,#8e2de2,#00c9ff)",
+  NF: "linear-gradient(135deg,#ff6ec7,#4ade80)",
+  SJ: "linear-gradient(135deg,#b8860b,#f0c674)",
+  SP: "linear-gradient(135deg,#e74c3c,#ff8c00)",
+};
+
+function MbtiStar({ lit }) {
+  return (
+    <div style={{
+      width:16, height:16, borderRadius:"50%",
+      background: lit ? "radial-gradient(circle at 35% 30%, #fff6c8, #f5a623 60%, #b8720a 100%)" : "rgba(255,255,255,0.08)",
+      border: lit ? "1px solid #ffdd55" : "1px solid rgba(255,255,255,0.15)",
+      boxShadow: lit ? "0 0 6px 1px #f5a62388" : "none",
+      display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, color:"#7a4a00", flex:"0 0 auto",
+    }}>{lit ? "★" : ""}</div>
+  );
+}
+
+function MbtiCard({ result, member }) {
+  const code = result.mbti_code;
+  const [typeName, dbName] = MBTI_TYPES[code] || ["?","?"];
+  const temperament = mbtiTemperament(code);
+  const spread = mbtiSpread(result);
+  const rarity = mbtiRarity(spread);
+  const stars = mbtiStars(spread);
+  const power = mbtiPower(result);
+  const holo = rarity==="SR" || rarity==="UR";
+
+  const axisRow = (pctA, la, lb) => (
+    <div style={{marginBottom:10}}>
+      <div style={{display:"flex", justifyContent:"space-between", fontSize:10, marginBottom:4}}>
+        <span style={{color:pctA>=50?"#fff":"#8FA69B", fontWeight:pctA>=50?700:400}}>{la}</span>
+        <span style={{color:pctA<50?"#fff":"#8FA69B", fontWeight:pctA<50?700:400}}>{lb}</span>
+      </div>
+      <div style={{height:6, background:"#0c221d", borderRadius:4, overflow:"hidden", display:"flex"}}>
+        <div style={{width:`${pctA}%`, background:"#C6A24C"}}/>
+        <div style={{width:`${100-pctA}%`, background:"#2F7A57"}}/>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{padding:3, borderRadius:16, background:MBTI_FRAME[temperament], boxShadow:"0 4px 18px rgba(0,0,0,0.5)"}}>
+      <div style={{position:"relative", borderRadius:14, background:"linear-gradient(160deg,#12121f,#1a1a2e)", padding:16, overflow:"hidden"}}>
+        {holo && (
+          <div style={{
+            position:"absolute", inset:0, borderRadius:"inherit", pointerEvents:"none",
+            background:"linear-gradient(115deg, transparent 20%, rgba(255,255,255,0.55) 40%, rgba(255,255,255,0.05) 50%, transparent 60%)",
+            backgroundSize:"250% 250%", mixBlendMode:"overlay", animation:"mbtiHoloSweep 2.8s linear infinite",
+          }}/>
+        )}
+        <div style={{display:"flex", alignItems:"center", gap:10, marginBottom:12}}>
+          <Av m={member} sz={40}/>
+          <div style={{flex:1}}>
+            <div style={{fontSize:13, fontWeight:700, color:"#fff"}}>{member?.name || "?"}</div>
+            <div style={{fontSize:10, color:"#8FA69B", letterSpacing:2}}>{code}</div>
+          </div>
+          <div style={{fontSize:10, fontWeight:800, color:"#f1c40f", padding:"2px 8px", borderRadius:10, background:"rgba(241,196,15,0.15)", border:"1px solid rgba(241,196,15,0.4)"}}>{rarity}</div>
+        </div>
+        <div style={{textAlign:"center", marginBottom:10}}>
+          <div style={{fontSize:26, fontWeight:800, color:"#e74c3c"}}>{dbName}</div>
+          <div style={{fontSize:13, color:"#ddd", marginTop:2}}>「{typeName}」</div>
+        </div>
+        <div style={{display:"flex", gap:3, justifyContent:"center", marginBottom:10, flexWrap:"wrap"}}>
+          {Array.from({length:7}).map((_,i)=>(<MbtiStar key={i} lit={i<stars}/>))}
+        </div>
+        <div style={{textAlign:"center", fontSize:11, color:"#888", marginBottom:14}}>
+          戦闘力 <span style={{fontSize:16, fontWeight:800, color:"#fff", marginLeft:4}}>{power.toLocaleString()}</span>
+        </div>
+        <div style={{background:"rgba(0,0,0,0.2)", borderRadius:10, padding:"10px 12px"}}>
+          {MBTI_AXES.map(ax=>(<div key={ax.key}>{axisRow(Number(result[ax.field]), ax.la, ax.lb)}</div>))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MbtiQuiz({ onFinish, onCancel }) {
+  const [stage, setStage] = useState("intro"); // "intro" | "quiz"
+  const [idx, setIdx] = useState(0);
+  const [answers, setAnswers] = useState({});
+
+  const choose = (v) => {
+    const next = { ...answers, [idx]: v };
+    setAnswers(next);
+    setTimeout(() => {
+      if (idx < MBTI_QUESTIONS.length - 1) {
+        setIdx(idx + 1);
+      } else {
+        const { code, t } = mbtiTally(next);
+        onFinish(code, mbtiAxesToDb(t), next);
+      }
+    }, 220);
+  };
+
+  const shell = (children) => (
+    <div style={{
+      background: "linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)",
+      color: MBTI_C.ivory, fontFamily: MBTI_FONT_GO,
+      borderRadius: 14, padding: "22px 16px 30px",
+    }}>
+      {children}
+    </div>
+  );
+
+  if (stage === "intro") {
+    return shell(
+      <div style={{textAlign:"center", paddingTop:10}}>
+        <div style={{fontFamily:MBTI_FONT_MIN, color:MBTI_C.brass, letterSpacing:6, fontSize:12}}>東武練馬Tリーグ 公認</div>
+        <h1 style={{fontFamily:MBTI_FONT_MIN, fontSize:30, fontWeight:700, margin:"14px 0 6px", lineHeight:1.3}}>雀 打 診 断</h1>
+        <div style={{color:MBTI_C.mute, fontSize:13}}>全28問で、あなたの16タイプを。</div>
+        <div style={{display:"flex", gap:5, justifyContent:"center", margin:"22px 0 22px"}}>
+          {["1m","5p","發","中"].map((c,i)=>(<MbtiTile key={i} code={c} w={36}/>))}
+        </div>
+        <p style={{color:"#D8CDB4", fontSize:13.5, lineHeight:1.9, textAlign:"left"}}>
+          麻雀界で実際に使われる打ち手の分類（デジタル/アナログ、攻撃/守備）を土台に、
+          4つの軸を測ります。局面16問＋お題12問。正解はありません。感覚で。
+        </p>
+        <button onClick={()=>setStage("quiz")}
+          style={{marginTop:20, width:"100%", padding:"15px", background:MBTI_C.red, color:"#fff",
+            border:"none", borderRadius:10, fontSize:16, fontWeight:700, fontFamily:MBTI_FONT_MIN,
+            letterSpacing:2, cursor:"pointer", boxShadow:"0 4px 0 #7f2820"}}>
+          はじめる（全28問）
+        </button>
+        {onCancel && (
+          <button onClick={onCancel}
+            style={{marginTop:10, width:"100%", padding:"11px", background:"transparent", color:MBTI_C.mute,
+              border:"1px solid rgba(255,255,255,0.15)", borderRadius:10, fontSize:13, cursor:"pointer"}}>
+            やめる
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const q = MBTI_QUESTIONS[idx];
+  const current = answers[idx];
+  const isOdai = !q.hand;
+  return shell(
+    <div>
+      <div style={{textAlign:"center", color:MBTI_C.mute, fontSize:11, marginBottom:8}}>{idx+1} / {MBTI_QUESTIONS.length}</div>
+      <div style={{height:4, background:"#22463c", borderRadius:2, overflow:"hidden", marginBottom:16}}>
+        <div style={{width:`${(idx/(MBTI_QUESTIONS.length-1))*100}%`, height:"100%", background:MBTI_C.brass, transition:"width .25s"}}/>
+      </div>
+      <div style={{textAlign:"center", color:MBTI_C.brass, fontFamily:MBTI_FONT_MIN, fontSize:12.5, letterSpacing:1}}>{q.meta}</div>
+      <div style={{textAlign:"center", color:MBTI_C.mute, fontSize:11, marginTop:4}}>測定軸：{q.tag}</div>
+      {q.basis && <div style={{textAlign:"center", color:"#7f9a8d", fontSize:10.5, marginTop:3}}>認知枠組み：{q.basis}</div>}
+
+      {!isOdai ? (
+        <>
+          <div style={{margin:"16px 0 8px", padding:"18px 10px", background:"rgba(0,0,0,.16)", borderRadius:12,
+            border:"1px solid rgba(0,0,0,.25)", display:"flex", flexWrap:"wrap", gap:4, justifyContent:"center"}}>
+            {q.hand.map((c,i)=>(<MbtiTile key={i} code={c} w={36} dora={q.doraTiles && q.doraTiles.includes(c)}/>))}
+          </div>
+          <p style={{fontFamily:MBTI_FONT_MIN, fontSize:17, textAlign:"center", lineHeight:1.7, margin:"16px 6px 22px"}}>{q.prompt}</p>
+        </>
+      ) : (
+        <div style={{position:"relative", margin:"16px 0 22px", borderRadius:14, overflow:"hidden",
+          background:"linear-gradient(180deg,#151515,#0a0a0a)", border:"1px solid rgba(198,162,76,.55)",
+          boxShadow:"0 8px 24px rgba(0,0,0,.55), inset 0 0 46px rgba(198,162,76,.06)"}}>
+          <div style={{height:7, background:`repeating-linear-gradient(90deg, ${MBTI_C.red} 0 16px, #f4efe0 16px 32px)`}}/>
+          <div style={{position:"absolute", top:-10, left:"50%", transform:"translateX(-50%)",
+            width:300, height:200, background:"radial-gradient(closest-side, rgba(198,162,76,.20), transparent)", pointerEvents:"none"}}/>
+          <div style={{position:"relative", padding:"22px 22px 30px", textAlign:"center"}}>
+            <div style={{display:"inline-block", background:MBTI_C.brass, color:"#141414", fontFamily:MBTI_FONT_MIN,
+              fontWeight:800, fontSize:13, letterSpacing:6, padding:"3px 18px 3px 22px", borderRadius:2, marginBottom:20}}>お題</div>
+            <div style={{fontFamily:MBTI_FONT_MIN, fontSize:21, fontWeight:700, color:"#F5EEDC", lineHeight:1.85}}>{q.prompt}</div>
+          </div>
+        </div>
+      )}
+
+      <div style={{display:"flex", justifyContent:"space-between", gap:10, marginBottom:10}}>
+        {[q.left,q.right].map((p,i)=>(
+          <div key={i} style={{flex:1, textAlign:i===0?"left":"right"}}>
+            <div style={{fontFamily:MBTI_FONT_MIN, fontSize:15, fontWeight:700, color:MBTI_C.ivory}}>{p.label}</div>
+            <div style={{fontSize:11, color:MBTI_C.mute, marginTop:2}}>{p.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{display:"flex", gap:6}}>
+        {MBTI_LEANS.map((ln)=>{
+          const active = current===ln.v, isLeft = ln.v<0;
+          return (
+            <button key={ln.v} onClick={()=>choose(ln.v)}
+              style={{flex:Math.abs(ln.v)===2?1.25:1, padding:"14px 4px", borderRadius:9,
+                border:`1px solid ${active?MBTI_C.brass:"#2c5347"}`,
+                background:active?(isLeft?MBTI_C.brass:MBTI_C.green):"rgba(255,255,255,.04)",
+                color:active?"#10201b":MBTI_C.ivory, fontWeight:active?800:500, fontFamily:MBTI_FONT_MIN, fontSize:13,
+                cursor:"pointer", transition:"all .15s"}}>
+              {ln.label}<div style={{fontSize:9, opacity:0.7, marginTop:2}}>{isLeft?"◀":"▶"}</div>
+            </button>
+          );
+        })}
+      </div>
+      <div style={{textAlign:"center", color:MBTI_C.mute, fontSize:10.5, marginTop:14}}>直感で。中央（五分五分）はあえて無し。</div>
     </div>
   );
 }
@@ -844,6 +1354,10 @@ if (!document.getElementById("tleague-animations")) {
       70% { transform: scale(1.2); }
       100% { transform: scale(1); opacity:1; }
     }
+    @keyframes mbtiHoloSweep {
+      0% { background-position: -150% -150%; }
+      100% { background-position: 150% 150%; }
+    }
   `;
   document.head.appendChild(style);
 }
@@ -972,6 +1486,12 @@ export default function App() {
   const [showColorLegend, setShowColorLegend] = useState(false);
   const [editRoundIndex, setEditRoundIndex] = useState(null);
 
+  // ---- 麻雀MBTI診断 ----
+  const [mbtiResults, setMbtiResults] = useState([]); // Supabase由来、全員分
+  const [mbtiStage, setMbtiStage] = useState("intro"); // "intro" | "quiz"
+  const [mbtiSubmitting, setMbtiSubmitting] = useState(false);
+  const mbtiOf = id => mbtiResults.find(r => Number(r.member_id) === Number(id));
+
   // 月一覧（プルダウン用）
   const monthList = getMonthList(sessions);
 
@@ -1013,6 +1533,22 @@ export default function App() {
     setToast({ type, msg });
     setTimeout(() => setToast(null), 3500);
   };
+
+  async function saveMbtiResult(memberId, code, axes, answers) {
+    setMbtiSubmitting(true);
+    const { data, error } = await supabase.from("mbti_results").upsert({
+      member_id: Number(memberId),
+      mbti_code: code,
+      axis_ei: axes.ei, axis_sn: axes.sn, axis_tf: axes.tf, axis_jp: axes.jp,
+      answers,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "member_id" }).select().single();
+    setMbtiSubmitting(false);
+    if (error) { showToast("error", `⚠️ 診断結果の保存に失敗しました: ${error.message || error.code}`); return; }
+    setMbtiResults(prev => [...prev.filter(r => Number(r.member_id) !== Number(memberId)), data]);
+    showToast("success", "🎴 診断結果を保存しました");
+    setMbtiStage("intro");
+  }
 
   const writeAuditLog = async (memberName, action, detail) => {
     if (memberName === "りょう") return; // りょうはログなし
@@ -1252,12 +1788,14 @@ export default function App() {
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
-      const [{ data: mData }, { data: sData }] = await Promise.all([
+      const [{ data: mData }, { data: sData }, { data: bData }] = await Promise.all([
         supabase.from("members").select("*").is("deleted_at", null).order("id"),
         supabase.from("sessions").select("*").is("deleted_at", null).order("created_at"),
+        supabase.from("mbti_results").select("*"),
       ]);
       if (mData) setMembers(mData);
       if (sData) setSessions(sData);
+      if (bData) setMbtiResults(bData);
       setLoading(false);
     }
     fetchData();
@@ -1293,6 +1831,10 @@ export default function App() {
         supabase.from("race_bets").select("*").order("created_at",{ascending:false}).then(({data}) => {
           if (data) { setRaceBets(data); raceBetsRef.current = data; }
         });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "mbti_results" }, () => {
+        // MBTI診断結果の即時同期
+        supabase.from("mbti_results").select("*").then(({data}) => { if (data) setMbtiResults(data); });
       })
       .subscribe();
 
@@ -2241,7 +2783,7 @@ export default function App() {
         <span style={{fontSize:18}}>🀄</span>
         <div>
           <div style={{fontSize:9,color:"#e74c3c",fontWeight:600,lineHeight:1.2}}>東武練馬Tリーグ</div>
-          <div style={{fontSize:12,fontWeight:500,lineHeight:1.2}}>麻雀スコア表 <span style={{fontSize:9,color:"#666",fontWeight:400}}>v1.7</span></div>
+          <div style={{fontSize:12,fontWeight:500,lineHeight:1.2}}>麻雀スコア表 <span style={{fontSize:9,color:"#666",fontWeight:400}}>v1.8</span></div>
         </div>
         {/* LIVE バッジ：実際にLIVE対局中(addStep===2)のみ表示 */}
         {addStep === 2 && (
@@ -2253,7 +2795,7 @@ export default function App() {
           </div>
         )}
         <div style={{marginLeft:"auto",display:"flex",gap:3,flexWrap:"wrap",justifyContent:"flex-end"}}>
-          {[["dashboard","📊"],["calendar","🗓"],["history","📅"],["skull","💀"],["sotoba","🏇"],["hilo","🃏"],["taikai","🎌"],["guide","📖"],["add","➕"],["members","👥"]].map(([t,l])=>{
+          {[["dashboard","📊"],["calendar","🗓"],["history","📅"],["skull","💀"],["sotoba","🏇"],["hilo","🃏"],["shindan","🎴"],["taikai","🎌"],["guide","📖"],["add","➕"],["members","👥"]].map(([t,l])=>{
             const isActive = t==="sotoba"
               ? (tab==="dashboard" && dashSub==="sotoba")
               : t==="hilo"
@@ -5951,6 +6493,47 @@ export default function App() {
               </div>
             ))}
           </>
+        )}
+        {tab==="shindan" && (
+          <div style={{padding:"10px 0"}}>
+            {!raceSelf ? (
+              <div style={{...S.card({background:"rgba(255,255,255,0.04)"}), marginBottom:10}}>
+                <div style={{fontSize:11,color:"#888",marginBottom:8}}>診断するのはあなたですか？</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
+                  {members.map(m=>(
+                    <div key={m.id} onClick={()=>setRaceSelf(m.id)}
+                      style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"8px 4px",borderRadius:8,cursor:"pointer",
+                        background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)"}}>
+                      <Av m={m} sz={28}/>
+                      <div style={{fontSize:10,color:"#ccc"}}>{m.name}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : mbtiStage==="quiz" ? (
+              <MbtiQuiz
+                onFinish={(code,axes,answers)=>saveMbtiResult(raceSelf,code,axes,answers)}
+                onCancel={()=>setMbtiStage("intro")}
+              />
+            ) : mbtiOf(raceSelf) ? (
+              <div>
+                <MbtiCard result={mbtiOf(raceSelf)} member={gm(raceSelf)}/>
+                <div style={{display:"flex",gap:8,marginTop:12}}>
+                  <button style={S.bb({flex:1})} disabled={mbtiSubmitting} onClick={()=>setMbtiStage("quiz")}>🔄 再診断する</button>
+                  <button style={S.bg({flex:1})} disabled={mbtiSubmitting} onClick={()=>setRaceSelf(null)}>👤 別の人で診断</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{...S.card(), textAlign:"center", padding:24}}>
+                <div style={{fontSize:40,marginBottom:8}}>🎴</div>
+                <div style={{fontSize:15,fontWeight:600,marginBottom:6}}>麻雀MBTI診断</div>
+                <div style={{fontSize:12,color:"#aaa",marginBottom:16,lineHeight:1.6}}>
+                  全28問に答えて、あなたの雀風タイプをドラゴンボールキャラで診断！
+                </div>
+                <button style={S.br({width:"100%"})} onClick={()=>setMbtiStage("quiz")}>診断をはじめる</button>
+              </div>
+            )}
+          </div>
         )}
         {tab==="taikai" && (
           <div style={{
