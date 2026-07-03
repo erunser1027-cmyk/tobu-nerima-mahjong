@@ -18,6 +18,7 @@ const SHOW_HILO_ICON = false;
 // 今日: 2026-07-04
 const CHANGELOG = [
   { date:"2026-07-04", features:[
+    "MBTI診断：🎴タブのメニュー構成を変更（見出し常時表示→マイカードを見る→再診断する（新設・クールダウン無視で即再診断）→覚醒カードを見る→コレクションを見るの順に刷新）",
     "UI変更：ヘッダーの外部リンク（麻雀基礎講座）アイコンを撤廃し、設定メニュー内「当月成績優秀者の演出について」の下に📖麻雀基礎講座メニューとして移動。メインメニューの🃏ハイ&ローアイコンを非表示化（機能・データは維持、表示条件フラグで制御）。成績概要の簡易概要ポップアップにメンバーのMBTI診断カード（未診断は「未診断」、未解放は「🔒未解放」表示）を追加",
     "MBTI診断：LINEシェアを合成画像化（ポートレート＋レア度＋★＋戦闘力＋4軸メーターをcanvasで1枚合成、下部に注意文言を透かしで焼き込み）",
     "MBTI診断：Myカード選択画面の文言を「Myカードを見る or 診断するあなたは誰？」に変更",
@@ -7301,8 +7302,6 @@ export default function App() {
                   🎯 みんなのカード全16種類集めよう！
                 </div>
 
-                <MbtiAwakenTeaser onClick={()=>setMbtiAwakenTeaserOpen(true)}/>
-
                 <button onClick={()=>setMbtiMyCardOpen(true)} style={{
                   width:"100%", padding:"18px 14px", borderRadius:14, border:"1px solid rgba(231,76,60,0.4)",
                   background:"linear-gradient(135deg,rgba(231,76,60,0.18),rgba(192,57,43,0.1))",
@@ -7312,10 +7311,26 @@ export default function App() {
                   <span style={{fontSize:30}}>🎴</span>
                   <span style={{flex:1}}>
                     <div style={{fontSize:15, fontWeight:800}}>マイカードを見る</div>
-                    <div style={{fontSize:10.5, color:"#ccc", marginTop:2}}>{mbtiOf(raceSelf) ? "自分の素質カードを確認・再診断" : "まだ診断していません。タップして診断開始"}</div>
+                    <div style={{fontSize:10.5, color:"#ccc", marginTop:2}}>{mbtiOf(raceSelf) ? "自分の素質カードを確認" : "まだ診断していません。タップして診断開始"}</div>
                   </span>
                   <span style={{fontSize:18, color:"#e74c3c"}}>›</span>
                 </button>
+
+                <button onClick={()=>{ setMbtiStage("quiz"); setMbtiMyCardOpen(true); }} style={{
+                  width:"100%", padding:"18px 14px", borderRadius:14, border:"1px solid rgba(243,156,18,0.4)",
+                  background:"linear-gradient(135deg,rgba(243,156,18,0.18),rgba(211,84,0,0.1))",
+                  color:"#fff", cursor:"pointer", marginBottom:12, textAlign:"left",
+                  display:"flex", alignItems:"center", gap:12,
+                }}>
+                  <span style={{fontSize:30}}>🔄</span>
+                  <span style={{flex:1}}>
+                    <div style={{fontSize:15, fontWeight:800}}>再診断する</div>
+                    <div style={{fontSize:10.5, color:"#ccc", marginTop:2}}>もう一度質問に答えて素質カードを診断し直す</div>
+                  </span>
+                  <span style={{fontSize:18, color:"#f39c12"}}>›</span>
+                </button>
+
+                <MbtiAwakenTeaser onClick={()=>setMbtiAwakenTeaserOpen(true)}/>
 
                 <button onClick={()=>setMbtiRosterOpen(true)} style={{
                   width:"100%", padding:"18px 14px", borderRadius:14, border:"1px solid rgba(52,152,219,0.4)",
