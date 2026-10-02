@@ -224,6 +224,49 @@ function indivStats(ids, games) {
 }
 const fmtPt = v => `${v > 0 ? "+" : ""}${Number(v).toFixed(1)}`;
 
+// ---- 決勝・3位決定戦・結果（段階3b） ----
+const CARRY = { none: 0, all: 1, half: 0.5 };
+// 決勝などの順位：持ち越し分（予選の順位点×割合）＋その段階の順位点。同点は大会通算チップ
+function stageStandings(teamIdxs, teams, games, base = {}) {
+  const rows = teamIdxs.map(i => ({ idx: i, members: teams[i], carry: base[i]?.pts || 0, pts: base[i]?.pts || 0, chips: base[i]?.chips || 0, played: 0 }));
+  games.filter(g => g.status === "done").forEach(g => g.team_idx.forEach(ti => {
+    const r = rows.find(x => x.idx === ti); if (!r) return;
+    r.played += 1;
+    teams[ti].forEach(id => { r.pts += Number(g.points?.[id] || 0); r.chips += Number(g.chips?.[id] || 0); });
+  }));
+  rows.forEach(r => { r.pts = Math.round(r.pts * 10) / 10; r.carry = Math.round(r.carry * 10) / 10; });
+  return rows.sort((a, b) => (b.pts - a.pts) || (b.chips - a.chips));
+}
+function carryBase(prelimRows, idxs, factor) {
+  const b = {};
+  idxs.forEach(i => { const r = prelimRows.find(x => x.idx === i); b[i] = { pts: (r?.pts || 0) * factor, chips: r?.chips || 0 }; });
+  return b;
+}
+// 大会結果：表彰台と個人賞
+function computeResult({ teams, s, prelimRows, finalists, third, finalGames, thirdGames, allGames }) {
+  const factor = CARRY[s.carryOver] ?? 0;
+  const fRows = stageStandings(finalists, teams, finalGames, carryBase(prelimRows, finalists, factor));
+  const tRows = third ? stageStandings(third, teams, thirdGames, carryBase(prelimRows, third, factor)) : null;
+  const thirdIdx = tRows ? tRows[0].idx : (prelimRows.find(r => !finalists.includes(r.idx))?.idx ?? null);
+  const ids = teams.flat();
+  const ind = indivStats(ids, allGames);
+  const maxOf = key => Math.max(...ids.map(id => ind[id][key] ?? -Infinity));
+  const chipVal = maxOf("chips");
+  const highVal = maxOf("best");
+  const nonFinal = ids.filter(id => !finalists.some(ti => teams[ti].includes(id))).sort((a, b) => ind[a].pts - ind[b].pts);
+  return {
+    podium: [fRows[0]?.idx ?? null, fRows[1]?.idx ?? null, thirdIdx],
+    finalRows: fRows.map(r => ({ idx: r.idx, pts: r.pts, chips: r.chips, carry: r.carry })),
+    awards: {
+      chip: { ids: ids.filter(id => ind[id].chips === chipVal), value: chipVal },
+      high: { ids: ids.filter(id => ind[id].best === highVal), value: highVal },
+      booby: nonFinal.length >= 2 ? { ids: [nonFinal[1]], value: ind[nonFinal[1]].pts } : null,
+      yakuman: ids.filter(id => ind[id].yakuman > 0).map(id => ({ id, count: ind[id].yakuman })),
+    },
+    decidedAt: new Date().toISOString(),
+  };
+}
+
 function randomSeed() {
   const r = new Uint32Array(1); window.crypto.getRandomValues(r);
   return r[0] || 1;
@@ -366,6 +409,17 @@ function lineText(t, tDates, tEntries, members = [], games = []) {
   const pg = games.filter(g => g.tournament_id === t.id && g.stage === "prelim" && g.status === "done");
   if (teams?.length && pg.length) {
     body += "\n■ 予選順位：\n" + teamStandings(teams, pg).map((r, i) => `　${i + 1}位 チーム${TEAM_NAMES[r.idx]}（${fmtPt(r.pts)}・チップ${r.chips}）`).join("\n");
+  }
+  const res = t.result;
+  if (t.status === "done" && res?.podium && teams?.length) {
+    const nm2 = id => members.find(m => m.id === id)?.name || "？";
+    const medal = ["🥇優勝", "🥈準優勝", "🥉3位"];
+    body += "\n■ 結果：\n" + res.podium.map((ti, i) => (ti == null ? "" : `　${medal[i]} チーム${TEAM_NAMES[ti]}（${teams[ti].map(nm2).join(" × ")}）`)).filter(Boolean).join("\n");
+    const a = res.awards || {};
+    if (a.chip) body += `\n　チップ賞：${a.chip.ids.map(nm2).join("・")}（${a.chip.value}枚）`;
+    if (a.high) body += `\n　最高得点賞：${a.high.ids.map(nm2).join("・")}（${Number(a.high.value).toLocaleString()}点）`;
+    if (a.booby) body += `\n　ブービー賞：${a.booby.ids.map(nm2).join("・")}`;
+    if (a.yakuman?.length) body += `\n　役満賞：${a.yakuman.map(y => `${nm2(y.id)}（${y.count}回）`).join("・")}`;
   }
   if (teams?.length) {
     const nm = id => members.find(m => m.id === id)?.name || "？";
@@ -799,6 +853,61 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
   const fin = Number(s.finalists || 2);
   const myNext = teams ? prelimGames.find(g => g.status !== "done" && gameMembers(g, teams).includes(selfId)) : null;
   const canInput = g => isAdmin || (!!teams && gameMembers(g, teams).includes(selfId)); // その卓の4人と運営は、入力済みでも修正できる
+  // ---- 決勝・3位決定戦・結果（段階3b） ----
+  const result = cur?.result || {};
+  const finalGames = tGames.filter(g => g.stage === "final");
+  const thirdGames = tGames.filter(g => g.stage === "third");
+  const factor = CARRY[s.carryOver] ?? 0;
+  const finalRows = result.finalists && teams ? stageStandings(result.finalists, teams, finalGames, carryBase(standings, result.finalists, factor)) : [];
+  const thirdRows = result.third && teams ? stageStandings(result.third, teams, thirdGames, carryBase(standings, result.third, factor)) : [];
+  const nowTop = standings.slice(0, 2).map(r => r.idx);
+  const finalistsChanged = !!result.finalists && (nowTop.length === 2) && (nowTop.some(i => !result.finalists.includes(i)));
+  const allPrelimDone = prelimGames.length > 0 && prelimGames.every(g => g.status === "done");
+  const allFinalDone = finalGames.length > 0 && finalGames.every(g => g.status === "done") && thirdGames.every(g => g.status === "done");
+  const myNextAny = teams ? [...prelimGames, ...finalGames, ...thirdGames].find(g => g.status !== "done" && gameMembers(g, teams).includes(selfId)) : null;
+  const startFinal = async () => {
+    if (!allPrelimDone) { showToast("error", "⚠️ 予選に未入力の卓があります"); return; }
+    if (standings.length < 2) return;
+    if (Number(s.finalists || 2) !== 2) { showToast("error", "⚠️ 決勝は2チーム（1卓）のみ対応しています。決勝進出数を2にしてください"); return; }
+    const finalists = standings.slice(0, 2).map(r => r.idx);
+    const third = s.thirdMode === "playoff" && standings.length >= 4 ? standings.slice(2, 4).map(r => r.idx) : null;
+    if (!window.confirm(`予選を終了して決勝へ進めます。\n決勝：チーム${TEAM_NAMES[finalists[0]]} vs チーム${TEAM_NAMES[finalists[1]]}${third ? `\n3位決定戦：チーム${TEAM_NAMES[third[0]]} vs チーム${TEAM_NAMES[third[1]]}` : ""}\nよろしいですか？`)) return;
+    const R = Math.max(1, Number(s.finalGames) || 3);
+    const rows = [];
+    for (let rd = 1; rd <= R; rd++) {
+      rows.push({ tournament_id: cur.id, stage: "final", round: rd, table_no: 1, team_idx: finalists, seats: s.seatMode === "auto" ? autoSeats(teams[finalists[0]], teams[finalists[1]]) : null });
+      if (third) rows.push({ tournament_id: cur.id, stage: "third", round: rd, table_no: 2, team_idx: third, seats: s.seatMode === "auto" ? autoSeats(teams[third[0]], teams[third[1]]) : null });
+    }
+    const { error } = await supabase.from("tournament_games").insert(rows);
+    if (error) { showToast("error", "⚠️ 決勝の組み合わせ保存失敗: " + error.message); return; }
+    await supabase.from("tournaments").update({ status: "final", result: { finalists, third, prelimSnapshot: standings.map(r => ({ idx: r.idx, pts: r.pts, chips: r.chips })) }, updated_at: new Date().toISOString() }).eq("id", cur.id);
+    showToast("success", "🏆 決勝の組み合わせを作りました");
+    reload();
+  };
+  const cancelFinal = async () => {
+    if ([...finalGames, ...thirdGames].some(g => g.status === "done")) { showToast("error", "⚠️ 決勝に点数が入っているので取り消せません"); return; }
+    if (!window.confirm("決勝の組み合わせを取り消して、予選に戻しますか？")) return;
+    await supabase.from("tournament_games").delete().eq("tournament_id", cur.id).in("stage", ["final", "third"]);
+    await supabase.from("tournaments").update({ status: "prelim", result: {}, updated_at: new Date().toISOString() }).eq("id", cur.id);
+    reload();
+  };
+  const finishTournament = async () => {
+    if (!allFinalDone) { showToast("error", "⚠️ 決勝・3位決定戦に未入力の卓があります"); return; }
+    const res = computeResult({ teams, s, prelimRows: standings, finalists: result.finalists, third: result.third, finalGames, thirdGames, allGames: tGames });
+    if (!window.confirm(`大会を終了して結果を確定します。\n優勝：チーム${TEAM_NAMES[res.podium[0]]}\nよろしいですか？`)) return;
+    const { error } = await supabase.from("tournaments").update({ status: "done", result: { ...result, ...res }, updated_at: new Date().toISOString() }).eq("id", cur.id);
+    if (error) { showToast("error", "⚠️ 結果の保存失敗: " + error.message); return; }
+    showToast("success", "🏆 大会の結果を確定しました");
+    reload();
+  };
+  const reopenTournament = async () => {
+    if (!window.confirm("結果の確定を取り消して、決勝中に戻しますか？（点数を直したあと、もう一度「大会終了」を押してください）")) return;
+    const { podium, finalRows: fr, awards, decidedAt, ...rest } = result;
+    await supabase.from("tournaments").update({ status: "final", result: rest, updated_at: new Date().toISOString() }).eq("id", cur.id);
+    reload();
+  };
+  const hallOfFame = tournaments.filter(t => t.status === "done" && t.result?.podium && t.draw?.teams && (t.visibility === "public" || isAdmin));
+
   const lastPtsRef = useRef({});
   const changedTeams = new Set(standings.filter(r => lastPtsRef.current[r.idx] !== undefined && lastPtsRef.current[r.idx] !== r.pts).map(r => r.idx));
   useEffect(() => { const m = {}; standings.forEach(r => { m[r.idx] = r.pts; }); lastPtsRef.current = m; });
@@ -828,6 +937,16 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
   const todo = (() => {
     if (!cur) return null;
     if (!entryOpen) {
+      if (cur.status === "done" && result.podium) {
+        const rank = result.podium.indexOf(myTeamIdx);
+        return { text: rank >= 0 ? `大会終了！あなたのチームは${["優勝", "準優勝", "3位"][rank]}です` : "大会は終了しました。結果発表をご覧ください", done: true };
+      }
+      if (cur.status === "final" && teams && myTeamIdx >= 0) {
+        const g = myNextAny;
+        if (!g) return { text: (result.finalists || []).includes(myTeamIdx) || (result.third || []).includes(myTeamIdx) ? "あなたの対局はすべて終わりました。結果をお待ちください" : "決勝が始まりました。余興の半荘は「➕ 対局開始」の卓2・卓3で記録できます", done: true };
+        const seat = g.seats ? g.seats.indexOf(selfId) : -1;
+        return { text: `${g.stage === "final" ? "決勝" : "3位決定戦"} 第${g.round}回戦・卓${g.table_no}${seat >= 0 ? `。あなたの席は「${SEAT_NAMES[seat]}」` : ""}`, done: true };
+      }
       if (cur.status === "prelim" && teams && myTeamIdx >= 0) {
         if (!myNext) return { text: "予選のあなたの対局は、すべて終わりました", done: true };
         const vs = myNext.team_idx.map(i => `チーム${TEAM_NAMES[i]}`).join(" vs ");
@@ -917,6 +1036,84 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
             </div>
             {todo.action && entryOpen && <button className="tk-btn" onClick={openAnswer}>✋ {todo.action}</button>}
           </div>
+        )}
+
+        {/* 結果発表（段階3b） */}
+        {cur && teams && cur.status === "done" && result.podium && (
+          <div className="tk-card" style={{ borderColor: "#f7cd79", boxShadow: "0 0 18px rgba(247,205,121,.35)" }}>
+            <div className="tk-kicker" style={{ textAlign: "center" }}>RESULT</div>
+            <div className="tk-hero-title" style={{ textAlign: "center", fontSize: 26 }}>結果発表</div>
+            {result.podium.map((ti, i) => ti == null ? null : (
+              <div key={i} className="tk-row" style={{ padding: "10px 8px", marginTop: 6, borderRadius: 12, border: `1px solid ${["#f7cd79", "#cfd8dc", "#d7a173"][i]}`, background: "rgba(255,255,255,.05)" }}>
+                <span style={{ fontSize: 26, width: 36 }}>{["🥇", "🥈", "🥉"][i]}</span>
+                <span style={{ fontFamily: "Dela Gothic One, sans-serif", color: ["#f7cd79", "#cfd8dc", "#d7a173"][i], width: 64, flexShrink: 0 }}>チーム{TEAM_NAMES[ti]}</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{teams[ti].map(id => members.find(m => m.id === id)?.name).join(" × ")}</span>
+                {(() => { const p = s.prizes?.[["first", "second", "third"][i]]; return p?.on && Number(p.amount) > 0 ? <span style={{ color: "#f7cd79", fontWeight: 700, fontSize: 12 }}>{yen(p.amount)}</span> : null; })()}
+              </div>
+            ))}
+            <div className="tk-lbl" style={{ marginTop: 12 }}>個人賞</div>
+            {[
+              ["チップ賞", "chip", result.awards?.chip, v => `${v}枚`],
+              ["最高得点賞", "highscore", result.awards?.high, v => `${Number(v).toLocaleString()}点`],
+              ["ブービー賞", "booby", result.awards?.booby, v => fmtPt(v)],
+            ].filter(([, key, a]) => a && (s.prizes?.[key]?.on ?? true)).map(([label, key, a, f]) => (
+              <div key={key} className="tk-row" style={{ fontSize: 13, padding: "5px 0", borderTop: "1px solid rgba(255,255,255,.08)" }}>
+                <span style={{ width: 86, color: "#f7cd79", fontWeight: 700 }}>{label}</span>
+                <span style={{ flex: 1 }}>{a.ids.map(id => members.find(m => m.id === id)?.name).join("・")}<span className="tk-muted">（{f(a.value)}）</span></span>
+                {s.prizes?.[key]?.on && Number(s.prizes[key].amount) > 0 && <span style={{ color: "#f7cd79", fontSize: 12 }}>{yen(s.prizes[key].amount)}</span>}
+              </div>
+            ))}
+            {result.awards?.yakuman?.length > 0 && (
+              <div className="tk-row" style={{ fontSize: 13, padding: "5px 0", borderTop: "1px solid rgba(255,255,255,.08)" }}>
+                <span style={{ width: 86, color: "#f7cd79", fontWeight: 700 }}>役満賞</span>
+                <span style={{ flex: 1 }}>{result.awards.yakuman.map(y => `${members.find(m => m.id === y.id)?.name}（${y.count}回）`).join("・")}<span className="tk-muted">　1回につき、他チームの参加者1人500円</span></span>
+              </div>
+            )}
+            {isAdmin && <button className="tk-btn sub" style={{ marginTop: 10 }} onClick={reopenTournament}>↩ 結果の確定を取り消す（運営）</button>}
+          </div>
+        )}
+
+        {/* 決勝・3位決定戦（段階3b） */}
+        {cur && teams && (cur.status === "final" || cur.status === "done") && result.finalists && (
+          <>
+            {isAdmin && finalistsChanged && (
+              <div className="tk-card" style={{ borderColor: "#e74c3c", background: "rgba(231,76,60,.15)" }}>
+                <div style={{ fontSize: 13, lineHeight: 1.6 }}>⚠️ 予選の点数が修正され、今の計算では決勝進出が <b>チーム{TEAM_NAMES[nowTop[0]]}・チーム{TEAM_NAMES[nowTop[1]]}</b> になります（決勝は チーム{TEAM_NAMES[result.finalists[0]]}・チーム{TEAM_NAMES[result.finalists[1]]} で進行中）。必要なら「決勝の組み合わせを取り消す」から作り直してください（決勝に点数が入る前のみ）。</div>
+              </div>
+            )}
+            {[["final", "🏆 決勝", finalRows, finalGames], ["third", "🥉 3位決定戦", thirdRows, thirdGames]].filter(([, , rows]) => rows.length).map(([key, title, rows, gs]) => (
+              <div key={key} className="tk-card" style={{ borderColor: key === "final" ? "#f7cd79" : "rgba(247,205,121,.4)" }}>
+                <div className="tk-row" style={{ justifyContent: "space-between", marginBottom: 6 }}>
+                  <h3 style={{ margin: 0 }}>{title}</h3>
+                  <span className="tk-pill on" style={{ fontSize: 10 }}>{gs.filter(g => g.status === "done").length}/{gs.length}回戦 終了</span>
+                </div>
+                {rows.map((r, i) => (
+                  <div key={r.idx} style={{ padding: "7px 4px", borderTop: "1px solid rgba(255,255,255,.08)", background: r.idx === myTeamIdx ? "rgba(247,205,121,.10)" : "transparent" }}>
+                    <div className="tk-row">
+                      <span style={{ width: 22, fontFamily: "Dela Gothic One, sans-serif", fontSize: 16, color: i === 0 ? "#f7cd79" : "#bbb" }}>{i + 1}</span>
+                      <span style={{ width: 56, fontSize: 13, fontWeight: 700 }}>チーム{TEAM_NAMES[r.idx]}</span>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: "#ccc", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.members.map(id => members.find(m => m.id === id)?.name).join("・")}</span>
+                      <span style={{ width: 56, textAlign: "right", fontWeight: 700, fontSize: 14, color: r.pts >= 0 ? "#f7cd79" : "#7fb9e0" }}>{fmtPt(r.pts)}</span>
+                      <span className="tk-muted" style={{ width: 44, textAlign: "right" }}>🪙{r.chips}</span>
+                    </div>
+                    <div className="tk-muted" style={{ fontSize: 10, paddingLeft: 22, marginTop: 2 }}>
+                      {factor ? `予選からの持ち越し ${fmtPt(r.carry)}　` : ""}
+                      {i === 1 && rows[0] ? `1位まで ${(Math.round((rows[0].pts - r.pts) * 10) / 10).toFixed(1)}pt（素点で約${Math.round((rows[0].pts - r.pts) * 1000).toLocaleString()}点）` : i === 0 && rows[1] ? `${(Math.round((r.pts - rows[1].pts) * 10) / 10).toFixed(1)}pt リード` : ""}
+                    </div>
+                  </div>
+                ))}
+                <GameRounds gs={gs} teams={teams} members={members} selfId={selfId} canInput={canInput} onOpen={setGameSheet} />
+              </div>
+            ))}
+            {isAdmin && cur.status === "final" && (
+              <div className="tk-card">
+                <button className="tk-btn" disabled={!allFinalDone} onClick={finishTournament}>🏁 大会終了・結果を確定（運営）{allFinalDone ? "" : "　※全卓の入力後に押せます"}</button>
+                {![...finalGames, ...thirdGames].some(g => g.status === "done") && (
+                  <button className="tk-btn sub" style={{ marginTop: 8 }} onClick={cancelFinal}>↩ 決勝の組み合わせを取り消す（運営・点数が入る前だけ）</button>
+                )}
+              </div>
+            )}
+          </>
         )}
 
         {/* 予選（段階3a） */}
@@ -1028,6 +1225,11 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
                 );
               })}
               <div className="tk-muted">決勝に進めなかった人の余興の半荘は、いつもの「➕ 対局開始」で卓2・卓3を使って記録できます（リーグ成績に入ります）。</div>
+              {isAdmin && cur.status === "prelim" && (
+                <button className="tk-btn" style={{ marginTop: 8 }} disabled={!allPrelimDone} onClick={startFinal}>
+                  🏆 予選終了 → 決勝へ（運営）{allPrelimDone ? "" : "　※全卓の入力後に押せます"}
+                </button>
+              )}
               {isAdmin && cur.status === "prelim" && !prelimGames.some(g => g.status === "done") && (
                 <button className="tk-btn sub" style={{ marginTop: 8 }} onClick={rebuildSchedule}>↻ 組み合わせを作り直す（運営・点数が入る前だけ）</button>
               )}
@@ -1205,6 +1407,23 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
           </div>
         )}
 
+        {/* 歴代優勝 */}
+        {hallOfFame.length > 0 && (
+          <div className="tk-card">
+            <h3>👑 歴代優勝</h3>
+            {hallOfFame.map(t => {
+              const tm = t.draw.teams[t.result.podium[0]] || [];
+              return (
+                <div key={t.id} className="tk-row" style={{ padding: "6px 0", borderTop: "1px solid rgba(255,255,255,.08)", fontSize: 13 }}>
+                  <span style={{ width: 110, color: "#f7cd79", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{settingsOf(t).edition} {t.name}</span>
+                  <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{tm.map(id => members.find(m => m.id === id)?.name || "？").join(" × ")}</span>
+                  <span className="tk-muted">{(t.result.decidedAt || "").slice(0, 10).replace(/-/g, "/")}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {/* あなた */}
         <div className="tk-card">
           <h3>あなた</h3>
@@ -1315,6 +1534,36 @@ function DateNote({ cur, isAdmin, showToast, reload }) {
   );
 }
 
+// ---- 対局の一覧（決勝・3位決定戦で使う） ----
+function GameRounds({ gs, teams, members, selfId, canInput, onOpen }) {
+  return [...gs].sort((a, b) => a.round - b.round).map(g => {
+    const ids = gameMembers(g, teams);
+    const done = g.status === "done";
+    return (
+      <div key={g.id} style={{ padding: "8px 10px", marginTop: 8, borderRadius: 10, border: `1px solid ${ids.includes(selfId) ? "rgba(247,205,121,.7)" : "rgba(255,255,255,.12)"}`, background: done ? "rgba(255,255,255,.05)" : "rgba(231,76,60,.08)" }}>
+        <div className="tk-row" style={{ justifyContent: "space-between", marginBottom: 4 }}>
+          <span style={{ fontSize: 13, fontWeight: 700 }}>第{g.round}回戦・卓{g.table_no}</span>
+          <span className="tk-muted">{done ? "✅ 入力済み" : "未入力"}</span>
+        </div>
+        {ids.map((id, k) => (
+          <div key={id} className="tk-row" style={{ fontSize: 12, padding: "2px 0" }}>
+            <span className="tk-muted" style={{ width: 18 }}>{g.seats ? SEAT_NAMES[k] : ""}</span>
+            <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{members.find(m => m.id === id)?.name}{(g.yakuman || []).includes(id) ? " ★役満" : ""}</span>
+            {done && <>
+              <span style={{ width: 60, textAlign: "right" }}>{Number(g.raw?.[id]).toLocaleString()}</span>
+              <span style={{ width: 50, textAlign: "right", fontWeight: 700, color: Number(g.points?.[id]) >= 0 ? "#f7cd79" : "#7fb9e0" }}>{fmtPt(g.points?.[id] || 0)}</span>
+              <span className="tk-muted" style={{ width: 38, textAlign: "right" }}>🪙{g.chips?.[id] ?? 0}</span>
+            </>}
+          </div>
+        ))}
+        {canInput(g) && (
+          <button className="tk-btn sub" style={{ marginTop: 6, padding: "7px" }} onClick={() => onOpen(g.id)}>{done ? "✏️ 点数を修正" : "✍️ 点数を入力"}</button>
+        )}
+      </div>
+    );
+  });
+}
+
 // ---- 対局の点数入力（素点・チップ・役満） ----
 function GameSheet({ game, teams, members, Av, rule, showToast, onDone, onClose }) {
   const initIds = gameMembers(game, teams);
@@ -1372,7 +1621,7 @@ function GameSheet({ game, teams, members, Av, rule, showToast, onDone, onClose 
   const nm = id => members.find(m => m.id === id);
   return (
     <>
-      <h3 style={{ fontSize: 16, margin: "0 0 4px" }}>第{game.round}回戦・卓{game.table_no} の点数{game.status === "done" ? "（修正）" : ""}</h3>
+      <h3 style={{ fontSize: 16, margin: "0 0 4px" }}>{{ prelim: "予選", final: "決勝", third: "3位決定戦" }[game.stage]} 第{game.round}回戦・卓{game.table_no} の点数{game.status === "done" ? "（修正）" : ""}</h3>
       <div className="tk-muted" style={{ marginBottom: 10 }}>
         {game.team_idx.map(i => `チーム${TEAM_NAMES[i]}`).join(" vs ")}　素点を入れてください（3人入れると4人目は自動）。合計 {total.toLocaleString()}点
       </div>
