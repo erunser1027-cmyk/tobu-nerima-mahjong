@@ -14,7 +14,7 @@ const BGM_URL = "/taikai/taikai_bgm.mp3";
 const BG_RATIO = 1672 / 941; // 背景画像の縦横比（中央の牌の位置計算用）
 const TILE_Y = 0.36;          // 背景画像の中で、中央の牌がある高さ（上から36%）
 const VOL_INTRO = 0.9;        // 入場までの音量
-const VOL_STAY = 0.15;        // 入場後に流し続ける音量（実機で聞いて調整）
+const VOL_STAY = 0.10;        // 入場後に流し続ける音量（2026-10-02 本人が実機で10に決定）
 
 const DEFAULT_SETTINGS = {
   edition: "第2回",
@@ -27,7 +27,7 @@ const DEFAULT_SETTINGS = {
   thirdMode: "prelimTop",
   tiebreak: "合計チップ数",
   seatMode: "auto",
-  teamMode: "amida",
+  teamMode: "vote",
   prizes: {},
   note: "",
 };
@@ -55,6 +55,20 @@ function todayStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 const yen = n => `${Number(n || 0).toLocaleString()}円`;
+
+// ---- チーム決めの方法（投票） ----
+const TEAM_LABEL = { amida: "あみだくじ", balanced: "成績をもとに戦力が均等になるようランダム", manual: "運営が指定", vote: "参加者の投票で決定" };
+const TEAM_SHORT = { amida: "あみだくじ", balanced: "戦力均衡ランダム" };
+function teamTally(tEntries) {
+  const v = { amida: 0, balanced: 0 };
+  tEntries.forEach(e => { if (e.status === "join" && v[e.team_vote] !== undefined) v[e.team_vote]++; });
+  return v;
+}
+const teamDecision = v => (v.balanced > v.amida ? "balanced" : "amida"); // 同数（0票同士も）はあみだくじ
+function entryClosed(t) {
+  if (!t) return true;
+  return t.status !== "entry" || !!(t.entry_deadline && todayStr() > t.entry_deadline);
+}
 const settingsOf = t => ({ ...DEFAULT_SETTINGS, ...(t?.settings || {}) });
 
 // ---- BGM（Web Audio：iPhoneでも音量を変えられる方式。画面を離れても1つだけ鳴るよう、ファイル内で1つだけ持つ） ----
@@ -126,7 +140,7 @@ function lowerBgm() {
 }
 
 // ---- レギュレーション（画面表示とLINE用の文章は、この1つの関数から作る） ----
-function regulationLines(t, tDates) {
+function regulationLines(t, tDates, tEntries = []) {
   const s = settingsOf(t);
   const unit = s.format === "tag" ? "チーム" : "人";
   const L = [];
@@ -140,14 +154,24 @@ function regulationLines(t, tDates) {
     : `決勝に進めなかった${unit}のうち、予選の最上位`]);
   L.push(["同点", `${s.tiebreak}で決定`]);
   if (s.format === "tag") {
-    L.push(["チーム決め", { amida: "あみだくじ", balanced: "成績をもとに戦力が均等になるようランダム", manual: "運営が指定" }[s.teamMode] || "未定"]);
+    if (s.teamMode === "vote") {
+      const v = teamTally(tEntries);
+      L.push(["チーム決め", entryClosed(t)
+        ? `参加者の投票で決定 → ${TEAM_SHORT[teamDecision(v)]}（あみだ ${v.amida}票／戦力均衡 ${v.balanced}票）`
+        : `参加者の投票で決定（締切時点で多い方。同数はあみだくじ）\n現在：あみだ ${v.amida}票／戦力均衡 ${v.balanced}票`]);
+    } else {
+      L.push(["チーム決め", TEAM_LABEL[s.teamMode] || "未定"]);
+    }
   }
   L.push(["席順", s.seatMode === "auto" ? "アプリで自動割り当て" : "当日くじで決定"]);
   const prizes = PRIZES.filter(p => s.prizes?.[p.key]?.on).map(p => {
     const amt = s.prizes[p.key].amount;
-    const money = p.noAmount ? "" : (Number(amt) > 0 ? ` ${yen(amt)}` : " 金額未定");
-    return `${p.label}${money}${p.desc ? `（${p.desc}）` : ""}`;
+    const hasAmt = Number(amt) > 0;
+    const money = !p.noAmount && hasAmt ? ` ${yen(amt)}` : "";
+    const notes = [p.desc, !p.noAmount && !hasAmt ? "金額は参加人数の確定後に発表" : ""].filter(Boolean).join("／");
+    return `${p.label}${money}${notes ? `（${notes}）` : ""}`;
   });
+  L.push(["賞金", "参加費の総額を全額、賞金に配分します。金額は参加人数の確定後に決定"]);
   L.push(["賞", prizes.length ? prizes.join("／") : "未定"]);
   if (s.note) L.push(["補足", s.note]);
   return L;
@@ -158,10 +182,10 @@ function statusLabel(t) {
   if (t.status === "closed") return "受付終了";
   return t.status;
 }
-function lineText(t, tDates) {
+function lineText(t, tDates, tEntries) {
   const s = settingsOf(t);
   const head = `【${s.edition ? s.edition + " " : ""}${t.name}】${statusLabel(t)}${t.entry_deadline ? `（締切 ${fmtDate(t.entry_deadline)}）` : ""}`;
-  const body = regulationLines(t, tDates).map(([k, v]) => `■ ${k}：${v}`).join("\n");
+  const body = regulationLines(t, tDates, tEntries).map(([k, v]) => `■ ${k}：${v}`).join("\n");
   return `${head}\n${body}\n▼ 参加・不参加と候補日の投票はアプリから\n${APP_URL}`;
 }
 
@@ -485,7 +509,7 @@ export default function Taikai({ members, Av, showToast }) {
 
   const copyLine = async () => {
     if (!cur) return;
-    const text = lineText(cur, tDates);
+    const text = lineText(cur, tDates, tEntries);
     try {
       await navigator.clipboard.writeText(text);
       showToast("success", "📋 LINE用の文章をコピーしました");
@@ -503,13 +527,18 @@ export default function Taikai({ members, Av, showToast }) {
     if (myEntry.status === "join") {
       const mine = (myEntry.date_ids || []).filter(id => dateIds.has(id));
       if (tDates.length && !mine.length) return { text: "参加ありがとうございます。候補日に投票してください", action: "候補日に投票する" };
+      if (s.format === "tag" && s.teamMode === "vote" && !myEntry.team_vote) return { text: "チーム決めの方法（あみだくじ／戦力均衡）にも投票してください", action: "投票する" };
       const names = tDates.filter(d => mine.includes(d.id)).map(d => fmtDate(d.date)).join("・");
       return { text: `回答済み：参加${names ? `（${names}）` : ""}`, action: "回答を変更する", done: true };
     }
     return { text: "回答済み：不参加", action: "回答を変更する", done: true };
   })();
 
-  const regLines = cur ? regulationLines(cur, tDates) : [];
+  const regLines = cur ? regulationLines(cur, tDates, tEntries) : [];
+  const teamVoteOn = s.format === "tag" && s.teamMode === "vote";
+  const tally = teamTally(tEntries);
+  const commentList = tEntries.filter(e => (e.comment || "").trim())
+    .map(e => ({ e, m: members.find(m => m.id === e.member_id) })).filter(x => x.m);
 
   return (
     <>
@@ -582,6 +611,30 @@ export default function Taikai({ members, Av, showToast }) {
           </div>
         )}
 
+        {/* チーム決めの方法（投票） */}
+        {cur && teamVoteOn && (
+          <div className="tk-card">
+            <h3>チーム決めの方法（投票）</h3>
+            {[["amida", "🎲 あみだくじ（ライブで決定）"], ["balanced", "⚖️ 戦力均衡ランダム（成績で組む）"]].map(([k, label]) => {
+              const voters = tEntries.filter(e => e.status === "join" && e.team_vote === k).map(e => members.find(m => m.id === e.member_id)).filter(Boolean);
+              return (
+                <div key={k} style={{ padding: "8px 0", borderTop: "1px solid rgba(255,255,255,.08)" }}>
+                  <div className="tk-row" style={{ justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700 }}>{label}</span>
+                    <span style={{ fontSize: 13, color: "#f7cd79", fontWeight: 700 }}>{tally[k]}票</span>
+                  </div>
+                  <AvatarRow list={voters} Av={Av} empty="まだ投票がありません" />
+                </div>
+              );
+            })}
+            <div className="tk-muted" style={{ marginTop: 8 }}>
+              {entryClosed(cur)
+                ? <>決定：<b style={{ color: "#f7cd79" }}>{TEAM_SHORT[teamDecision(tally)]}</b>{tally.amida === tally.balanced ? "（同数のためあみだくじ）" : ""}</>
+                : "締切の時点で票の多い方に自動で決まります（同数はあみだくじ）"}
+            </div>
+          </div>
+        )}
+
         {/* 参加状況 */}
         {cur && (
           <div className="tk-card">
@@ -592,6 +645,21 @@ export default function Taikai({ members, Av, showToast }) {
             <AvatarRow list={declineList} Av={Av} empty="まだいません" />
             <div className="tk-lbl">未回答（ゲストを除く）</div>
             <AvatarRow list={unansweredList} Av={Av} empty="全員回答済み" />
+            {commentList.length > 0 && (
+              <>
+                <div className="tk-lbl">コメント</div>
+                {commentList.map(({ e, m }) => (
+                  <div key={e.id} className="tk-row" style={{ alignItems: "flex-start", padding: "6px 0", borderTop: "1px solid rgba(255,255,255,.06)" }}>
+                    <Av m={m} sz={24} />
+                    <div style={{ flex: 1, fontSize: 12, lineHeight: 1.6 }}>
+                      <b style={{ color: "#f7cd79" }}>{m.name}</b>
+                      <span className="tk-muted">（{e.status === "join" ? "参加" : "不参加"}）</span><br />
+                      <span style={{ whiteSpace: "pre-wrap", color: "#eee" }}>{e.comment}</span>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
           </div>
         )}
 
@@ -645,7 +713,7 @@ export default function Taikai({ members, Av, showToast }) {
               </>
             )}
             {sheet === "answer" && cur && me && (
-              <AnswerSheet cur={cur} me={me} Av={Av} tDates={tDates} myEntry={myEntry} dateIds={dateIds}
+              <AnswerSheet cur={cur} me={me} Av={Av} tDates={tDates} myEntry={myEntry} dateIds={dateIds} teamVoteOn={teamVoteOn}
                 entryOpen={entryOpen} showToast={showToast} onDone={() => { setSheet(null); reload(); }}
                 onChangeWho={() => { setAfterWho("answer"); setSheet("who"); }} />
             )}
@@ -674,9 +742,11 @@ export default function Taikai({ members, Av, showToast }) {
 }
 
 // ---- 参加・不参加の回答 ----
-function AnswerSheet({ cur, me, Av, tDates, myEntry, dateIds, entryOpen, showToast, onDone, onChangeWho }) {
+function AnswerSheet({ cur, me, Av, tDates, myEntry, dateIds, teamVoteOn, entryOpen, showToast, onDone, onChangeWho }) {
   const [status, setStatus] = useState(myEntry?.status || null);
   const [picked, setPicked] = useState(() => (myEntry?.date_ids || []).filter(id => dateIds.has(id)));
+  const [teamVote, setTeamVote] = useState(myEntry?.team_vote || null);
+  const [comment, setComment] = useState(myEntry?.comment || "");
   const [saving, setSaving] = useState(false);
   const toggle = id => setPicked(p => (p.includes(id) ? p.filter(x => x !== id) : [...p, id]));
 
@@ -688,6 +758,8 @@ function AnswerSheet({ cur, me, Av, tDates, myEntry, dateIds, entryOpen, showToa
       member_id: me.id,
       status,
       date_ids: status === "join" ? picked : [],
+      team_vote: status === "join" && teamVoteOn ? teamVote : null,
+      comment: comment.trim().slice(0, 200),
       updated_at: new Date().toISOString(),
     }, { onConflict: "tournament_id,member_id" });
     setSaving(false);
@@ -723,6 +795,23 @@ function AnswerSheet({ cur, me, Av, tDates, myEntry, dateIds, entryOpen, showToa
               <span style={{ fontSize: 15, fontWeight: 700 }}>{fmtDate(d.date)}</span>
             </label>
           ))}
+        </>
+      )}
+      {status === "join" && teamVoteOn && (
+        <>
+          <div className="tk-lbl">チーム決めの方法（どちらがいい？）</div>
+          <div className="tk-seg">
+            <button className={teamVote === "amida" ? "on" : ""} disabled={!entryOpen} onClick={() => setTeamVote("amida")}>🎲 あみだくじ</button>
+            <button className={teamVote === "balanced" ? "on" : ""} disabled={!entryOpen} onClick={() => setTeamVote("balanced")}>⚖️ 戦力均衡ランダム</button>
+          </div>
+          <div className="tk-muted" style={{ marginTop: 4 }}>締切の時点で多い方に決まります（同数はあみだくじ）</div>
+        </>
+      )}
+      {status && (
+        <>
+          <div className="tk-lbl">コメント（任意・全員に表示されます）</div>
+          <textarea className="tk-in" style={{ height: 64, fontSize: 13 }} maxLength={200} disabled={!entryOpen}
+            placeholder="例：19時からなら行けます／12/12はできれば避けたいです" value={comment} onChange={e => setComment(e.target.value)} />
         </>
       )}
       <button className="tk-btn" style={{ marginTop: 14 }} disabled={!status || saving || !entryOpen} onClick={save}>
@@ -881,7 +970,7 @@ function AdminSheet({ me, isAdminUser, adminUnlocked, onUnlock, tournaments, cur
       {form.settings.format === "tag" && (
         <>
           <div className="tk-lbl">チーム決め</div>
-          <Seg value={form.settings.teamMode} options={[["amida", "あみだ"], ["balanced", "戦力均衡"], ["manual", "手動"]]} onChange={v => setS("teamMode", v)} />
+          <Seg value={form.settings.teamMode} options={[["vote", "投票で決める"], ["amida", "あみだ"], ["balanced", "戦力均衡"], ["manual", "手動"]]} onChange={v => setS("teamMode", v)} />
         </>
       )}
 
