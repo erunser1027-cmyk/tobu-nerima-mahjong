@@ -276,6 +276,35 @@ function computeResult({ teams, s, prelimRows, finalists, third, finalGames, thi
   };
 }
 
+// ---- 優勝チーム予想（段階4b）：外馬と同じコイン。倍率は強さから決める固定の倍率 ----
+const PRED_TEMP = 8; // 強さの差を確率に直すときのなだらかさ（大きいほど差が出にくい）
+// チームの強さ（2人の補正つき平均の合計）から、優勝する確率を出す
+function teamWinProbs(teams, strengths) {
+  const sc = teams.map(tm => tm.reduce((a, id) => a + (strengths[id]?.adj || 0), 0));
+  const ex = sc.map(v => Math.exp(v / PRED_TEMP));
+  const tot = ex.reduce((a, b) => a + b, 0);
+  return ex.map(v => v / tot);
+}
+const clampOdds = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(v * 10) / 10));
+const tanshoOddsOf = (probs, i) => clampOdds(1 / probs[i], 1.1, 99.9);
+const umatanOddsOf = (probs, i, j) => clampOdds(1 / (probs[i] * probs[j] / (1 - probs[i])), 1.5, 199.9);
+// 保有コイン＝生涯の半荘数－賭けた枚数＋払い戻し（外馬の画面と同じ計算）
+function coinsOf(id, sessions, raceBets) {
+  let games = 0;
+  sessions.forEach(ss => {
+    if (!(ss.members || []).map(Number).includes(Number(id))) return; // 外馬の画面と同じく、参加した対局だけ数える
+    (ss.rounds || []).forEach(r => { const v = r.scores?.[String(id)] ?? r.scores?.[id]; if (v != null) games += 1; });
+  });
+  let delta = 0;
+  raceBets.filter(b => Number(b.bettor_id) === Number(id)).forEach(b => {
+    const amt = b.bet_amount || 1;
+    delta -= amt;
+    if (b.is_hit && b.payout > 0) delta += Math.round(Number(b.payout) * amt);
+  });
+  return games + delta;
+}
+const predKey = t => `T${t.id}`; // race_bets.session_date に入れる大会の印（日付の形ではないので、いつもの外馬には混ざらない）
+
 function randomSeed() {
   const r = new Uint32Array(1); window.crypto.getRandomValues(r);
   return r[0] || 1;
@@ -653,15 +682,17 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
   const [regOpen, setRegOpen] = useState(false);
   const [copyFallback, setCopyFallback] = useState(null);
   const [games, setGames] = useState([]);
+  const [raceBets, setRaceBets] = useState([]);
   const [gameSheet, setGameSheet] = useState(null); // 点数を入力する対局
 
   // ---- データ ----
   const reload = useCallback(async () => {
-    const [t, d, e, g] = await Promise.all([
+    const [t, d, e, g, rb] = await Promise.all([
       supabase.from("tournaments").select("*").is("deleted_at", null).order("created_at", { ascending: false }),
       supabase.from("tournament_dates").select("*").order("date"),
       supabase.from("tournament_entries").select("*"),
       supabase.from("tournament_games").select("*").order("round").order("table_no"),
+      supabase.from("race_bets").select("*"),
     ]);
     const err = t.error || d.error || e.error || g.error;
     if (err) { console.error("taikai load error:", err); showToast("error", "⚠️ 大会データの読み込み失敗: " + err.message); }
@@ -669,13 +700,14 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
     if (d.data) setDates(d.data);
     if (e.data) setEntries(e.data);
     if (g.data) setGames(g.data);
+    if (rb.data) setRaceBets(rb.data);
     setLoaded(true);
   }, [showToast]);
 
   useEffect(() => {
     reload();
     // 即時反映（表ごとに別チャンネル）
-    const chs = ["tournaments", "tournament_dates", "tournament_entries", "tournament_games"].map(table =>
+    const chs = ["tournaments", "tournament_dates", "tournament_entries", "tournament_games", "race_bets"].map(table =>
       supabase.channel(`taikai-${table}`)
         .on("postgres_changes", { event: "*", schema: "public", table }, () => reload())
         .subscribe((status, err) => { if (status === "CHANNEL_ERROR") console.error(`Realtime subscribe failed (${table}):`, err); })
@@ -907,6 +939,7 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
     if (!window.confirm(`大会を終了して結果を確定します。\n優勝：チーム${TEAM_NAMES[res.podium[0]]}\nよろしいですか？`)) return;
     const { error } = await supabase.from("tournaments").update({ status: "done", result: { ...result, ...res }, updated_at: new Date().toISOString() }).eq("id", cur.id);
     if (error) { showToast("error", "⚠️ 結果の保存失敗: " + error.message); return; }
+    await settlePredictions(res.podium);
     showToast("success", "🏆 大会の結果を確定しました");
     reload();
   };
@@ -914,9 +947,44 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
     if (!window.confirm("結果の確定を取り消して、決勝中に戻しますか？（点数を直したあと、もう一度「大会終了」を押してください）")) return;
     const { podium, finalRows: fr, awards, decidedAt, ...rest } = result;
     await supabase.from("tournaments").update({ status: "final", result: rest, updated_at: new Date().toISOString() }).eq("id", cur.id);
+    await settlePredictions(null);
     reload();
   };
   const hallOfFame = tournaments.filter(t => t.status === "done" && t.result?.podium && t.draw?.teams && (t.visibility === "public" || isAdmin));
+
+  // ---- 優勝チーム予想（段階4b） ----
+  const predOpen = !!teams && cur?.status === "closed";
+  const predBets = cur ? raceBets.filter(b => b.session_date === predKey(cur)) : [];
+  const allStrengths = teams ? calcStrengths(sessions, teams.flat()) : {};
+  const winProbs = teams ? teamWinProbs(teams, allStrengths) : [];
+  const myCoins = selfId ? coinsOf(selfId, sessions, raceBets) : 0;
+  const buyPrediction = async (type, sel, amount) => {
+    if (!predOpen || !selfId) return;
+    const amt = Math.floor(Number(amount));
+    if (!(amt >= 1)) { showToast("error", "⚠️ 枚数を入れてください"); return; }
+    if (amt > myCoins) { showToast("error", `⚠️ コインが足りません（保有 ${myCoins}枚）`); return; }
+    const odds = type === "t_tansho" ? tanshoOddsOf(winProbs, sel[0]) : umatanOddsOf(winProbs, sel[0], sel[1]);
+    if (!window.confirm(`${type === "t_tansho" ? "単勝" : "馬単"}：${sel.map(i => `チーム${TEAM_NAMES[i]}`).join(" → ")}\n${amt}枚 × ${odds}倍（当たれば ${Math.round(amt * odds)}枚）\n購入しますか？`)) return;
+    // 外馬の表には「同じ印・同じ番号・同じ人は1件だけ」の決まりがあるので、番号に「この人の何件目の予想か」を入れる
+    const mine = predBets.filter(b => Number(b.bettor_id) === Number(selfId));
+    const nextIdx = mine.reduce((m, b) => Math.max(m, Number(b.round_index) + 1), 0);
+    const { error } = await supabase.from("race_bets").insert({
+      session_date: predKey(cur), round_index: nextIdx, bettor_id: selfId, bet_type: type, bet_selection: sel, odds, bet_amount: amt,
+    });
+    if (error) { showToast("error", error.code === "23505" ? "⚠️ 同時に購入が重なりました。もう一度押してください" : "⚠️ 購入失敗: " + error.message); reload(); return; }
+    showToast("success", "🎯 予想を購入しました");
+    reload();
+  };
+  // 大会終了で払い戻し、確定の取り消しで元に戻す
+  const settlePredictions = async (podium) => {
+    for (const b of predBets) {
+      const sel = b.bet_selection || [];
+      const hit = podium ? (b.bet_type === "t_tansho" ? sel[0] === podium[0] : sel[0] === podium[0] && sel[1] === podium[1]) : null;
+      await supabase.from("race_bets").update(podium
+        ? { actual_result: [podium[0], podium[1]], is_hit: hit, payout: hit ? Number(b.odds) : 0 }
+        : { actual_result: null, is_hit: null, payout: null }).eq("id", b.id);
+    }
+  };
 
   const lastPtsRef = useRef({});
   const changedTeams = new Set(standings.filter(r => lastPtsRef.current[r.idx] !== undefined && lastPtsRef.current[r.idx] !== r.pts).map(r => r.idx));
@@ -1321,6 +1389,12 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
           </div>
         )}
 
+        {/* 優勝チーム予想（段階4b） */}
+        {cur && teams && isTag && (
+          <PredictionCard teams={teams} members={members} Av={Av} winProbs={winProbs} predBets={predBets} predOpen={predOpen}
+            selfId={selfId} me={me} myCoins={myCoins} onBuy={buyPrediction} podium={cur.status === "done" ? result.podium : null} />
+        )}
+
         {/* チーム決め（受付終了後） */}
         {cur && isTag && closed && (
           <div className="tk-card" style={{ borderColor: teams ? "rgba(247,205,121,.6)" : "rgba(247,205,121,.28)" }}>
@@ -1563,6 +1637,81 @@ function DateNote({ cur, isAdmin, showToast, reload }) {
         ? <div style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}><b style={{ color: "#f7cd79" }}>📣 運営より</b><br />{note}</div>
         : <div className="tk-muted">運営コメントはまだありません</div>}
       {isAdmin && <button className="tk-btn sub" style={{ marginTop: 6, padding: "5px 10px", width: "auto", fontSize: 11 }} onClick={() => setEditing(true)}>✏️ {note ? "編集" : "コメントを書く"}（運営）</button>}
+    </div>
+  );
+}
+
+// ---- 優勝チーム予想の欄 ----
+function PredictionCard({ teams, members, Av, winProbs, predBets, predOpen, selfId, me, myCoins, onBuy, podium }) {
+  const [type, setType] = useState("t_tansho");
+  const [sel, setSel] = useState([]);
+  const [amount, setAmount] = useState(1);
+  const need = type === "t_tansho" ? 1 : 2;
+  const pick = i => setSel(p => (p.includes(i) ? p.filter(x => x !== i) : p.length >= need ? [...p.slice(1), i] : [...p, i]));
+  const odds = sel.length === need ? (type === "t_tansho" ? tanshoOddsOf(winProbs, sel[0]) : umatanOddsOf(winProbs, sel[0], sel[1])) : null;
+  const nm = id => members.find(m => m.id === id)?.name || "？";
+  const myBets = predBets.filter(b => Number(b.bettor_id) === Number(selfId));
+  const label = b => `${b.bet_type === "t_tansho" ? "単勝" : "馬単"}：${(b.bet_selection || []).map(i => `チーム${TEAM_NAMES[i]}`).join(" → ")}`;
+  const popular = teams.map((_, i) => predBets.filter(b => b.bet_type === "t_tansho" && (b.bet_selection || [])[0] === i).reduce((a, b) => a + (b.bet_amount || 1), 0));
+  return (
+    <div className="tk-card">
+      <div className="tk-row" style={{ justifyContent: "space-between", marginBottom: 6 }}>
+        <h3 style={{ margin: 0 }}>🎯 優勝チーム予想</h3>
+        <span className="tk-muted">{podium ? "結果確定" : predOpen ? "受付中（予選開始まで）" : "締切済み"}</span>
+      </div>
+      {teams.map((tm, i) => (
+        <div key={i} className="tk-row" style={{ padding: "5px 0", borderTop: "1px solid rgba(255,255,255,.08)", fontSize: 12 }}>
+          <span style={{ width: 58, fontWeight: 700, color: podium && podium[0] === i ? "#f7cd79" : "#fff" }}>{podium && podium[0] === i ? "🥇" : ""}チーム{TEAM_NAMES[i]}</span>
+          <span style={{ flex: 1, minWidth: 0, color: "#ccc", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{tm.map(nm).join("・")}</span>
+          <span style={{ width: 60, textAlign: "right", color: "#f7cd79", fontWeight: 700 }}>単勝 {tanshoOddsOf(winProbs, i)}倍</span>
+          <span className="tk-muted" style={{ width: 48, textAlign: "right" }}>🪙{popular[i]}</span>
+        </div>
+      ))}
+      <div className="tk-muted" style={{ marginTop: 4 }}>倍率は、チームの2人の強さ（補正つき1半荘平均）から決まる固定の倍率です。🪙＝単勝に賭けられた枚数。</div>
+
+      {predOpen && selfId && (
+        <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,.1)" }}>
+          <div className="tk-row" style={{ justifyContent: "space-between", marginBottom: 6 }}>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>{me?.name} の保有コイン</span>
+            <span style={{ fontSize: 15, fontWeight: 700, color: "#f1c40f" }}>🪙 {myCoins}</span>
+          </div>
+          <div className="tk-seg" style={{ marginBottom: 8 }}>
+            <button className={type === "t_tansho" ? "on" : ""} onClick={() => { setType("t_tansho"); setSel([]); }}>単勝（優勝チーム）</button>
+            <button className={type === "t_umatan" ? "on" : ""} onClick={() => { setType("t_umatan"); setSel([]); }}>馬単（優勝→準優勝）</button>
+          </div>
+          <div className="tk-seg">
+            {teams.map((_, i) => {
+              const pos = sel.indexOf(i);
+              return <button key={i} className={pos >= 0 ? "on" : ""} onClick={() => pick(i)}>{type === "t_umatan" && pos >= 0 ? `${pos === 0 ? "1着" : "2着"} ` : ""}チーム{TEAM_NAMES[i]}</button>;
+            })}
+          </div>
+          <div className="tk-row" style={{ marginTop: 8 }}>
+            <input className="tk-in" style={{ width: 90 }} type="number" inputMode="numeric" min={1} max={myCoins} value={amount} onChange={e => setAmount(e.target.value)} />
+            <span className="tk-muted" style={{ flex: 1 }}>枚{odds ? `　×${odds}倍 → 当たれば ${Math.round(Number(amount || 0) * odds)}枚` : `　チームを${need}つ選んでください`}</span>
+          </div>
+          <button className="tk-btn" style={{ marginTop: 8 }} disabled={!odds || !(Number(amount) >= 1) || Number(amount) > myCoins} onClick={() => onBuy(type, sel, amount)}>🎯 この予想を買う</button>
+        </div>
+      )}
+      {predOpen && !selfId && <div className="tk-muted" style={{ marginTop: 8 }}>予想を買うには、下の「あなた」で自分を選んでください。</div>}
+
+      {myBets.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div className="tk-lbl" style={{ marginTop: 0 }}>あなたの予想</div>
+          {myBets.map(b => (
+            <div key={b.id} className="tk-row" style={{ fontSize: 12, padding: "4px 0", borderTop: "1px solid rgba(255,255,255,.06)" }}>
+              <span style={{ width: 22 }}>{b.is_hit == null ? "⏳" : b.is_hit ? "✅" : "❌"}</span>
+              <span style={{ flex: 1 }}>{label(b)}</span>
+              <span className="tk-muted">{b.bet_amount}枚×{b.odds}倍</span>
+              {b.is_hit && <span style={{ color: "#2ecc71", marginLeft: 6, fontWeight: 700 }}>+{Math.round(Number(b.payout) * (b.bet_amount || 1))}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+      {podium && predBets.length > 0 && (
+        <div className="tk-muted" style={{ marginTop: 8 }}>
+          的中：{predBets.filter(b => b.is_hit).map(b => `${nm(b.bettor_id)}（${b.bet_type === "t_tansho" ? "単勝" : "馬単"} +${Math.round(Number(b.payout) * (b.bet_amount || 1))}）`).join("・") || "なし"}
+        </div>
+      )}
     </div>
   );
 }

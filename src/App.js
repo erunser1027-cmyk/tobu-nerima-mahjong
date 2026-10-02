@@ -19,6 +19,7 @@ const SHOW_HILO_ICON = false;
 // 今日: 2026-07-04
 const CHANGELOG = [
   { date:"2026-10-02", features:[
+    "🎯 大会モード：優勝チーム予想を追加。チームが決まってから予選開始まで、外馬と同じコインで単勝（優勝チーム）・馬単（優勝→準優勝）を購入できる。倍率はチームの強さから決まる固定の倍率。大会終了で自動的に払い戻し（確定の取り消しで元に戻る）。外馬の馬券履歴にも「🏆大会」として表示",
     "🏅 大会モード：賞の種類の投票を追加。参加の回答で、採用してほしい賞（ブービー賞・チップ賞・最高得点賞・役満賞）を1人2つまで選べる。票数と投票した人を大会画面と運営メニューに表示",
     "🏆 大会モード：決勝・3位決定戦・結果発表を追加。予選終了で上位2チームを決勝卓、3位決定戦の設定なら次の2チームを卓2に自動割り当て（席は1回戦ごとに自動）。予選の点の持ち越し（なし／全部／半分）に対応し、決勝の点差も表示。大会終了で優勝・準優勝・3位と個人賞（チップ賞・最高得点賞・ブービー賞・役満賞）を自動計算して結果発表、賞金も表示。歴代優勝を記録。予選の修正で決勝進出チームが変わるときは運営に警告",
     "📊 大会モード：予選の順位表を「速報ボード」に。進み具合（第◯回戦 ◯/◯卓終了）、前の回戦からの順位の上がり下がり（↑↓）、上の順位との点差、決勝ラインまでの差（「あと◯pt・素点で約◯点」／「◯pt リード」）、残り対局数を表示し、点数が入ったチームの行が光る。入力済みの卓は、その卓の4人と運営があとから修正可能に。同じ卓を同時に直したときは後から保存した方に警告して上書きを防止。素点・チップの合計がずれているときは「◯枚ずれ」と表示",
@@ -6394,7 +6395,7 @@ export default function App() {
                     {raceBetDetailId !== null && (() => {
                       const m = gm(raceBetDetailId);
                       if (!m) return null;
-                      const betTypeLabelLocal = (k) => ({tansho:"単勝",umaren:"馬連",sanrenpuku:"三連複",yonrentan:"四連単"})[k] || k;
+                      const betTypeLabelLocal = (k) => ({tansho:"単勝",umaren:"馬連",sanrenpuku:"三連複",yonrentan:"四連単",t_tansho:"🏆大会 単勝",t_umatan:"🏆大会 馬単"})[k] || k;
                       const myBets = raceBets
                         .filter(b => Number(b.bettor_id) === Number(raceBetDetailId) && b.is_hit !== null)
                         .sort((a, b) => {
@@ -6449,7 +6450,8 @@ export default function App() {
                               )}
                               {myBets.map((b, i) => {
                                 const sel = Array.isArray(b.bet_selection) ? b.bet_selection : (() => { try { return JSON.parse(b.bet_selection || "[]"); } catch { return []; } })();
-                                const selNames = sel.map(id => gm(id)?.name || "?").join(" → ");
+                                // 大会の予想（t_～）は選んだのがチームの番号なので、チーム名で表示する
+                                const selNames = String(b.bet_type).startsWith("t_") ? sel.map(i => `チーム${"ABCDEFGHIJ"[i] || "?"}`).join(" → ") : sel.map(id => gm(id)?.name || "?").join(" → ");
                                 const betAmt = b.bet_amount || 1;
                                 const payout = b.is_hit ? Math.round(Number(b.payout) * betAmt) : 0;
                                 const profit = b.is_hit ? payout - betAmt : -betAmt;
@@ -6462,7 +6464,7 @@ export default function App() {
                                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
                                       <div style={{display:"flex",alignItems:"center",gap:6}}>
                                         <span style={{fontSize:14}}>{b.is_hit ? "✅" : "❌"}</span>
-                                        <span style={{fontSize:10,color:"#888"}}>{b.session_date} R{b.round_index + 1}</span>
+                                        <span style={{fontSize:10,color:"#888"}}>{String(b.session_date).startsWith("T") ? "大会の予想" : `${b.session_date} R${b.round_index + 1}`}</span>
                                         <span style={{fontSize:10,color:"#f39c12",background:"rgba(243,156,18,0.15)",padding:"1px 5px",borderRadius:4}}>
                                           {betTypeLabelLocal(b.bet_type)}
                                         </span>
