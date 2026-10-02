@@ -836,11 +836,11 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
               <>
                 {teams.map((tm, i) => (
                   <div key={i} className="tk-row" style={{ padding: "8px 0", borderTop: "1px solid rgba(255,255,255,.08)", background: i === myTeamIdx ? "rgba(247,205,121,.10)" : "transparent" }}>
-                    <span style={{ fontFamily: "Dela Gothic One, sans-serif", color: "#f7cd79", width: 70, fontSize: 14 }}>チーム{TEAM_NAMES[i]}</span>
+                    <span style={{ fontFamily: "Dela Gothic One, sans-serif", color: "#f7cd79", width: 64, flexShrink: 0, fontSize: 14 }}>チーム{TEAM_NAMES[i]}</span>
                     {tm.map((id, k) => { const m = members.find(x => x.id === id); return (
-                      <span key={id} className="tk-row" style={{ gap: 5, flex: 1 }}>
-                        {k === 1 && <span style={{ color: "#888", marginRight: 4 }}>×</span>}
-                        <Av m={m} sz={26} /><span style={{ fontSize: 13 }}>{m?.name || "？"}</span>
+                      <span key={id} className="tk-row" style={{ gap: 5, flex: 1, minWidth: 0, justifyContent: "flex-start" }}>
+                        {k === 1 && <span style={{ color: "#888", marginRight: 2 }}>×</span>}
+                        <span style={{ flexShrink: 0 }}><Av m={m} sz={24} /></span><span style={{ fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{m?.name || "？"}</span>
                       </span>
                     ); })}
                   </div>
@@ -1114,7 +1114,7 @@ function AmidaCard({ cur, draw, players, tEntries, members, Av, selfId, isAdmin,
           : pickClosed ? "位置選びの締切を過ぎました。運営の締め切りをお待ちください。"
           : amParticipant ? "好きな番号を1つ選んでください（線はまだ見えません。締切までは選び直せます）" : "参加者が番号を選んでいます。"}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(n, 7)},1fr)`, gap: 6, marginBottom: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(Math.ceil(n / 2), 7)},1fr)`, gap: 6, marginBottom: 8 }}>
         {Array.from({ length: n }, (_, i) => i + 1).map(sl => {
           const m = members.find(x => x.id === owner[sl]);
           const mine = owner[sl] === selfId;
@@ -1258,11 +1258,11 @@ function AmidaLive({ seed, slots, members, Av, startMs, onClose }) {
           {el < AMIDA_LINES + n * AMIDA_PER + 0.4 && <div style={{ position: "fixed", inset: 0, background: "#fff", opacity: 0.6, pointerEvents: "none" }} />}
           {teams.map((tm, i) => (
             <div key={i} className="tk-row" style={{ padding: "10px", marginBottom: 7, borderRadius: 12, border: `1px solid ${TEAM_COLORS[i % TEAM_COLORS.length]}`, background: "rgba(255,255,255,.06)", boxShadow: `0 0 12px ${TEAM_COLORS[i % TEAM_COLORS.length]}55` }}>
-              <span style={{ fontFamily: "Dela Gothic One, sans-serif", color: TEAM_COLORS[i % TEAM_COLORS.length], width: 74, fontSize: 15 }}>チーム{TEAM_NAMES[i]}</span>
+              <span style={{ fontFamily: "Dela Gothic One, sans-serif", color: TEAM_COLORS[i % TEAM_COLORS.length], width: 64, flexShrink: 0, fontSize: 14 }}>チーム{TEAM_NAMES[i]}</span>
               {tm.map((id, k) => (
-                <span key={id} className="tk-row" style={{ gap: 5, flex: 1 }}>
-                  {k === 1 && <span style={{ color: "#888", marginRight: 4 }}>×</span>}
-                  <Av m={nm(id)} sz={26} /><span style={{ fontSize: 13, fontWeight: 700 }}>{nm(id)?.name}</span>
+                <span key={id} className="tk-row" style={{ gap: 5, flex: 1, minWidth: 0, justifyContent: "flex-start" }}>
+                  {k === 1 && <span style={{ color: "#888", marginRight: 2 }}>×</span>}
+                  <span style={{ flexShrink: 0 }}><Av m={nm(id)} sz={24} /></span><span style={{ fontSize: 12, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{nm(id)?.name}</span>
                 </span>
               ))}
             </div>
@@ -1300,10 +1300,10 @@ function TeamReveal({ teams, members, Av, startMs, onClose }) {
           return (
             <div key={i} className="tk-row" style={{ padding: "12px 10px", marginBottom: 8, borderRadius: 12, border: "1px solid rgba(247,205,121,.7)", background: rolling ? "rgba(255,255,255,.05)" : "linear-gradient(135deg,rgba(247,205,121,.22),rgba(231,76,60,.18))", boxShadow: rolling ? "none" : "0 0 18px rgba(255,140,40,.5)", transition: "all .2s" }}>
               <span style={{ fontFamily: "Dela Gothic One, sans-serif", color: "#f7cd79", width: 74, fontSize: 15 }}>チーム{TEAM_NAMES[i]}</span>
-              <Av m={a} sz={30} /><span style={{ fontSize: 14, fontWeight: 700, margin: "0 8px 0 4px" }}>{a?.name}</span>
+              <span style={{ flexShrink: 0 }}><Av m={a} sz={30} /></span><span style={{ fontSize: 14, fontWeight: 700, margin: "0 8px 0 4px", whiteSpace: "nowrap" }}>{a?.name}</span>
               <span style={{ color: "#f7cd79", fontWeight: 900 }}>×</span>
               <span style={{ opacity: rolling ? 0.6 : 1, display: "flex", alignItems: "center", gap: 4, marginLeft: 8 }}>
-                <Av m={b} sz={30} /><span style={{ fontSize: 14, fontWeight: 700 }}>{b?.name}</span>
+                <span style={{ flexShrink: 0 }}><Av m={b} sz={30} /></span><span style={{ fontSize: 14, fontWeight: 700, whiteSpace: "nowrap" }}>{b?.name}</span>
               </span>
             </div>
           );
