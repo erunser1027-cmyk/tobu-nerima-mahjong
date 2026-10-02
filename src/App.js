@@ -18,6 +18,9 @@ const SHOW_HILO_ICON = false;
 // 今日: 2026-07-04
 const CHANGELOG = [
   { date:"2026-10-02", features:[
+    "複数卓対応：対局タブの上部に「卓1・卓2」の切替ボタンを追加。卓ごとに別の対局を同時に記録・LIVE配信できる（卓を切り替えるとその卓の下書きを読み込む。他の卓がLIVE中ならヘッダーに「卓◯ LIVE」を表示）。外馬は卓1のみ対応",
+    "バグ修正：LIVEの途中経過が他のスマホに即時反映されなくなっていた問題を修正（受信をテーブルごとに分割し、1つの失敗で全部止まらないようにした）。対局が精算・破棄されたら、観覧中の画面も自動で初期画面に戻る",
+    "バグ修正：深夜0〜9時に始めた対局や日付を変えた対局の下書きが、アプリを開いた時に消えてしまう問題を修正（日付が違っても消さずに復元）",
     "バグ修正：対局中の点数・チップ入力でテンキーを開いている間、下部固定メニューが入力欄に被る問題を修正（入力中はメニューを隠し、開いた入力欄を画面上部へ自動スクロール）",
     "UI改善：成績概要・履歴の期間フィルターを刷新。「全期間／今年／今月」を大きな切替バー（選択中は赤塗り）にし、その下に「◀ 2026年10月 ▶」の月送りと月選択、「📌 表示中：○○（N日分）」の表示を追加",
     "履歴タブ改善：小さな「場代込み」バッジを、カレンダーと同じ「場代込み／場代抜き」切替ボタンに変更。「▼ 全◯半荘の記録を見る」ボタンを追加（ヘッダータップでも従来どおり開閉可）",
@@ -2188,7 +2191,11 @@ export default function App() {
   const [addRules, setAddRules] = useState({ kaeshi:30000, starting:25000, uma:[20,10,-10,-20], scoreRate:30, chipRate:50, venue:"サクセス" });
   const [addSel, setAddSel] = useState([]);
   const [addRounds, setAddRounds] = useState([]);
-  const [draftId, setDraftId] = useState(null); // Supabaseのdraft ID
+  const [draftId, setDraftId] = useState(null); // Supabaseのdraft ID（今見ている卓の下書き）
+  const [currentTable, setCurrentTable] = useState(1); // 今見ている卓（1〜4）
+  const currentTableRef = useRef(1); // 非同期処理から最新の卓番号を参照する用
+  const [liveTables, setLiveTables] = useState([]); // LIVE中(step===2)の卓番号
+  const [showMoreTables, setShowMoreTables] = useState(false); // 卓3・4のボタンを出す
   const [rpSc, setRpSc] = useState({});
   const [rpAutoId, setRpAutoId] = useState(null);
   const [rpPhotos, setRpPhotos] = useState({});
@@ -2241,8 +2248,8 @@ export default function App() {
   const [, setRaceNowTick] = useState(0); // 5分タイマー更新用ダミーstate
   // raceBetsRef：採点useEffect内でクロージャ問題を防ぐため、常に最新のraceBetsを参照
   const raceBetsRef = useRef([]);
-  // iAmEditorRef：このデバイスが実際に下書き保存した編集者かどうかを管理
-  const iAmEditorRef = useRef(false);
+  // iAmEditorRef：このデバイスが実際に下書き保存した編集者かどうかを卓ごとに管理（{ 卓番号: true/false }）
+  const iAmEditorRef = useRef({});
   const [showGoalScene, setShowGoalScene] = useState(false); // 写真判定ゴールシーン展開
   const [sortKey, setSortKey] = useState("sc");
   const [sortAsc, setSortAsc] = useState(false);
@@ -2424,6 +2431,7 @@ export default function App() {
   // 半荘が確定されたとき馬券を自動採点＋購入状態をリセット
   useEffect(()=>{
     if(addRounds.length === 0) return;
+    if(currentTableRef.current !== 1) return; // 外馬は卓1のみ。卓2以降の結果で馬券を採点しない
     setRaceBetType(null); setRaceSelection([]); setRaceBetAmount(1);
     const lastRound = addRounds[addRounds.length - 1];
     const roundIndex = addRounds.length - 1;
@@ -2503,80 +2511,123 @@ export default function App() {
   const gm = id => members.find(m => m.id === Number(id));
   const is5 = addSel.length > 4;
 
-  // 起動時にSupabaseから下書き復元
-  useEffect(()=>{
-    async function loadDraft(){
-      const today = new Date().toISOString().slice(0,10);
-      
-      // Supabase から取得試行
-      try {
-        const { data } = await supabase.from("drafts").select("*").order("updated_at",{ascending:false}).limit(1);
-        const row = data?.[0];
-        if(row && row.date === today){
-          setDraftId(row.id);
-          setAddDate(row.date);
-          setAddRules(row.rules);
-          setAddSel(row.members);
-          setAddRounds(row.rounds);
-          setRpSkenbans(Array.isArray(row.skenbans) ? row.skenbans : []);
-          // 保存されたstepを使う。なければ従来ロジックで推定
-          setAddStep(row.step ?? (row.rounds.length>0 ? 2 : (row.members?.length>0 ? 2 : 0)));
-          return;
-        } else if(row) {
-          await supabase.from("drafts").delete().eq("id",row.id);
-        }
-      } catch (e) {
-        console.error("Failed to load draft from Supabase:", e);
+  // 卓ごとの控え（localStorage）のキー。卓1は従来のキーのまま使う
+  const draftBackupKey = n => n === 1 ? "tleague_draft_backup" : `tleague_draft_backup_${n}`;
+
+  // 画面の対局状態を空に戻す（卓を切り替えるときに使う）
+  function resetTableState(){
+    setAddStep(0); setAddRules({...lr}); setAddSel([]); setAddRounds([]);
+    setAddDate(today());
+    setAddEndTimePlan("");
+    setRpSc({}); setRpPhotos({}); setRpYakuman([]); setRpYakumanTypes({}); setRpOpenRiichi([]); setRpDealIn([]); setAddChips({}); setAddBashiro({});
+    setRpActive(null); setChipActive(null); setAddErr(""); setBashiroTotal("");
+    setRpSkenbans([]); setDraftId(null);
+  }
+  // リアルタイム受信（起動時に1回だけ登録）から最新の関数・値を使うための参照
+  const resetTableStateRef = useRef(null);
+  resetTableStateRef.current = resetTableState;
+  const draftIdRef = useRef(null);
+  draftIdRef.current = draftId;
+
+  // 指定した卓の下書きをSupabaseから復元（失敗時はlocalStorageの控えから）
+  // 日付が今日と違っても消さずに復元する（深夜0〜9時にUTC判定で消えていた問題の対策。下書きを消すのは精算・破棄のみ）
+  async function loadDraftForTable(tableNo){
+    // Supabase から取得試行
+    try {
+      const { data, error } = await supabase.from("drafts").select("*").eq("table_no",tableNo).order("updated_at",{ascending:false}).limit(1);
+      if(error) throw error;
+      if(currentTableRef.current !== tableNo) return; // 読み込み中に別の卓へ切り替わった
+      const row = data?.[0];
+      if(!row){
+        // DBに下書きがない＝対局は終わっている。端末に残った古い控えは使わずに消す
+        localStorage.removeItem(draftBackupKey(tableNo));
+        return;
       }
-      
-      // Supabase失敗時 → localStorage から復元
-      try {
-        const backup = localStorage.getItem("tleague_draft_backup");
-        if(backup){
-          const draft = JSON.parse(backup);
-          if(draft.date === today){
-            setAddDate(draft.date);
-            setAddRules(draft.rules);
-            setAddSel(draft.members);
-            setAddRounds(draft.rounds);
-            setRpSkenbans(Array.isArray(draft.skenbans) ? draft.skenbans : []);
-            setAddStep(draft.step ?? (draft.rounds.length>0 ? 2 : (draft.members?.length>0 ? 2 : 0)));
-            showToast("success", "📦 ローカル保存から復元しました");
-          } else {
-            localStorage.removeItem("tleague_draft_backup");
-          }
-        }
-      } catch (e) {
-        console.error("localStorage restore failed:", e);
+      if(row){
+        setDraftId(row.id);
+        setAddDate(row.date);
+        setAddRules(row.rules);
+        setAddSel(row.members);
+        setAddRounds(row.rounds);
+        setRpSkenbans(Array.isArray(row.skenbans) ? row.skenbans : []);
+        // 保存されたstepを使う。なければ従来ロジックで推定
+        setAddStep(row.step ?? (row.rounds.length>0 ? 2 : (row.members?.length>0 ? 2 : 0)));
+        return;
       }
+    } catch (e) {
+      console.error("Failed to load draft from Supabase:", e);
     }
-    loadDraft();
+
+    // Supabase失敗時 → localStorage から復元
+    try {
+      if(currentTableRef.current !== tableNo) return;
+      const backup = localStorage.getItem(draftBackupKey(tableNo));
+      if(backup){
+        const draft = JSON.parse(backup);
+        setAddDate(draft.date);
+        setAddRules(draft.rules);
+        setAddSel(draft.members);
+        setAddRounds(draft.rounds);
+        setRpSkenbans(Array.isArray(draft.skenbans) ? draft.skenbans : []);
+        setAddStep(draft.step ?? (draft.rounds.length>0 ? 2 : (draft.members?.length>0 ? 2 : 0)));
+        showToast("success", "📦 ローカル保存から復元しました");
+      }
+    } catch (e) {
+      console.error("localStorage restore failed:", e);
+    }
+  }
+
+  // LIVE中の卓の一覧を取得（ヘッダーの「卓◯ LIVE」表示用）
+  async function refreshLiveTables(){
+    try {
+      const { data } = await supabase.from("drafts").select("table_no,step");
+      setLiveTables((data||[]).filter(r=>r.step===2).map(r=>r.table_no||1).sort((a,b)=>a-b));
+    } catch (e) {
+      console.error("Failed to load live tables:", e);
+    }
+  }
+
+  // 卓を切り替える：画面を空にして、その卓の下書きを読み込む
+  function switchTable(n){
+    if(n === currentTableRef.current) return;
+    currentTableRef.current = n;
+    setCurrentTable(n);
+    resetTableState();
+    loadDraftForTable(n);
+  }
+
+  // 起動時に卓1の下書きを復元
+  useEffect(()=>{
+    loadDraftForTable(1);
+    refreshLiveTables();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
   // 対局状態が変化するたびにSupabaseに下書き保存
   // skenbansは省略可能（省略時は現在のrpSkenbansを使う）
   async function saveDraft(date, rules, sel, step, rounds, skenbans){
     if(sel.length === 0) return; // メンバー未選択は保存しない
-    iAmEditorRef.current = true; // このデバイスが編集者
+    const tableNo = currentTableRef.current; // 呼んだ時点の卓に保存する
+    iAmEditorRef.current[tableNo] = true; // このデバイスがこの卓の編集者
     const skenbansToSave = Array.isArray(skenbans) ? skenbans : rpSkenbans;
-    const payload = { date, rules, members:sel, rounds, step, skenbans: skenbansToSave, updated_at: new Date().toISOString() };
-    
+    const payload = { date, rules, members:sel, rounds, step, skenbans: skenbansToSave, table_no: tableNo, updated_at: new Date().toISOString() };
+
     // localStorage にバックアップ（オフライン時の保険）
     try {
-      localStorage.setItem("tleague_draft_backup", JSON.stringify(payload));
+      localStorage.setItem(draftBackupKey(tableNo), JSON.stringify(payload));
     } catch (e) {
       console.error("localStorage backup failed:", e);
     }
-    
-    // Supabase に保存
+
+    // Supabase に保存（同じ卓の行は1つだけ。なければ追加、あれば上書き）
     try {
       if(draftId){
         const { error } = await supabase.from("drafts").update(payload).eq("id",draftId);
         if(error) throw error;
       } else {
-        const { data, error } = await supabase.from("drafts").insert(payload).select();
+        const { data, error } = await supabase.from("drafts").upsert(payload,{onConflict:"table_no"}).select();
         if(error) throw error;
-        if(data?.[0]) setDraftId(data[0].id);
+        if(data?.[0] && currentTableRef.current === tableNo) setDraftId(data[0].id);
       }
     } catch (error) {
       console.error("Error saving draft to Supabase:", error);
@@ -2584,16 +2635,17 @@ export default function App() {
     }
   }
 
-  // 下書き削除
+  // 下書き削除（今見ている卓の分だけ）
   async function deleteDraft(){
+    const tableNo = currentTableRef.current;
     try {
-      if(draftId){ 
-        await supabase.from("drafts").delete().eq("id",draftId); 
-        setDraftId(null); 
+      if(draftId){
+        await supabase.from("drafts").delete().eq("id",draftId);
+        setDraftId(null);
       }
-      iAmEditorRef.current = false; // 編集者フラグをリセット
+      iAmEditorRef.current[tableNo] = false; // 編集者フラグをリセット
       localStorage.removeItem("tleague_draft");
-      localStorage.removeItem("tleague_draft_backup");
+      localStorage.removeItem(draftBackupKey(tableNo));
     } catch (error) {
       console.error("Error deleting draft:", error);
     }
@@ -2613,21 +2665,29 @@ export default function App() {
     }
     fetchData();
 
-    // リアルタイム購読
-    const channel = supabase.channel("db-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "members" }, () => {
+    // リアルタイム購読（表ごとに別チャンネル。1つの表で購読に失敗しても、他の表の受信は止まらない）
+    const watch = (table, onChange) => supabase.channel(`db-${table}`)
+      .on("postgres_changes", { event: "*", schema: "public", table }, onChange)
+      .subscribe((status, err) => {
+        if (status === "CHANNEL_ERROR") console.error(`Realtime subscribe failed (${table}):`, err);
+      });
+    const channels = [
+      watch("members", () => {
         supabase.from("members").select("*").is("deleted_at", null).order("id").then(({ data }) => { if (data) setMembers(data); });
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => {
+      }),
+      watch("sessions", () => {
         supabase.from("sessions").select("*").is("deleted_at", null).order("created_at").then(({ data }) => { if (data) setSessions(data); });
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "drafts" }, () => {
-        // LIVE状態の即時同期：他デバイスでLIVE開始/終了/進行が即時反映
-        supabase.from("drafts").select("*").order("updated_at",{ascending:false}).limit(1).then(({data}) => {
-          const row = data?.[0];
+      }),
+      watch("drafts", () => {
+        // LIVE状態の即時同期：他デバイスでLIVE開始/終了/進行が即時反映（今見ている卓の行だけ画面に反映）
+        supabase.from("drafts").select("*").then(({data}) => {
+          const rows = data || [];
+          setLiveTables(rows.filter(r=>r.step===2).map(r=>r.table_no||1).sort((a,b)=>a-b));
+          const cur = currentTableRef.current;
+          const row = rows.find(r=>(r.table_no||1)===cur);
           if (row) {
-            // このデバイスが編集者でない場合のみ反映（観覧者は常に最新を受信）
-            if (!iAmEditorRef.current) {
+            // このデバイスがこの卓の編集者でない場合のみ反映（観覧者は常に最新を受信）
+            if (!iAmEditorRef.current[cur]) {
               setAddDate(row.date);
               setAddRules(row.rules);
               setAddSel(row.members);
@@ -2636,22 +2696,26 @@ export default function App() {
               setRpSkenbans(Array.isArray(row.skenbans) ? row.skenbans : []);
               setDraftId(row.id);
             }
+          } else if (draftIdRef.current && !iAmEditorRef.current[cur]) {
+            // 観覧中の卓の下書きが消えた（精算・破棄）→ 観覧側の画面を空に戻す
+            // 自分で準備中（まだDBに保存していない）の画面は消さない
+            resetTableStateRef.current?.();
           }
         });
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "race_bets" }, () => {
+      }),
+      watch("race_bets", () => {
         // 外馬投票の即時同期
         supabase.from("race_bets").select("*").order("created_at",{ascending:false}).then(({data}) => {
           if (data) { setRaceBets(data); raceBetsRef.current = data; }
         });
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "mbti_results" }, () => {
+      }),
+      watch("mbti_results", () => {
         // MBTI診断結果の即時同期
         supabase.from("mbti_results").select("*").then(({data}) => { if (data) setMbtiResults(data); });
-      })
-      .subscribe();
+      }),
+    ];
 
-    return () => supabase.removeChannel(channel);
+    return () => channels.forEach(ch => supabase.removeChannel(ch));
   }, []);
 
   // ---- 統計 ----
@@ -2850,7 +2914,8 @@ export default function App() {
       if (data) setSessions(p => [...p, data]);
 
       // saveSession時に全半荘の未採点馬券を確実に採点してランキング反映
-      const currentBetsSnap = raceBetsRef.current;
+      // 外馬は卓1のみ。卓2以降の精算では馬券を採点しない（日付・半荘番号が卓1と重なるため）
+      const currentBetsSnap = currentTableRef.current === 1 ? raceBetsRef.current : [];
       const allScored = [];
       addRounds.forEach((round, roundIndex) => {
         const sorted = [...round.players].sort((a,b)=>N(round.scores[String(b)]??round.scores[b])-N(round.scores[String(a)]??round.scores[a]));
@@ -2951,7 +3016,8 @@ export default function App() {
     // 破棄時に当日の馬券を削除（保存削除と同じ扱い → チップ・ランキングが無効化）
     try {
       const targetDate = addDate;
-      const discardedBets = raceBetsRef.current.filter(b => b.session_date === targetDate);
+      // 外馬は卓1のみ。卓2以降の破棄では、同じ日付の馬券を消さない
+      const discardedBets = currentTableRef.current === 1 ? raceBetsRef.current.filter(b => b.session_date === targetDate) : [];
       if (discardedBets.length > 0) {
         const { error } = await supabase.from("race_bets").delete().eq("session_date", targetDate);
         if (error) {
@@ -3603,10 +3669,18 @@ export default function App() {
           <div style={{display:"flex",alignItems:"center",gap:5,padding:"5px 12px",borderRadius:16,background:"rgba(231,76,60,0.25)",border:"2px solid rgba(231,76,60,0.7)",cursor:addStep===2?"pointer":"default",boxShadow:"0 0 12px rgba(231,76,60,0.4)"}}
             onClick={()=>{ if(addStep===2) setShowLivePanel(p=>!p); }}>
             <span style={{width:10,height:10,borderRadius:"50%",background:"#e74c3c",display:"inline-block",animation:"pulse 1s infinite",boxShadow:"0 0 6px #e74c3c"}}/>
-            <span style={{fontSize:15,fontWeight:800,color:"#e74c3c",letterSpacing:2}}>LIVE</span>
+            <span style={{fontSize:15,fontWeight:800,color:"#e74c3c",letterSpacing:2,whiteSpace:"nowrap"}}>LIVE{currentTable!==1?` 卓${currentTable}`:""}</span>
             {addStep===2&&<span style={{fontSize:11,color:"#e74c3c"}}>{showLivePanel?"▲":"▼"}</span>}
           </div>
         )}
+        {/* 他の卓がLIVE中のとき：タップでその卓へ移動 */}
+        {liveTables.filter(t=>t!==currentTable).map(t=>(
+          <button key={t} onClick={()=>{ setTab("add"); switchTable(t); }}
+            style={{display:"flex",alignItems:"center",gap:4,padding:"4px 8px",borderRadius:14,border:"1px solid rgba(231,76,60,0.7)",background:"rgba(231,76,60,0.2)",color:"#e74c3c",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+            <span style={{width:7,height:7,borderRadius:"50%",background:"#e74c3c",display:"inline-block",animation:"pulse 1s infinite"}}/>
+            卓{t} LIVE
+          </button>
+        ))}
         <div style={{marginLeft:"auto",display:"flex",gap:3,flexWrap:"wrap",justifyContent:"flex-end"}}>
           {[["calendar","🗓"],["history","📅"],["skull","💀"],["hilo","🃏",SHOW_HILO_ICON],["shindan","🎴"],["taikai","🎌"],["members","👥"]].filter(([,,show])=>show!==false).map(([t,l])=>{
             const isActive = t==="sotoba"
@@ -5604,7 +5678,7 @@ export default function App() {
               {/* 外馬モード サブタブ - 外馬レース機能 */}
               {dashSub==="sotoba" && (()=>{
                 // 対局中（メンバー選択後〜確認画面まで）はLIVE扱い
-                const isLive = (addStep === 2 || addStep === 3) && addSel.length > 0;
+                const isLive = (addStep === 2 || addStep === 3) && addSel.length > 0 && currentTable === 1; // 外馬は卓1のみ
                 const currentRoundIndex = addRounds.length;
                 const playingMembers = rpSkenbans.length > 0
                   ? addSel.filter(id => !rpSkenbans.includes(id)).map(id => gm(id)).filter(Boolean)
@@ -6832,6 +6906,22 @@ export default function App() {
         {/* ===== ADD ===== */}
         {tab==="add" && (
           <>
+            {/* 卓の切り替え（卓ごとに別の対局を同時に記録できる） */}
+            <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap",marginBottom:8}}>
+              <span style={{fontSize:11,color:"#888"}}>卓</span>
+              {[1,2,3,4].filter(n=>n<=2||showMoreTables||liveTables.includes(n)||currentTable===n).map(n=>(
+                <button key={n} onClick={()=>switchTable(n)} style={{...S.nav(currentTable===n),position:"relative",padding:"6px 14px",fontSize:12}}>
+                  卓{n}
+                  {liveTables.includes(n) && <span style={{position:"absolute",top:-1,right:-1,width:8,height:8,borderRadius:"50%",background:"#e74c3c",boxShadow:"0 0 6px #e74c3c",animation:"pulse 1s infinite"}}/>}
+                </button>
+              ))}
+              {!showMoreTables && currentTable<3 && !liveTables.some(n=>n>=3) && (
+                <button onClick={()=>setShowMoreTables(true)} style={S.bs()}>＋</button>
+              )}
+            </div>
+            {currentTable!==1 && (
+              <div style={{fontSize:10,color:"#7fb9e0",marginBottom:8}}>卓{currentTable}を表示中（外馬は卓1のみ対応）</div>
+            )}
             {addStep>0 && addRounds.length>0 && (
               <div style={{background:"rgba(52,152,219,0.1)",border:"1px solid rgba(52,152,219,0.3)",borderRadius:8,padding:"8px 12px",marginBottom:8,fontSize:11,color:"#7fb9e0",display:"flex",alignItems:"center",gap:6}}>
                 💾 入力中のデータが復元されました（{addRounds.length}半荘入力済み）全員のスマホで共有中
