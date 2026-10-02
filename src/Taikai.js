@@ -33,7 +33,8 @@ const DEFAULT_SETTINGS = {
   ruleStarting: 25000,           // 配給原点
   ruleKaeshi: 30000,             // 返し
   ruleUma: [20, 10, -10, -20],   // ウマ（1〜4位）
-  carryOver: "none",             // 予選の点を決勝に：none（持ち越さない）／all（全部）／half（半分）
+  carryOver: "none",             // 予選の点を決勝に：none（持ち越さない）／all（全部）／half（半分）／vote（参加者の投票）
+  afterpartyNote: "",            // 二次会の案内文（入っているときだけ二次会の出欠を聞く）
   dateNote: "", // 候補日の欄に出す、運営からの一言（全員に表示）
   startTime: "", // 当日のスタート時刻（例 "18:00"）
 };
@@ -309,6 +310,17 @@ function randomSeed() {
   const r = new Uint32Array(1); window.crypto.getRandomValues(r);
   return r[0] || 1;
 }
+const CARRY_LABEL = { none: "持ち越さない", all: "全部持ち越す", half: "半分持ち越す" };
+const CARRY_PRIORITY = ["none", "half", "all"];
+function carryTally(tEntries) {
+  const v = { none: [], all: [], half: [] };
+  tEntries.forEach(e => { if (e.status === "join" && v[e.carry_vote]) v[e.carry_vote].push(e.member_id); });
+  return v;
+}
+const carryDecision = v => { const max = Math.max(...CARRY_PRIORITY.map(k => v[k].length)); return CARRY_PRIORITY.find(k => v[k].length === max); };
+// 実際に使う持ち越しルール（投票のときは集計から自動で決まる）
+const effectiveCarry = (s, tEntries) => (s.carryOver === "vote" ? carryDecision(carryTally(tEntries)) : (s.carryOver || "none"));
+
 function entryClosed(t) {
   if (!t) return true;
   return t.status !== "entry" || !!(t.entry_deadline && todayStr() > t.entry_deadline);
@@ -402,7 +414,14 @@ function regulationLines(t, tDates, tEntries = []) {
     const r = ruleOf(s);
     const oka = (r.kaeshi - r.starting) * 4 / 1000;
     L.push(["順位点", `配給${r.starting.toLocaleString()}点・返し${r.kaeshi.toLocaleString()}点・ウマ${r.uma.join("/")}${oka ? `（トップにオカ+${oka}）` : ""}`]);
-    L.push(["決勝", { none: "予選の点は持ち越さない（決勝はゼロから）", all: "予選の点を全部持ち越す", half: "予選の点を半分持ち越す" }[s.carryOver] || "予選の点は持ち越さない"]);
+    const carryText = { none: "予選の点は持ち越さない（決勝はゼロから）", all: "予選の点を全部持ち越す", half: "予選の点を半分持ち越す" };
+    if (s.carryOver === "vote") {
+      const v = carryTally(tEntries);
+      const cnt = `持ち越さない ${v.none.length}票／半分 ${v.half.length}票／全部 ${v.all.length}票`;
+      L.push(["決勝", entryClosed(t) ? `参加者の投票で決定 → ${carryText[carryDecision(v)]}（${cnt}）` : `参加者の投票で決定（締切時点で多い方。同数は持ち越さない）\n現在：${cnt}`]);
+    } else {
+      L.push(["決勝", carryText[s.carryOver] || carryText.none]);
+    }
   }
   if (s.format === "tag") {
     if (s.teamMode === "vote") {
@@ -425,6 +444,11 @@ function regulationLines(t, tDates, tEntries = []) {
   L.push(["賞金", "参加費の総額を全額、賞金に配分します。金額は参加人数の確定後に決定"]);
   L.push(["賞", prizes.length ? prizes.join("／") : "未定"]);
   if (s.note) L.push(["補足", s.note]);
+  if (s.afterpartyNote) {
+    const ys = tEntries.filter(e => e.status === "join" && e.afterparty === "yes");
+    const comp = ys.reduce((a, e) => a + (e.companions || 0), 0);
+    L.push(["二次会", `${s.afterpartyNote}（参加 ${ys.length}名${comp ? `＋同伴${comp}名` : ""}＝計${ys.length + comp}名）`]);
+  }
   return L;
 }
 function statusLabel(t) {
@@ -808,6 +832,14 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
   const regLines = cur ? regulationLines(cur, tDates, tEntries) : [];
   const teamVoteOn = s.format === "tag" && s.teamMode === "vote";
   const awardTally = awardTallyOf(cur ? entries.filter(e => e.tournament_id === cur.id) : []);
+  const curEntries = cur ? entries.filter(e => e.tournament_id === cur.id) : [];
+  const carryVoteOn = s.carryOver === "vote";
+  const cTally = carryTally(curEntries);
+  const effCarry = effectiveCarry(s, curEntries);
+  const partyOn = !!(s.afterpartyNote || "").trim();
+  const partyYes = curEntries.filter(e => e.status === "join" && e.afterparty === "yes");
+  const partyNo = curEntries.filter(e => e.status === "join" && e.afterparty === "no");
+  const partyComp = partyYes.reduce((a, e) => a + (e.companions || 0), 0);
   const tally = teamTally(tEntries);
   const commentList = tEntries.filter(e => (e.comment || "").trim())
     .map(e => ({ e, m: members.find(m => m.id === e.member_id) })).filter(x => x.m);
@@ -899,7 +931,7 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
   const result = cur?.result || {};
   const finalGames = tGames.filter(g => g.stage === "final");
   const thirdGames = tGames.filter(g => g.stage === "third");
-  const factor = CARRY[s.carryOver] ?? 0;
+  const factor = CARRY[effCarry] ?? 0;
   const finalRows = result.finalists && teams ? stageStandings(result.finalists, teams, finalGames, carryBase(standings, result.finalists, factor)) : [];
   const thirdRows = result.third && teams ? stageStandings(result.third, teams, thirdGames, carryBase(standings, result.third, factor)) : [];
   const nowTop = standings.slice(0, 2).map(r => r.idx);
@@ -935,7 +967,7 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
   };
   const finishTournament = async () => {
     if (!allFinalDone) { showToast("error", "⚠️ 決勝・3位決定戦に未入力の卓があります"); return; }
-    const res = computeResult({ teams, s, prelimRows: standings, finalists: result.finalists, third: result.third, finalGames, thirdGames, allGames: tGames });
+    const res = computeResult({ teams, s: { ...s, carryOver: effCarry }, prelimRows: standings, finalists: result.finalists, third: result.third, finalGames, thirdGames, allGames: tGames });
     if (!window.confirm(`大会を終了して結果を確定します。\n優勝：チーム${TEAM_NAMES[res.podium[0]]}\nよろしいですか？`)) return;
     const { error } = await supabase.from("tournaments").update({ status: "done", result: { ...result, ...res }, updated_at: new Date().toISOString() }).eq("id", cur.id);
     if (error) { showToast("error", "⚠️ 結果の保存失敗: " + error.message); return; }
@@ -1055,6 +1087,8 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
       if (tDates.length && !mine.length) return { text: "参加ありがとうございます。候補日に投票してください", action: "候補日に投票する" };
       if (s.format === "tag" && s.teamMode === "vote" && !myEntry.team_vote) return { text: "チーム決めの方法（あみだくじ／戦力均衡）にも投票してください", action: "投票する" };
       if (!(myEntry.award_votes || []).length) return { text: `採用してほしい賞を${AWARD_VOTE_MAX}つまで投票してください`, action: "投票する" };
+      if (carryVoteOn && !myEntry.carry_vote) return { text: "決勝への予選の点の持ち越し（持ち越さない／半分／全部）にも投票してください", action: "投票する" };
+      if (partyOn && !myEntry.afterparty) return { text: "二次会に参加するかを回答してください", action: "回答する" };
       const names = tDates.filter(d => mine.includes(d.id)).map(d => fmtDate(d.date)).join("・");
       return { text: `回答済み：参加${names ? `（${names}）` : ""}`, action: "回答を変更する", done: true };
     }
@@ -1343,6 +1377,50 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
           </div>
         )}
 
+        {/* 決勝への持ち越しの投票 */}
+        {cur && carryVoteOn && !["final", "done"].includes(cur.status) && (
+          <div className="tk-card">
+            <h3>⚖️ 決勝への持ち越し（投票）</h3>
+            {CARRY_PRIORITY.map(k => {
+              const voters = cTally[k].map(id => members.find(m => m.id === id)).filter(Boolean);
+              return (
+                <div key={k} style={{ padding: "7px 0", borderTop: "1px solid rgba(255,255,255,.08)" }}>
+                  <div className="tk-row" style={{ justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700 }}>{CARRY_LABEL[k]}</span>
+                    <span style={{ fontSize: 13, color: "#f7cd79", fontWeight: 700 }}>{voters.length}票</span>
+                  </div>
+                  <AvatarRow list={voters} Av={Av} empty="まだ投票がありません" />
+                </div>
+              );
+            })}
+            <div className="tk-muted" style={{ marginTop: 6 }}>
+              {entryClosed(cur) ? <>決定：<b style={{ color: "#f7cd79" }}>{CARRY_LABEL[effCarry]}</b></> : "締切の時点で票の多いルールに自動で決まります（同数は「持ち越さない」）"}
+            </div>
+          </div>
+        )}
+
+        {/* 二次会 */}
+        {cur && partyOn && (
+          <div className="tk-card">
+            <div className="tk-row" style={{ justifyContent: "space-between", marginBottom: 6 }}>
+              <h3 style={{ margin: 0 }}>🍻 二次会</h3>
+              <span className="tk-pill on" style={{ fontSize: 11 }}>計 {partyYes.length + partyComp}名</span>
+            </div>
+            <div style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap", marginBottom: 8 }}>{s.afterpartyNote}</div>
+            <div className="tk-lbl" style={{ marginTop: 0 }}>参加（{partyYes.length}名{partyComp ? `＋同伴${partyComp}名` : ""}）</div>
+            {partyYes.length === 0 && <div className="tk-muted">まだいません</div>}
+            {partyYes.map(e => { const m = members.find(x => x.id === e.member_id); return m ? (
+              <div key={e.id} className="tk-row" style={{ fontSize: 13, padding: "3px 0" }}>
+                <span style={{ flexShrink: 0 }}><Av m={m} sz={24} /></span>
+                <span style={{ flex: 1 }}>{m.name}</span>
+                {e.companions > 0 && <span style={{ color: "#f7cd79", fontSize: 12 }}>＋同伴{e.companions}名</span>}
+              </div>
+            ) : null; })}
+            <div className="tk-lbl">不参加</div>
+            <AvatarRow list={partyNo.map(e => members.find(m => m.id === e.member_id)).filter(Boolean)} Av={Av} empty="まだいません" />
+          </div>
+        )}
+
         {/* 賞の種類の投票（段階4a） */}
         {cur && !["prelim", "final", "done"].includes(cur.status) && (
           <div className="tk-card">
@@ -1560,7 +1638,7 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
               </>
             )}
             {sheet === "answer" && cur && me && (
-              <AnswerSheet cur={cur} me={me} Av={Av} tDates={tDates} myEntry={myEntry} dateIds={dateIds} teamVoteOn={teamVoteOn} awardVoteOn
+              <AnswerSheet cur={cur} me={me} Av={Av} tDates={tDates} myEntry={myEntry} dateIds={dateIds} teamVoteOn={teamVoteOn} awardVoteOn carryVoteOn={carryVoteOn} partyNote={partyOn ? s.afterpartyNote : ""}
                 entryOpen={entryOpen} showToast={showToast} onDone={() => { setSheet(null); reload(); }}
                 onChangeWho={() => { setAfterWho("answer"); setSheet("who"); }} />
             )}
@@ -2155,12 +2233,15 @@ function ManualTeams({ players, Av, disabled, onSave }) {
 }
 
 // ---- 参加・不参加の回答 ----
-function AnswerSheet({ cur, me, Av, tDates, myEntry, dateIds, teamVoteOn, awardVoteOn, entryOpen, showToast, onDone, onChangeWho }) {
+function AnswerSheet({ cur, me, Av, tDates, myEntry, dateIds, teamVoteOn, awardVoteOn, carryVoteOn, partyNote, entryOpen, showToast, onDone, onChangeWho }) {
   const [status, setStatus] = useState(myEntry?.status || null);
   const [picked, setPicked] = useState(() => (myEntry?.date_ids || []).filter(id => dateIds.has(id)));
   const [teamVote, setTeamVote] = useState(myEntry?.team_vote || null);
   const [comment, setComment] = useState(myEntry?.comment || "");
   const [awards, setAwards] = useState(myEntry?.award_votes || []);
+  const [carryVote, setCarryVote] = useState(myEntry?.carry_vote || null);
+  const [party, setParty] = useState(myEntry?.afterparty || null);
+  const [companions, setCompanions] = useState(myEntry?.companions || 0);
   const toggleAward = k => setAwards(a => (a.includes(k) ? a.filter(x => x !== k) : a.length >= AWARD_VOTE_MAX ? a : [...a, k]));
   const [saving, setSaving] = useState(false);
   const toggle = id => setPicked(p => (p.includes(id) ? p.filter(x => x !== id) : [...p, id]));
@@ -2176,6 +2257,9 @@ function AnswerSheet({ cur, me, Av, tDates, myEntry, dateIds, teamVoteOn, awardV
       team_vote: status === "join" && teamVoteOn ? teamVote : null,
       comment: comment.trim().slice(0, 200),
       award_votes: status === "join" && awardVoteOn ? awards : [],
+      carry_vote: status === "join" && carryVoteOn ? carryVote : null,
+      afterparty: status === "join" && partyNote ? party : null,
+      companions: status === "join" && partyNote && party === "yes" ? companions : 0,
       updated_at: new Date().toISOString(),
     }, { onConflict: "tournament_id,member_id" });
     setSaving(false);
@@ -2223,6 +2307,15 @@ function AnswerSheet({ cur, me, Av, tDates, myEntry, dateIds, teamVoteOn, awardV
           <div className="tk-muted" style={{ marginTop: 4 }}>締切の時点で多い方に決まります（同数はあみだくじ）</div>
         </>
       )}
+      {status === "join" && carryVoteOn && (
+        <>
+          <div className="tk-lbl">決勝への予選の点の持ち越し（どれがいい？）</div>
+          <div className="tk-seg">
+            {CARRY_PRIORITY.map(k => <button key={k} className={carryVote === k ? "on" : ""} disabled={!entryOpen} onClick={() => setCarryVote(k)}>{CARRY_LABEL[k]}</button>)}
+          </div>
+          <div className="tk-muted" style={{ marginTop: 4 }}>締切の時点で多いルールに決まります（同数は「持ち越さない」）</div>
+        </>
+      )}
       {status === "join" && awardVoteOn && (
         <>
           <div className="tk-lbl">採用してほしい賞（{AWARD_VOTE_MAX}つまで）</div>
@@ -2242,6 +2335,24 @@ function AnswerSheet({ cur, me, Av, tDates, myEntry, dateIds, teamVoteOn, awardV
           <textarea className="tk-in" style={{ height: 64, fontSize: 13 }} maxLength={200} disabled={!entryOpen}
             placeholder="例：19時からなら行けます／12/12はできれば避けたいです" value={comment} onChange={e => setComment(e.target.value)} />
         </>
+      )}
+      {status === "join" && partyNote && (
+        <div style={{ marginTop: 14, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,.12)" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>🍻 二次会</div>
+          <div style={{ fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap", color: "#ddd", marginBottom: 8 }}>{partyNote}</div>
+          <div className="tk-seg">
+            <button className={party === "yes" ? "on" : ""} disabled={!entryOpen} onClick={() => setParty("yes")}>参加する</button>
+            <button className={party === "no" ? "on" : ""} disabled={!entryOpen} onClick={() => setParty("no")}>参加しない</button>
+          </div>
+          {party === "yes" && (
+            <>
+              <div className="tk-lbl">同伴者（恋人・家族など）の人数</div>
+              <div className="tk-seg">
+                {[0, 1, 2, 3, 4, 5].map(n => <button key={n} className={companions === n ? "on" : ""} disabled={!entryOpen} onClick={() => setCompanions(n)}>{n === 0 ? "なし" : `${n}名`}</button>)}
+              </div>
+            </>
+          )}
+        </div>
       )}
       <button className="tk-btn" style={{ marginTop: 14 }} disabled={!status || saving || !entryOpen} onClick={save}>
         {saving ? "保存中..." : "この内容で決定"}
@@ -2409,7 +2520,7 @@ function AdminSheet({ me, isAdminUser, adminUnlocked, onUnlock, tournaments, cur
         ))}
       </div>
       <div className="tk-lbl">予選の点を決勝に持ち越す</div>
-      <Seg value={form.settings.carryOver || "none"} options={[["none", "持ち越さない"], ["all", "全部"], ["half", "半分"]]} onChange={v => setS("carryOver", v)} />
+      <Seg value={form.settings.carryOver || "none"} options={[["vote", "投票で決める"], ["none", "持ち越さない"], ["all", "全部"], ["half", "半分"]]} onChange={v => setS("carryOver", v)} />
       <div className="tk-lbl">同点の規定</div>
       <input className="tk-in" value={form.settings.tiebreak} onChange={e => setS("tiebreak", e.target.value)} />
       <div className="tk-lbl">席順</div>
@@ -2445,6 +2556,8 @@ function AdminSheet({ me, isAdminUser, adminUnlocked, onUnlock, tournaments, cur
 
       <div className="tk-lbl">候補日への運営コメント（全員に表示）</div>
       <textarea className="tk-in" style={{ height: 56 }} maxLength={200} placeholder="例：12/12は19時開始の予定です" value={form.settings.dateNote || ""} onChange={e => setS("dateNote", e.target.value)} />
+      <div className="tk-lbl">二次会の案内文（入れると、参加の回答の最後に二次会の出欠を聞きます）</div>
+      <textarea className="tk-in" style={{ height: 60 }} maxLength={300} placeholder="例：二件目で、一人3,000円で二次会をやりたいと思います。参加しますか？" value={form.settings.afterpartyNote || ""} onChange={e => setS("afterpartyNote", e.target.value)} />
       <div className="tk-lbl">補足（場所・集合時間など）</div>
       <textarea className="tk-in" style={{ height: 70 }} value={form.settings.note} onChange={e => setS("note", e.target.value)} />
 

@@ -19,6 +19,8 @@ const SHOW_HILO_ICON = false;
 // 今日: 2026-07-04
 const CHANGELOG = [
   { date:"2026-10-02", features:[
+    "改善：⚙️設定を押したときは設定だけを表示するように変更（他のタブの中身と重なって表示されないように）",
+    "⚖️🍻 大会モード：決勝への予選の点の持ち越し（持ち越さない／半分／全部）を参加者の投票で決められるように（締切時点で多いルールに自動決定、同数は持ち越さない）。二次会の出欠を追加（運営が案内文を入れると、参加の回答の最後に出欠と同伴者の人数を聞き、参加者と合計人数を一覧表示）",
     "🎯 大会モード：優勝チーム予想を追加。チームが決まってから予選開始まで、外馬と同じコインで単勝（優勝チーム）・馬単（優勝→準優勝）を購入できる。倍率はチームの強さから決まる固定の倍率。大会終了で自動的に払い戻し（確定の取り消しで元に戻る）。外馬の馬券履歴にも「🏆大会」として表示",
     "🏅 大会モード：賞の種類の投票を追加。参加の回答で、採用してほしい賞（ブービー賞・チップ賞・最高得点賞・役満賞）を1人2つまで選べる。票数と投票した人を大会画面と運営メニューに表示",
     "🏆 大会モード：決勝・3位決定戦・結果発表を追加。予選終了で上位2チームを決勝卓、3位決定戦の設定なら次の2チームを卓2に自動割り当て（席は1回戦ごとに自動）。予選の点の持ち越し（なし／全部／半分）に対応し、決勝の点差も表示。大会終了で優勝・準優勝・3位と個人賞（チップ賞・最高得点賞・ブービー賞・役満賞）を自動計算して結果発表、賞金も表示。歴代優勝を記録。予選の修正で決勝進出チームが変わるときは運営に警告",
@@ -3706,7 +3708,7 @@ export default function App() {
                 if(t==="sotoba"){ setTab("dashboard"); setDashSub("sotoba"); }
                 else if(t==="hilo"){ setTab("dashboard"); setDashSub("hilo"); }
                 else { setTab(t); if(t==="dashboard" && (dashSub==="sotoba" || dashSub==="hilo")) setDashSub("summary"); }
-              }} style={S.nav(isActive)}>
+              }} style={S.nav(isActive && !showSettings)}>
                 {t==="sotoba" && addStep===2 && <span style={{position:"absolute",marginLeft:14,marginTop:-8,width:7,height:7,borderRadius:"50%",background:"#e74c3c",animation:"pulse 1s infinite",display:"inline-block"}}/>}
                 {l}
               </button>
@@ -3800,7 +3802,7 @@ export default function App() {
       `}</style>
 
       <div style={{padding:10,paddingBottom:28}}>
-        {(tab==="dashboard"||tab==="history") && (() => {
+        {!showSettings && (tab==="dashboard"||tab==="history") && (() => {
           const nowP = new Date();
           const curYm = `${nowP.getFullYear()}-${String(nowP.getMonth()+1).padStart(2,"0")}`;
           const fmtYm = ym => { const [y,m]=ym.split("-"); return `${y}年${parseInt(m,10)}月`; };
@@ -4474,7 +4476,7 @@ export default function App() {
           );
         })()}
 
-        {/* 設定モーダル */}
+        {/* 設定（開いている間は、各タブの中身を表示せず設定だけを出す） */}
         {showSettings && (
           <div style={{...S.card({background:"rgba(52,152,219,0.06)",border:"1px solid rgba(52,152,219,0.25)",marginBottom:10})}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -4773,7 +4775,7 @@ export default function App() {
         )}
 
         {/* ===== DASHBOARD ===== */}
-        {tab==="dashboard" && (() => {
+        {!showSettings && tab==="dashboard" && (() => {
           // 期間フィルター
           const now = new Date();
           const thisYear = now.getFullYear();
@@ -6555,7 +6557,7 @@ export default function App() {
         })()}
 
         {/* ===== 💀 オープンリーチ振込ギャラリー ===== */}
-        {tab==="skull" && (() => {
+        {!showSettings && tab==="skull" && (() => {
           const scenes = [];
           [...sessions].reverse().forEach(s => {
             s.rounds.forEach((r, ri) => {
@@ -6649,7 +6651,7 @@ export default function App() {
         })()}
 
         {/* ===== CALENDAR ===== */}
-        {tab==="calendar" && (
+        {!showSettings && tab==="calendar" && (
           <>
             <div style={{...S.card(),padding:9}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
@@ -6764,7 +6766,7 @@ export default function App() {
         )}
 
         {/* ===== HISTORY ===== */}
-        {tab==="history" && (() => {
+        {!showSettings && tab==="history" && (() => {
           // 期間フィルター
           const now = new Date();
           const thisYear = now.getFullYear();
@@ -6918,7 +6920,7 @@ export default function App() {
         })()}
 
         {/* ===== ADD ===== */}
-        {tab==="add" && (
+        {!showSettings && tab==="add" && (
           <>
             {/* 卓の切り替え（卓ごとに別の対局を同時に記録できる） */}
             <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap",marginBottom:8}}>
@@ -7404,7 +7406,7 @@ export default function App() {
         )}
 
         {/* ===== MEMBERS ===== */}
-        {tab==="members" && (
+        {!showSettings && tab==="members" && (
           <>
             {mfShow ? (
               <div style={{...S.card({borderColor:"rgba(231,76,60,0.3)"}),marginBottom:9}}>
@@ -7508,7 +7510,7 @@ export default function App() {
             ))}
           </>
         )}
-        {tab==="shindan" && (
+        {!showSettings && tab==="shindan" && (
           <div style={{padding:"10px 0"}}>
             {(!mbtiSelf || isGuestMember(gm(mbtiSelf))) ? (
               <div style={{...S.card({background:"rgba(255,255,255,0.04)"}), marginBottom:10}}>
@@ -7657,7 +7659,7 @@ export default function App() {
             )}
           </div>
         )}
-        {tab==="taikai" && (
+        {!showSettings && tab==="taikai" && (
           <Taikai members={members} sessions={sessions} Av={Av} showToast={showToast}/>
         )}
       </div>
@@ -7729,12 +7731,12 @@ export default function App() {
             }} style={{
               position:"relative", flex:1, minHeight:56, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
               gap:3, padding:"9px 2px 8px", border:"none", background:"transparent", cursor:"pointer",
-              color:isActive?"#e74c3c":"#aaa", WebkitTapHighlightColor:"transparent",
+              color:isActive && !showSettings?"#e74c3c":"#aaa", WebkitTapHighlightColor:"transparent",
             }}>
               {t==="sotoba" && addStep===2 && <span style={{position:"absolute",top:5,right:"30%",width:8,height:8,borderRadius:"50%",background:"#e74c3c",animation:"pulse 1s infinite",display:"inline-block"}}/>}
               <span style={{fontSize:23,lineHeight:1}}>{icon}</span>
               <span style={{fontSize:10,fontWeight:isActive?700:500,lineHeight:1}}>{label}</span>
-              {isActive && <span style={{position:"absolute",top:0,width:32,height:2,borderRadius:1,background:"#e74c3c"}}/>}
+              {isActive && !showSettings && <span style={{position:"absolute",top:0,width:32,height:2,borderRadius:1,background:"#e74c3c"}}/>}
             </button>
           );
         })}
