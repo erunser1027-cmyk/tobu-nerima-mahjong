@@ -1218,6 +1218,9 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
                 <GameRounds gs={gs} teams={teams} members={members} selfId={selfId} canInput={canInput} onOpen={setGameSheet} />
               </div>
             ))}
+            <div className="tk-muted" style={{ margin: "-2px 4px 10px" }}>
+              大会の対局が終わったあとの半荘は、いつもの「➕ 対局開始」で記録してください（Tリーグの個人戦として、リーグ成績に入ります）。
+            </div>
             {isAdmin && cur.status === "final" && (
               <div className="tk-card">
                 <button className="tk-btn" disabled={!allFinalDone} onClick={finishTournament}>🏁 大会終了・結果を確定（運営）{allFinalDone ? "" : "　※全卓の入力後に押せます"}</button>
