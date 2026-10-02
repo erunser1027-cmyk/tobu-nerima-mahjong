@@ -19,6 +19,7 @@ const SHOW_HILO_ICON = false;
 const CHANGELOG = [
   { date:"2026-10-02", features:[
     "バグ修正：対局中の点数・チップ入力でテンキーを開いている間、下部固定メニューが入力欄に被る問題を修正（入力中はメニューを隠し、開いた入力欄を画面上部へ自動スクロール）",
+    "履歴タブ改善：小さな「場代込み」バッジを、カレンダーと同じ「場代込み／場代抜き」切替ボタンに変更。「▼ 全◯半荘の記録を見る」ボタンを追加（ヘッダータップでも従来どおり開閉可）",
     "カレンダー改善：日付タップ後の詳細に「場代込み／場代抜き」の切替ボタンと「全半荘の記録を見る」ボタンを追加。カレンダー下に操作ヒントを見やすく表示",
   ]},
   { date:"2026-07-04", features:[
@@ -6690,7 +6691,7 @@ export default function App() {
                 const sortedMems=[...mems].sort((a,b)=>(tot[b.id]?.sc||0)-(tot[a.id]?.sc||0));
                 return (
                   <div key={s.id} style={S.card()}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:isOpen?10:0}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                       <div onClick={()=>setHistOpen(prev=>({...prev,[s.id]:!isOpen}))} style={{cursor:"pointer",flex:1,display:"flex",alignItems:"center",gap:6}}>
                         <span style={{fontWeight:500,fontSize:12,color:"#ccc"}}>📅 {s.date}（{s.rounds.length}半荘）</span>
                         {(s.rules?.startTime || s.rules?.endTime) && (
@@ -6702,14 +6703,6 @@ export default function App() {
                           <span style={{fontSize:9,color:"#888"}}>📍 {s.rules.venue}</span>
                         )}
                         <span style={{fontSize:10,color:"#555"}}>{rL}</span>
-                        {hasBashiro && (
-                          <span
-                            onClick={e=>{e.stopPropagation();setBashiroExclude(prev=>({...prev,[s.id]:!excludeBashiro}));}}
-                            style={{fontSize:9,cursor:"pointer",padding:"2px 6px",borderRadius:4,border:`1px solid ${excludeBashiro?"rgba(255,165,0,0.4)":"rgba(52,152,219,0.3)"}`,background:excludeBashiro?"rgba(255,165,0,0.12)":"rgba(52,152,219,0.15)",color:excludeBashiro?"#f39c12":"#7fb9e0",userSelect:"none"}}
-                          >
-                            {excludeBashiro?"場代抜き":"場代込み"}
-                          </span>
-                        )}
                         <span style={{fontSize:14,color:"#888",marginLeft:"auto"}}>{isOpen?"▲":"▼"}</span>
                       </div>
                       <div style={{display:"flex",gap:4,marginLeft:8}}>
@@ -6717,6 +6710,22 @@ export default function App() {
                         <button onClick={e=>{e.stopPropagation();setAuditWho(null);setAuditModal({action:"delete",label:`${s.date}の対局`,onConfirm:(name)=>deleteSession(s.id,name)});}} style={S.bs({fontSize:11,color:"#e74c3c"})}>🗑️</button>
                       </div>
                     </div>
+                    {hasBashiro && (
+                      <div style={{display:"flex",marginBottom:8,borderRadius:8,overflow:"hidden",border:"1px solid rgba(255,255,255,0.15)"}}>
+                        {[[false,"場代込み"],[true,"場代抜き"]].map(([ex,label])=>(
+                          <button key={label} onClick={()=>setBashiroExclude(prev=>({...prev,[s.id]:ex}))}
+                            style={{flex:1,padding:"8px 0",border:"none",cursor:"pointer",fontSize:12,fontWeight:excludeBashiro===ex?700:400,
+                              background:excludeBashiro===ex?(ex?"rgba(255,165,0,0.25)":"rgba(52,152,219,0.3)"):"rgba(255,255,255,0.04)",
+                              color:excludeBashiro===ex?(ex?"#f39c12":"#7fb9e0"):"#888"}}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <button onClick={()=>setHistOpen(prev=>({...prev,[s.id]:!isOpen}))}
+                      style={{width:"100%",marginBottom:isOpen?10:4,padding:"10px 0",borderRadius:8,border:"1px solid rgba(231,76,60,0.4)",background:"rgba(231,76,60,0.1)",color:"#e74c3c",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                      {isOpen?"▲ 半荘ごとの記録を閉じる":`▼ 全${s.rounds.length}半荘の記録を見る`}
+                    </button>
                     {!isOpen && (
                       <div style={{display:"flex",flexDirection:"column",gap:2,marginTop:6}}>
                         {sortedMems.map((m,i)=>{
