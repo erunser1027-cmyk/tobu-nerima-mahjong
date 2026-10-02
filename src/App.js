@@ -19,6 +19,8 @@ const SHOW_HILO_ICON = false;
 // 今日: 2026-07-04
 const CHANGELOG = [
   { date:"2026-10-02", features:[
+    "大会モード：チーム決め（戦力均衡ランダム・手動）を追加。戦力均衡は成績（1半荘平均。対局数が少ない人は平均寄りに補正）でA/Bグループに分け、運営のスタートで全員の画面にルーレット発表。チーム一覧を大会画面とLINE用文章に表示。候補日の欄に「運営より」のコメントと当日のスタート時刻を追加。入場後のBGM音量を3に",
+    "バグ修正：設定（⚙️）を開いたまま他のタブへ移ると、設定の画面が上に残って中身が下に押し出される問題を修正（タブを移ると設定を閉じる）",
     "大会モード改善：参加の回答にコメント欄（全員に表示）を追加。チーム決めの方法（あみだくじ／戦力均衡ランダム）を参加者の投票で決められるように（締切時点で多い方、同数はあみだくじ）。賞金は「参加人数の確定後に発表」と表示。入場後のBGM音量を10に調整",
     "🎌 大会モード始動：タブを開くと入場演出（第2回 とうねり杯）とBGM。中央の牌をタップして入場。レギュレーション表示・LINE用全文コピー、参加／不参加の回答と候補日の投票（誰がどの日に入れたか表示）、運営メニュー（大会の作成・候補日の追加）を追加。🔊ボタンで消音できます",
     "複数卓対応：対局タブの上部に「卓1・卓2」の切替ボタンを追加。卓ごとに別の対局を同時に記録・LIVE配信できる（卓を切り替えるとその卓の下書きを読み込む。他の卓がLIVE中ならヘッダーに「卓◯ LIVE」を表示）。外馬は卓1のみ対応",
@@ -3694,6 +3696,7 @@ export default function App() {
             return (
               <button key={t} onClick={()=>{
                 if(t==="taikai") unlockTaikaiAudio(); // iPhoneはタップの瞬間でないと音の準備ができないため、ここで準備する
+                setShowSettings(false); // 設定を開いたままタブを移ると、設定の画面が上に残って中身が下に押し出されるため閉じる
                 if(t==="sotoba"){ setTab("dashboard"); setDashSub("sotoba"); }
                 else if(t==="hilo"){ setTab("dashboard"); setDashSub("hilo"); }
                 else { setTab(t); if(t==="dashboard" && (dashSub==="sotoba" || dashSub==="hilo")) setDashSub("summary"); }
@@ -7648,7 +7651,7 @@ export default function App() {
           </div>
         )}
         {tab==="taikai" && (
-          <Taikai members={members} Av={Av} showToast={showToast}/>
+          <Taikai members={members} sessions={sessions} Av={Av} showToast={showToast}/>
         )}
       </div>
       {/* confetti */}
@@ -7713,6 +7716,7 @@ export default function App() {
             : (tab===t && !(t==="dashboard" && (dashSub==="sotoba" || dashSub==="hilo")));
           return (
             <button key={t} onClick={()=>{
+              setShowSettings(false); // タブを移ったら設定は閉じる（上部メニューと同じ）
               if(t==="sotoba"){ setTab("dashboard"); setDashSub("sotoba"); }
               else { setTab(t); if(t==="dashboard" && (dashSub==="sotoba" || dashSub==="hilo")) setDashSub("summary"); }
             }} style={{

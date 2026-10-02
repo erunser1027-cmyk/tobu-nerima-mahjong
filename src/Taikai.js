@@ -14,7 +14,7 @@ const BGM_URL = "/taikai/taikai_bgm.mp3";
 const BG_RATIO = 1672 / 941; // 背景画像の縦横比（中央の牌の位置計算用）
 const TILE_Y = 0.36;          // 背景画像の中で、中央の牌がある高さ（上から36%）
 const VOL_INTRO = 0.9;        // 入場までの音量
-const VOL_STAY = 0.10;        // 入場後に流し続ける音量（2026-10-02 本人が実機で10に決定）
+const VOL_STAY = 0.03;        // 入場後に流し続ける音量（2026-10-02 本人が実機で3に決定）
 
 const DEFAULT_SETTINGS = {
   edition: "第2回",
@@ -30,6 +30,8 @@ const DEFAULT_SETTINGS = {
   teamMode: "vote",
   prizes: {},
   note: "",
+  dateNote: "", // 候補日の欄に出す、運営からの一言（全員に表示）
+  startTime: "", // 当日のスタート時刻（例 "18:00"）
 };
 
 const PRIZES = [
@@ -65,6 +67,39 @@ function teamTally(tEntries) {
   return v;
 }
 const teamDecision = v => (v.balanced > v.amida ? "balanced" : "amida"); // 同数（0票同士も）はあみだくじ
+
+// ---- チーム決め（段階2a：戦力均衡ランダム・手動） ----
+const TEAM_NAMES = "ABCDEFGHIJ".split("");
+const SHRINK = 20; // 強さの補正：対局数が少ない人ほど0点（平均）に近づける。合計 ÷（対局数＋20）
+// 全期間の対局記録から、1人ずつの「補正つき1半荘平均」を出す（空欄＝打っていない半荘は数えない）
+function calcStrengths(sessions, ids) {
+  const acc = Object.fromEntries(ids.map(id => [id, { sum: 0, games: 0 }]));
+  sessions.forEach(ss => (ss.rounds || []).forEach(r => {
+    ids.forEach(id => {
+      const v = r.scores?.[String(id)] ?? r.scores?.[id];
+      if (v == null || v === "") return;
+      const n = Number(v);
+      if (isNaN(n)) return;
+      acc[id].sum += n; acc[id].games += 1;
+    });
+  }));
+  const out = {};
+  ids.forEach(id => { const a = acc[id]; out[id] = { games: a.games, raw: a.games ? a.sum / a.games : 0, adj: a.sum / (a.games + SHRINK) }; });
+  return out;
+}
+// 偏りのない乱数で並べ替え（端末の暗号用乱数を使う）
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const r = new Uint32Array(1); window.crypto.getRandomValues(r);
+    const j = r[0] % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+const REVEAL_INTRO = 1.4, REVEAL_PER = 1.8, REVEAL_TAIL = 1.2; // 抽選発表の演出（秒）
+const revealTotal = n => REVEAL_INTRO + n * REVEAL_PER + REVEAL_TAIL;
+const fmtAdj = v => `${v >= 0 ? "+" : ""}${v.toFixed(1)}`;
 function entryClosed(t) {
   if (!t) return true;
   return t.status !== "entry" || !!(t.entry_deadline && todayStr() > t.entry_deadline);
@@ -144,7 +179,8 @@ function regulationLines(t, tDates, tEntries = []) {
   const s = settingsOf(t);
   const unit = s.format === "tag" ? "チーム" : "人";
   const L = [];
-  L.push(["候補日", tDates.length ? tDates.map(d => fmtDate(d.date)).join("／") : "未定"]);
+  L.push(["候補日", (tDates.length ? tDates.map(d => fmtDate(d.date)).join("／") : "未定") + (s.startTime ? `（${s.startTime}開始）` : "")]);
+  if (s.dateNote) L.push(["運営より", s.dateNote]);
   if (t.entry_deadline) L.push(["受付締切", fmtDate(t.entry_deadline)]);
   L.push(["形式", s.format === "tag" ? "タッグ戦（2人1組）" : "個人戦"]);
   L.push(["参加費", `${yen(s.entryFee)}（場代は別）`]);
@@ -182,10 +218,15 @@ function statusLabel(t) {
   if (t.status === "closed") return "受付終了";
   return t.status;
 }
-function lineText(t, tDates, tEntries) {
+function lineText(t, tDates, tEntries, members = []) {
   const s = settingsOf(t);
   const head = `【${s.edition ? s.edition + " " : ""}${t.name}】${statusLabel(t)}${t.entry_deadline ? `（締切 ${fmtDate(t.entry_deadline)}）` : ""}`;
-  const body = regulationLines(t, tDates, tEntries).map(([k, v]) => `■ ${k}：${v}`).join("\n");
+  let body = regulationLines(t, tDates, tEntries).map(([k, v]) => `■ ${k}：${v}`).join("\n");
+  const teams = t.draw?.teams;
+  if (teams?.length) {
+    const nm = id => members.find(m => m.id === id)?.name || "？";
+    body += "\n■ チーム：\n" + teams.map((tm, i) => `　チーム${TEAM_NAMES[i]}：${tm.map(nm).join(" × ")}`).join("\n");
+  }
   return `${head}\n${body}\n▼ 参加・不参加と候補日の投票はアプリから\n${APP_URL}`;
 }
 
@@ -379,7 +420,7 @@ function AvatarRow({ list, Av, empty }) {
 }
 
 // ========================================================
-export default function Taikai({ members, Av, showToast }) {
+export default function Taikai({ members, sessions = [], Av, showToast }) {
   useFonts();
 
   // 入場の段階：wait（データ待ち）→ intro → ready（タップ待ち）→ out → done
@@ -509,7 +550,7 @@ export default function Taikai({ members, Av, showToast }) {
 
   const copyLine = async () => {
     if (!cur) return;
-    const text = lineText(cur, tDates, tEntries);
+    const text = lineText(cur, tDates, tEntries, members);
     try {
       await navigator.clipboard.writeText(text);
       showToast("success", "📋 LINE用の文章をコピーしました");
@@ -518,10 +559,85 @@ export default function Taikai({ members, Av, showToast }) {
     }
   };
 
+
+  const regLines = cur ? regulationLines(cur, tDates, tEntries) : [];
+  const teamVoteOn = s.format === "tag" && s.teamMode === "vote";
+  const tally = teamTally(tEntries);
+  const commentList = tEntries.filter(e => (e.comment || "").trim())
+    .map(e => ({ e, m: members.find(m => m.id === e.member_id) })).filter(x => x.m);
+
+  // ---- チーム決め ----
+  const draw = cur?.draw || {};
+  const teams = draw.teams || null;
+  const isTag = s.format === "tag";
+  const closed = entryClosed(cur);
+  const teamMethod = s.teamMode === "vote" ? teamDecision(tally) : s.teamMode;
+  const players = joinList;
+  const strengths = calcStrengths(sessions, players.map(m => m.id));
+  const ranked = [...players].sort((a, b) => strengths[b.id].adj - strengths[a.id].adj);
+  const half = Math.floor(ranked.length / 2);
+  const groupA = ranked.slice(0, half), groupB = ranked.slice(half);
+  const evenOk = players.length >= 4 && players.length % 2 === 0;
+  const myTeamIdx = teams ? teams.findIndex(tm => tm.includes(selfId)) : -1;
+
+  const saveDraw = async (next, guardNoTeams) => {
+    let q = supabase.from("tournaments").update({ draw: next, updated_at: new Date().toISOString() }).eq("id", cur.id);
+    if (guardNoTeams) q = q.is("draw->teams", null); // 二重スタート防止：まだチームが無いときだけ書き込む
+    const { data, error } = await q.select();
+    if (error) { console.error("draw save error:", error); showToast("error", "⚠️ 保存失敗: " + error.message); return false; }
+    if (!data?.length) { showToast("error", "⚠️ すでにチームが決まっています"); reload(); return false; }
+    reload();
+    return true;
+  };
+  const startBalanced = async () => {
+    if (!evenOk) return;
+    if (!window.confirm(`戦力均衡ランダムで${players.length}人のチームを抽選します。\n一度スタートすると、全員の画面で発表されます。よろしいですか？`)) return;
+    const bShuf = shuffle(groupB.map(m => m.id));
+    const pairs = shuffle(groupA.map((m, i) => [m.id, bShuf[i]])); // チームの並び（A・B…）も抽選
+    await saveDraw({
+      ...draw, method: "balanced", teams: pairs, startedAt: new Date().toISOString(),
+      groups: { A: groupA.map(m => m.id), B: groupB.map(m => m.id) },
+      strengths: Object.fromEntries(players.map(m => [m.id, Math.round(strengths[m.id].adj * 10) / 10])),
+    }, true);
+  };
+  const saveManual = async pairs => {
+    const flat = pairs.flat();
+    if (flat.some(x => !x) || new Set(flat).size !== flat.length || flat.length !== players.length) {
+      showToast("error", "⚠️ 全員を1回ずつ、重ならないように入れてください"); return;
+    }
+    await saveDraw({ ...draw, method: "manual", teams: pairs, startedAt: new Date().toISOString() }, true);
+  };
+  const resetDraw = async () => {
+    if (!window.confirm("チームの決定をやり直しますか？\n「やり直した回数」は全員の画面に表示されます。")) return;
+    await saveDraw({ resets: (draw.resets || 0) + 1 }, false);
+    showToast("success", "チームをリセットしました");
+  };
+
+  // 抽選の発表演出（スタートの瞬間に開いていた人・途中から開いた人は続きから）
+  const [reveal, setReveal] = useState(null);
+  const lastRevealRef = useRef(null);
+  useEffect(() => {
+    const st = draw.startedAt;
+    if (!st || !teams || draw.method !== "balanced") return;
+    if (phase !== "done") return; // 入場してから判断する
+    if (lastRevealRef.current === st) return;
+    lastRevealRef.current = st;
+    const startMs = Date.parse(st);
+    if (Date.now() - startMs < revealTotal(teams.length) * 1000) setReveal({ startMs });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draw.startedAt, phase]);
+
   // ---- 今のあなたがやること ----
   const todo = (() => {
     if (!cur) return null;
-    if (!entryOpen) return { text: deadlinePassed ? "参加受付は締め切りました" : "現在、参加受付はしていません", done: true };
+    if (!entryOpen) {
+      if (isTag && myTeamIdx >= 0) {
+        const mate = members.find(m => m.id === teams[myTeamIdx].find(id => id !== selfId));
+        return { text: `あなたはチーム${TEAM_NAMES[myTeamIdx]}（相方：${mate?.name || "？"}）です`, done: true };
+      }
+      if (isTag && myEntry?.status === "join" && !teams) return { text: "参加受付は締め切りました。チーム決めをお待ちください", done: true };
+      return { text: deadlinePassed ? "参加受付は締め切りました" : "現在、参加受付はしていません", done: true };
+    }
     if (!me) return { text: "まず「あなたは誰か」を選んで、参加・不参加を回答してください", action: "回答する" };
     if (!myEntry) return { text: `参加・不参加を回答してください${cur.entry_deadline ? `（締切 ${fmtDate(cur.entry_deadline)}）` : ""}`, action: "回答する" };
     if (myEntry.status === "join") {
@@ -534,12 +650,6 @@ export default function Taikai({ members, Av, showToast }) {
     return { text: "回答済み：不参加", action: "回答を変更する", done: true };
   })();
 
-  const regLines = cur ? regulationLines(cur, tDates, tEntries) : [];
-  const teamVoteOn = s.format === "tag" && s.teamMode === "vote";
-  const tally = teamTally(tEntries);
-  const commentList = tEntries.filter(e => (e.comment || "").trim())
-    .map(e => ({ e, m: members.find(m => m.id === e.member_id) })).filter(x => x.m);
-
   return (
     <>
       <style>{CSS}</style>
@@ -547,6 +657,9 @@ export default function Taikai({ members, Av, showToast }) {
         <Intro kai={cur ? s.edition : ""} title={cur ? cur.name : "大会モード"} sub={s.subtitle} phase={phase} onTap={onIntroTap} />
       )}
       {phase === "wait" && <div className="tk-intro" style={{ background: "#000" }} onClick={onIntroTap} />}
+      {reveal && teams && (
+        <TeamReveal teams={teams} members={members} Av={Av} startMs={reveal.startMs} onClose={() => setReveal(null)} />
+      )}
 
       <div className="tk-bgfix" />
       <div className="tk-page">
@@ -594,6 +707,12 @@ export default function Taikai({ members, Av, showToast }) {
         {cur && (
           <div className="tk-card">
             <h3>候補日と投票状況</h3>
+            {s.startTime && (
+              <div style={{ display: "inline-block", marginBottom: 10, padding: "4px 12px", borderRadius: 14, background: "rgba(247,205,121,.16)", border: "1px solid rgba(247,205,121,.6)", fontSize: 13, fontWeight: 700, color: "#f7cd79" }}>
+                🕕 当日のスタート {s.startTime}〜
+              </div>
+            )}
+            <DateNote cur={cur} isAdmin={isAdmin} showToast={showToast} reload={reload} />
             {!tDates.length && <div className="tk-muted">候補日はまだ決まっていません。</div>}
             {tDates.map(d => {
               const voters = tEntries.filter(e => e.status === "join" && (e.date_ids || []).includes(d.id))
@@ -632,6 +751,70 @@ export default function Taikai({ members, Av, showToast }) {
                 ? <>決定：<b style={{ color: "#f7cd79" }}>{TEAM_SHORT[teamDecision(tally)]}</b>{tally.amida === tally.balanced ? "（同数のためあみだくじ）" : ""}</>
                 : "締切の時点で票の多い方に自動で決まります（同数はあみだくじ）"}
             </div>
+          </div>
+        )}
+
+        {/* チーム決め（受付終了後） */}
+        {cur && isTag && closed && (
+          <div className="tk-card" style={{ borderColor: teams ? "rgba(247,205,121,.6)" : "rgba(247,205,121,.28)" }}>
+            <h3>🤝 チーム{teams ? "（決定）" : "決め"}</h3>
+            {teams ? (
+              <>
+                {teams.map((tm, i) => (
+                  <div key={i} className="tk-row" style={{ padding: "8px 0", borderTop: "1px solid rgba(255,255,255,.08)", background: i === myTeamIdx ? "rgba(247,205,121,.10)" : "transparent" }}>
+                    <span style={{ fontFamily: "Dela Gothic One, sans-serif", color: "#f7cd79", width: 70, fontSize: 14 }}>チーム{TEAM_NAMES[i]}</span>
+                    {tm.map((id, k) => { const m = members.find(x => x.id === id); return (
+                      <span key={id} className="tk-row" style={{ gap: 5, flex: 1 }}>
+                        {k === 1 && <span style={{ color: "#888", marginRight: 4 }}>×</span>}
+                        <Av m={m} sz={26} /><span style={{ fontSize: 13 }}>{m?.name || "？"}</span>
+                      </span>
+                    ); })}
+                  </div>
+                ))}
+                <div className="tk-muted" style={{ marginTop: 6 }}>
+                  決め方：{{ balanced: "戦力均衡ランダム", manual: "運営が指定", amida: "あみだくじ" }[draw.method] || "—"}
+                  {draw.resets ? `（やり直し ${draw.resets}回）` : ""}
+                </div>
+                {draw.method === "balanced" && (
+                  <button className="tk-btn sub" style={{ marginTop: 8 }} onClick={() => setReveal({ startMs: Date.now() })}>🎬 抽選の様子をもう一度見る</button>
+                )}
+                {isAdmin && <button className="tk-btn sub" style={{ marginTop: 8, color: "#e74c3c", borderColor: "rgba(231,76,60,.6)" }} onClick={resetDraw}>↩ チームをやり直す（運営）</button>}
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 13, marginBottom: 8 }}>
+                  決め方：<b style={{ color: "#f7cd79" }}>{{ balanced: "戦力均衡ランダム", manual: "運営が指定", amida: "あみだくじ" }[teamMethod] || "未定"}</b>
+                  {draw.resets ? <span className="tk-muted">（やり直し {draw.resets}回）</span> : null}
+                </div>
+                {!evenOk && <div className="tk-muted" style={{ color: "#e74c3c", marginBottom: 8 }}>参加者が{players.length}人です。タッグ戦は4人以上の偶数が必要です（運営が人数を調整してください）</div>}
+                {teamMethod === "balanced" && (
+                  <>
+                    <div className="tk-muted" style={{ marginBottom: 6 }}>強さ＝1半荘あたりの平均スコア（対局数が少ない人ほど平均寄りに補正）。Aグループから1人、Bグループから1人を抽選で組みます。</div>
+                    {[["Aグループ（上位）", groupA], ["Bグループ（下位）", groupB]].map(([label, g]) => (
+                      <div key={label} style={{ marginBottom: 6 }}>
+                        <div className="tk-lbl" style={{ marginTop: 4 }}>{label}</div>
+                        {g.map(m => (
+                          <div key={m.id} className="tk-row" style={{ fontSize: 12, padding: "3px 0" }}>
+                            <Av m={m} sz={22} /><span style={{ flex: 1 }}>{m.name}</span>
+                            <span style={{ color: "#f7cd79", width: 52, textAlign: "right" }}>{fmtAdj(strengths[m.id].adj)}</span>
+                            <span className="tk-muted" style={{ width: 62, textAlign: "right" }}>{strengths[m.id].games}半荘</span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                    {isAdmin
+                      ? <button className="tk-btn" style={{ marginTop: 8 }} disabled={!evenOk} onClick={startBalanced}>🎰 抽選スタート（運営）</button>
+                      : <div className="tk-muted">運営の抽選をお待ちください。スタートすると、この画面で発表されます。</div>}
+                  </>
+                )}
+                {teamMethod === "manual" && (isAdmin
+                  ? <ManualTeams players={players} Av={Av} disabled={!evenOk} onSave={saveManual} />
+                  : <div className="tk-muted">運営がチームを決めるまでお待ちください。</div>)}
+                {teamMethod === "amida" && (
+                  <div className="tk-muted">あみだくじのライブ機能は準備中です（次の更新で公開）。</div>
+                )}
+              </>
+            )}
           </div>
         )}
 
@@ -741,6 +924,112 @@ export default function Taikai({ members, Av, showToast }) {
   );
 }
 
+// ---- 候補日への運営コメント（表示・運営はその場で編集） ----
+function DateNote({ cur, isAdmin, showToast, reload }) {
+  const note = settingsOf(cur).dateNote || "";
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(note);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (!editing) setText(note); }, [note, editing]);
+  const save = async () => {
+    setBusy(true);
+    const { error } = await supabase.from("tournaments")
+      .update({ settings: { ...(cur.settings || {}), dateNote: text.trim().slice(0, 200) }, updated_at: new Date().toISOString() })
+      .eq("id", cur.id);
+    setBusy(false);
+    if (error) { showToast("error", "⚠️ コメントの保存失敗: " + error.message); return; }
+    setEditing(false);
+    showToast("success", "📣 運営コメントを更新しました");
+    reload();
+  };
+  if (editing) {
+    return (
+      <div style={{ marginBottom: 10 }}>
+        <textarea className="tk-in" style={{ height: 60, fontSize: 13 }} maxLength={200} placeholder="例：12/12は19時開始の予定です" value={text} onChange={e => setText(e.target.value)} />
+        <div className="tk-row" style={{ marginTop: 6 }}>
+          <button className="tk-btn" style={{ padding: "8px" }} disabled={busy} onClick={save}>{busy ? "保存中..." : "保存"}</button>
+          <button className="tk-btn sub" style={{ padding: "8px" }} onClick={() => setEditing(false)}>やめる</button>
+        </div>
+      </div>
+    );
+  }
+  if (!note && !isAdmin) return null;
+  return (
+    <div style={{ marginBottom: 10, padding: "9px 11px", borderRadius: 10, background: "rgba(231,76,60,.14)", border: "1px solid rgba(231,76,60,.5)" }}>
+      {note
+        ? <div style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}><b style={{ color: "#f7cd79" }}>📣 運営より</b><br />{note}</div>
+        : <div className="tk-muted">運営コメントはまだありません</div>}
+      {isAdmin && <button className="tk-btn sub" style={{ marginTop: 6, padding: "5px 10px", width: "auto", fontSize: 11 }} onClick={() => setEditing(true)}>✏️ {note ? "編集" : "コメントを書く"}（運営）</button>}
+    </div>
+  );
+}
+
+// ---- 戦力均衡ランダムの発表演出 ----
+function TeamReveal({ teams, members, Av, startMs, onClose }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 70);
+    return () => clearInterval(t);
+  }, []);
+  const el = (now - startMs) / 1000;
+  const total = revealTotal(teams.length);
+  const pool = teams.map(tm => tm[1]);
+  const nm = id => members.find(m => m.id === id);
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 280, background: "radial-gradient(ellipse at center,rgba(60,10,10,.92),rgba(0,0,0,.96))", display: "flex", flexDirection: "column", alignItems: "center", padding: "40px 16px", overflow: "auto" }}
+      onClick={() => { if (el > total) onClose(); }}>
+      <div className="tk-kicker" style={{ fontSize: 12 }}>TEAM DRAW</div>
+      <div className="tk-hero-title" style={{ fontSize: 34, margin: "6px 0 18px" }}>チーム抽選</div>
+      <div style={{ width: "100%", maxWidth: 420 }}>
+        {teams.map((tm, i) => {
+          const t0 = REVEAL_INTRO + i * REVEAL_PER;
+          if (el < t0) return null;
+          const rolling = el < t0 + 1.0; // 最初の1秒は相方がルーレットで回る
+          const mateId = rolling ? pool[Math.floor(now / 80) % pool.length] : tm[1];
+          const a = nm(tm[0]), b = nm(mateId);
+          return (
+            <div key={i} className="tk-row" style={{ padding: "12px 10px", marginBottom: 8, borderRadius: 12, border: "1px solid rgba(247,205,121,.7)", background: rolling ? "rgba(255,255,255,.05)" : "linear-gradient(135deg,rgba(247,205,121,.22),rgba(231,76,60,.18))", boxShadow: rolling ? "none" : "0 0 18px rgba(255,140,40,.5)", transition: "all .2s" }}>
+              <span style={{ fontFamily: "Dela Gothic One, sans-serif", color: "#f7cd79", width: 74, fontSize: 15 }}>チーム{TEAM_NAMES[i]}</span>
+              <Av m={a} sz={30} /><span style={{ fontSize: 14, fontWeight: 700, margin: "0 8px 0 4px" }}>{a?.name}</span>
+              <span style={{ color: "#f7cd79", fontWeight: 900 }}>×</span>
+              <span style={{ opacity: rolling ? 0.6 : 1, display: "flex", alignItems: "center", gap: 4, marginLeft: 8 }}>
+                <Av m={b} sz={30} /><span style={{ fontSize: 14, fontWeight: 700 }}>{b?.name}</span>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {el > total
+        ? <button className="tk-btn" style={{ maxWidth: 420, marginTop: 12 }} onClick={onClose}>閉じる</button>
+        : <div className="tk-muted" style={{ marginTop: 12 }}>抽選中…</div>}
+    </div>
+  );
+}
+
+// ---- 手動でチームを組む（運営） ----
+function ManualTeams({ players, Av, disabled, onSave }) {
+  const n = Math.floor(players.length / 2);
+  const [pairs, setPairs] = useState(() => Array.from({ length: n }, () => ["", ""]));
+  const used = new Set(pairs.flat().filter(Boolean));
+  const setAt = (i, k, v) => setPairs(p => p.map((pr, j) => (j === i ? pr.map((x, kk) => (kk === k ? (v ? Number(v) : "") : x)) : pr)));
+  return (
+    <>
+      {pairs.map((pr, i) => (
+        <div key={i} className="tk-row" style={{ marginBottom: 6 }}>
+          <span style={{ width: 64, color: "#f7cd79", fontSize: 13 }}>チーム{TEAM_NAMES[i]}</span>
+          {[0, 1].map(k => (
+            <select key={k} className="tk-in" style={{ flex: 1 }} value={pr[k]} onChange={e => setAt(i, k, e.target.value)}>
+              <option value="">選ぶ</option>
+              {players.filter(m => m.id === pr[k] || !used.has(m.id)).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          ))}
+        </div>
+      ))}
+      <button className="tk-btn" style={{ marginTop: 6 }} disabled={disabled} onClick={() => onSave(pairs)}>💾 このチームで決定（運営）</button>
+    </>
+  );
+}
+
 // ---- 参加・不参加の回答 ----
 function AnswerSheet({ cur, me, Av, tDates, myEntry, dateIds, teamVoteOn, entryOpen, showToast, onDone, onChangeWho }) {
   const [status, setStatus] = useState(myEntry?.status || null);
@@ -829,12 +1118,12 @@ function AdminSheet({ me, isAdminUser, adminUnlocked, onUnlock, tournaments, cur
   const [newDate, setNewDate] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // 編集する大会が変わった・保存されたときだけ入力欄を読み直す
-  // （他の人の回答で即時反映が走っても、入力途中の内容は消さない）
+  // 編集する大会が切り替わったときだけ入力欄を読み直す
+  // （運営メニューは開くたびに最新の内容で作り直される。開いている間に即時反映が届いても、入力途中の内容は消さない）
   useEffect(() => {
     if (!creating) setForm(toForm(cur));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cur?.id, cur?.updated_at, creating]);
+  }, [cur?.id, creating]);
 
   if (!isAdminUser) {
     return (
@@ -951,6 +1240,11 @@ function AdminSheet({ me, isAdminUser, adminUnlocked, onUnlock, tournaments, cur
       <Seg value={form.status} options={[["entry", "参加受付中"], ["closed", "受付終了"]]} onChange={v => set("status", v)} />
       <div className="tk-lbl">参加受付の締切日</div>
       <input className="tk-in" type="date" value={form.entry_deadline || ""} onChange={e => set("entry_deadline", e.target.value)} />
+      <div className="tk-lbl">当日のスタート時刻（候補日の欄に表示）</div>
+      <div className="tk-row">
+        <input className="tk-in" type="time" value={form.settings.startTime || ""} onChange={e => setS("startTime", e.target.value)} />
+        {form.settings.startTime && <button className="tk-btn sub" style={{ width: "auto", whiteSpace: "nowrap", padding: "8px 10px" }} onClick={() => setS("startTime", "")}>✕ クリア</button>}
+      </div>
 
       <div className="tk-lbl">形式</div>
       <Seg value={form.settings.format} options={[["tag", "タッグ戦"], ["individual", "個人戦"]]} onChange={v => setS("format", v)} />
@@ -996,6 +1290,8 @@ function AdminSheet({ me, isAdminUser, adminUnlocked, onUnlock, tournaments, cur
         <br />※参加人数が確定するまでは目安です（余りゼロで運用）
       </div>
 
+      <div className="tk-lbl">候補日への運営コメント（全員に表示）</div>
+      <textarea className="tk-in" style={{ height: 56 }} maxLength={200} placeholder="例：12/12は19時開始の予定です" value={form.settings.dateNote || ""} onChange={e => setS("dateNote", e.target.value)} />
       <div className="tk-lbl">補足（場所・集合時間など）</div>
       <textarea className="tk-in" style={{ height: 70 }} value={form.settings.note} onChange={e => setS("note", e.target.value)} />
 
