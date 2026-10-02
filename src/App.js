@@ -17,6 +17,10 @@ const SHOW_HILO_ICON = false;
 // 更新履歴 - 新しい機能は必ず今日の日付で追加してください
 // 今日: 2026-07-04
 const CHANGELOG = [
+  { date:"2026-10-02", features:[
+    "バグ修正：対局中の点数・チップ入力でテンキーを開いている間、下部固定メニューが入力欄に被る問題を修正（入力中はメニューを隠し、開いた入力欄を画面上部へ自動スクロール）",
+    "カレンダー改善：日付タップ後の詳細に「場代込み／場代抜き」の切替ボタンと「全半荘の記録を見る」ボタンを追加。カレンダー下に操作ヒントを見やすく表示",
+  ]},
   { date:"2026-07-04", features:[
     "MBTIシェア画像：性格説明ボックスの位置をカードの下・タイプ名直下・★スター直前に修正",
     "MBTI診断：LINEシェア画像に性格説明の全文（強み・思考の癖・弱点）を複数行で焼き込み",
@@ -2197,6 +2201,7 @@ export default function App() {
   const [chipActive, setChipActive] = useState(null);
   const [histOpen, setHistOpen] = useState({});
   const [bashiroExclude, setBashiroExclude] = useState({});
+  const [calOpen, setCalOpen] = useState({}); // カレンダー詳細：全半荘ログの展開状態（session.id別）
   const [bashiroTotal, setBashiroTotal] = useState("");
   const [editSession, setEditSession] = useState(null);
   const [toast, setToast] = useState(null); // {type:"error"|"success", msg:string}
@@ -2360,6 +2365,16 @@ export default function App() {
 
   // raceBetsRefを常に最新に保つ
   useEffect(()=>{ raceBetsRef.current = raceBets; },[raceBets]);
+
+  // 点数入力のテンキーを開いたら、そのカードを画面上部へスクロール（下部メニューとの重なり防止）
+  useEffect(()=>{
+    if (rpActive == null) return;
+    const t = setTimeout(()=>{
+      const el = document.querySelector(`[data-rp-card="${rpActive}"]`);
+      if (el && el.scrollIntoView) el.scrollIntoView({ block:"start", behavior:"smooth" });
+    }, 60);
+    return ()=>clearTimeout(t);
+  },[rpActive]);
 
   // 古いlocalStorageキーをクリーンアップ（過去の絶対値データを除去）
   useEffect(()=>{
@@ -6570,7 +6585,7 @@ export default function App() {
                   );
                 })}
               </div>
-              <div style={{fontSize:9,color:"#555",marginTop:6}}>🔴対局あり　🟡役満　タップで詳細</div>
+              <div style={{fontSize:10,color:"#888",marginTop:8,textAlign:"center"}}>🔴対局あり　🟡役満　👆 色のついた日をタップすると結果が出ます</div>
             </div>
             {calSel && (() => {
               const ss = sessions.filter(s=>s.date===calSel);
@@ -6578,22 +6593,70 @@ export default function App() {
               return ss.map(s => {
                 const tot=calcTotals(s), mems=s.members.map(id=>gm(id)).filter(Boolean);
                 const sorted2=[...mems].sort((a,b)=>(tot[b.id]?.sc||0)-(tot[a.id]?.sc||0));
+                const hasBashiro=Object.values(s.bashiro||{}).some(v=>N(v)!==0);
+                const excludeBashiro=bashiroExclude[s.id]||false;
+                const isOpen=!!calOpen[s.id];
                 return (
                   <div key={s.id} style={S.card()}>
-                    <div style={{fontSize:11,fontWeight:500,color:"#ccc",marginBottom:7}}>📅 {s.date}（{s.rounds.length}半荘）</div>
+                    <div style={{fontSize:11,fontWeight:500,color:"#ccc",marginBottom:7}}>📅 {s.date}（{s.rounds.length}半荘）{s.rules?.venue && <span style={{fontSize:10,color:"#888",marginLeft:6}}>📍 {s.rules.venue}</span>}</div>
+                    {hasBashiro && (
+                      <div style={{display:"flex",marginBottom:8,borderRadius:8,overflow:"hidden",border:"1px solid rgba(255,255,255,0.15)"}}>
+                        {[[false,"場代込み"],[true,"場代抜き"]].map(([ex,label])=>(
+                          <button key={label} onClick={()=>setBashiroExclude(prev=>({...prev,[s.id]:ex}))}
+                            style={{flex:1,padding:"8px 0",border:"none",cursor:"pointer",fontSize:12,fontWeight:excludeBashiro===ex?700:400,
+                              background:excludeBashiro===ex?(ex?"rgba(255,165,0,0.25)":"rgba(52,152,219,0.3)"):"rgba(255,255,255,0.04)",
+                              color:excludeBashiro===ex?(ex?"#f39c12":"#7fb9e0"):"#888"}}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <div style={{display:"flex",flexDirection:"column",gap:3}}>
-                      {sorted2.map((m,i)=>{ const t=tot[m.id]||{}; return (
+                      {sorted2.map((m,i)=>{ const t=tot[m.id]||{}; const amt=excludeBashiro?(t.seisan||0):(t.kati||0); return (
                         <div key={m.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:i===0?"rgba(231,76,60,0.1)":"rgba(255,255,255,0.03)",borderRadius:7}}>
                           <div style={{fontSize:16,width:22,textAlign:"center"}}>{RI[i]}</div>
                           <Av m={m} sz={28}/>
                           <div style={{flex:1,fontSize:13,fontWeight:500}}>{m.name}</div>
                           <div style={{textAlign:"right"}}>
                             <div style={{fontSize:14,fontWeight:"bold",color:cc(t.sc||0)}}>{fw(t.sc||0)}</div>
-                            <div style={{fontSize:10,color:cc(t.kati||0)}}>勝{fwy(t.kati||0)}</div>
+                            <div style={{fontSize:10,color:cc(amt)}}>勝{fwy(amt)}</div>
                           </div>
                         </div>
                       );})}
                     </div>
+                    <button onClick={()=>setCalOpen(prev=>({...prev,[s.id]:!isOpen}))}
+                      style={{width:"100%",marginTop:8,padding:"10px 0",borderRadius:8,border:"1px solid rgba(231,76,60,0.4)",background:"rgba(231,76,60,0.1)",color:"#e74c3c",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                      {isOpen?"▲ 半荘ごとの記録を閉じる":`▼ 全${s.rounds.length}半荘の記録を見る`}
+                    </button>
+                    {isOpen && (
+                      <div style={{marginTop:8}}>
+                        {s.rounds.map((r,ri)=>{
+                          const sortedPl=[...r.players].sort((a,b)=>N(r.scores[String(b)]??r.scores[b])-N(r.scores[String(a)]??r.scores[a]));
+                          return (
+                            <div key={ri} style={{background:"rgba(0,0,0,0.18)",borderRadius:7,padding:6,marginBottom:5}}>
+                              <div style={{fontSize:10,color:"#888",marginBottom:4}}>第{ri+1}半荘</div>
+                              <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                                {sortedPl.map((pid,rank)=>{
+                                  const m=gm(pid); if(!m) return null;
+                                  const sc2=N(r.scores[String(pid)]??r.scores[pid]);
+                                  const isYakuman=r.yakuman&&(r.yakuman.map(Number).includes(Number(pid)));
+                                  return (
+                                    <div key={pid} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 8px",background:rank===0?"rgba(231,76,60,0.1)":"rgba(255,255,255,0.03)",borderRadius:6}}>
+                                      <span style={{fontSize:14,width:22,textAlign:"center"}}>{RI[rank]||"—"}</span>
+                                      <Av m={m} sz={24}/>
+                                      <div style={{fontSize:12,fontWeight:500,flex:1}}>
+                                        {m.name}{isYakuman&&<span style={{fontSize:10,color:"#ffd700",marginLeft:4}}>役満🀄</span>}
+                                      </div>
+                                      <div style={{fontSize:15,fontWeight:"bold",color:cc(sc2)}}>{fw(sc2)}</div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               });
@@ -6965,7 +7028,7 @@ export default function App() {
                             const othersFilled = playingMembers.filter(oid => oid !== id && String(rpSc[oid]||"").trim() !== "").length === 3;
                             const showAutoBtn = !hasV && othersFilled;
                             return (
-                              <div key={id} style={{borderRadius:9,background:hasV?"rgba(255,255,255,0.05)":"rgba(255,255,255,0.02)",border:`2px solid ${isActive?"#e74c3c":isAuto?"rgba(52,152,219,0.5)":hasV?"rgba(255,255,255,0.2)":"rgba(255,255,255,0.07)"}`,padding:8}}>
+                              <div key={id} data-rp-card={id} style={{scrollMarginTop:64,borderRadius:9,background:hasV?"rgba(255,255,255,0.05)":"rgba(255,255,255,0.02)",border:`2px solid ${isActive?"#e74c3c":isAuto?"rgba(52,152,219,0.5)":hasV?"rgba(255,255,255,0.2)":"rgba(255,255,255,0.07)"}`,padding:8}}>
                                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:7}}>
                                   <Av m={m} sz={28}/>
                                   <div>
@@ -7541,7 +7604,8 @@ export default function App() {
         </div>
       )}
 
-      {/* 下部固定メニュー：よく使う3項目（概要・対局開始・外馬） */}
+      {/* 下部固定メニュー：よく使う3項目（概要・対局開始・外馬）。点数・チップのテンキー入力中は隠す */}
+      {!(tab==="add" && (rpActive!=null || chipActive!=null)) && (
       <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"rgba(20,20,32,0.85)",backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderTop:"1px solid rgba(255,255,255,0.12)",display:"flex",zIndex:70,paddingBottom:"env(safe-area-inset-bottom)",boxSizing:"border-box"}}>
         {[["dashboard","📊","概要"],["add","➕","対局開始"],["sotoba","🏇","外馬"]].map(([t,icon,label])=>{
           const isActive = t==="sotoba"
@@ -7564,6 +7628,7 @@ export default function App() {
           );
         })}
       </div>
+      )}
     </div>
   );
 }
