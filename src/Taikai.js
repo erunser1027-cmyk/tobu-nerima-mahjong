@@ -30,6 +30,10 @@ const DEFAULT_SETTINGS = {
   teamMode: "vote",
   prizes: {},
   note: "",
+  ruleStarting: 25000,           // 配給原点
+  ruleKaeshi: 30000,             // 返し
+  ruleUma: [20, 10, -10, -20],   // ウマ（1〜4位）
+  carryOver: "none",             // 予選の点を決勝に：none（持ち越さない）／all（全部）／half（半分）
   dateNote: "", // 候補日の欄に出す、運営からの一言（全員に表示）
   startTime: "", // 当日のスタート時刻（例 "18:00"）
 };
@@ -153,6 +157,73 @@ function amidaTeams(seed, slots) {
   });
   return Object.keys(byTeam).map(Number).sort((a, b) => a - b).map(k => byTeam[k].sort((a, b) => slots[a] - slots[b]));
 }
+// ---- 予選（段階3a） ----
+const SEAT_NAMES = ["東", "南", "西", "北"];
+const ruleOf = s => ({
+  starting: Number(s.ruleStarting ?? 25000),
+  kaeshi: Number(s.ruleKaeshi ?? 30000),
+  uma: (s.ruleUma || [20, 10, -10, -20]).map(Number),
+});
+// 素点から順位点：（素点−返し）÷1000＋ウマ（トップにはオカ）。同点は上家（席順が先）が上位
+function calcPoints(raw, order, rule) {
+  const ranked = [...order].sort((a, b) => (raw[b] - raw[a]) || (order.indexOf(a) - order.indexOf(b)));
+  const oka = (rule.kaeshi - rule.starting) * 4 / 1000;
+  const out = {};
+  ranked.forEach((id, i) => { out[id] = Math.round(((raw[id] - rule.kaeshi) / 1000 + rule.uma[i] + (i === 0 ? oka : 0)) * 10) / 10; });
+  return out;
+}
+// 予選の組み合わせ（総当たりの回し方）。奇数チームは毎回1チーム休み。R回が一巡を超えたら並べ直して続ける
+function buildSchedule(T, R) {
+  const base = shuffle(Array.from({ length: T }, (_, i) => i));
+  const arr = T % 2 ? [...base, -1] : base;
+  const M = arr.length;
+  let a = [...arr];
+  const rounds = [];
+  for (let r = 0; r < R; r++) {
+    if (r > 0 && r % (M - 1) === 0) a = shuffle(arr);
+    const pairs = []; let bye = null;
+    for (let i = 0; i < M / 2; i++) {
+      const x = a[i], y = a[M - 1 - i];
+      if (x === -1) bye = y; else if (y === -1) bye = x; else pairs.push(shuffle([x, y]));
+    }
+    rounds.push({ pairs: shuffle(pairs), bye });
+    a = [a[0], a[M - 1], ...a.slice(1, M - 1)];
+  }
+  return rounds;
+}
+// 自動の席順：タッグの2人は対面（東と西、南と北）
+function autoSeats(teamX, teamY) {
+  const [X, Y] = shuffle([shuffle(teamX), shuffle(teamY)]);
+  return [X[0], Y[0], X[1], Y[1]];
+}
+const gameMembers = (g, teams) => (g.seats && g.seats.length === 4 ? g.seats : g.team_idx.flatMap(i => teams[i] || []));
+// チーム順位：順位点の合計、同点は合計チップ
+function teamStandings(teams, games) {
+  const rows = teams.map((tm, i) => ({ idx: i, members: tm, pts: 0, chips: 0, played: 0 }));
+  games.filter(g => g.status === "done").forEach(g => g.team_idx.forEach(ti => {
+    const row = rows[ti]; if (!row) return;
+    row.played += 1;
+    teams[ti].forEach(id => { row.pts += Number(g.points?.[id] || 0); row.chips += Number(g.chips?.[id] || 0); });
+  }));
+  rows.forEach(r => { r.pts = Math.round(r.pts * 10) / 10; });
+  return rows.sort((a, b) => (b.pts - a.pts) || (b.chips - a.chips));
+}
+// 個人成績：順位点・チップ・最高素点・役満
+function indivStats(ids, games) {
+  const out = Object.fromEntries(ids.map(id => [id, { pts: 0, chips: 0, best: null, yakuman: 0, games: 0 }]));
+  games.filter(g => g.status === "done").forEach(g => {
+    Object.keys(g.raw || {}).forEach(k => {
+      const id = Number(k); const o = out[id]; if (!o) return;
+      o.games += 1; o.pts += Number(g.points?.[k] || 0); o.chips += Number(g.chips?.[k] || 0);
+      const rv = Number(g.raw[k]); if (o.best === null || rv > o.best) o.best = rv;
+    });
+    (g.yakuman || []).forEach(id => { if (out[id]) out[id].yakuman += 1; });
+  });
+  Object.values(out).forEach(o => { o.pts = Math.round(o.pts * 10) / 10; });
+  return out;
+}
+const fmtPt = v => `${v > 0 ? "+" : ""}${Number(v).toFixed(1)}`;
+
 function randomSeed() {
   const r = new Uint32Array(1); window.crypto.getRandomValues(r);
   return r[0] || 1;
@@ -246,6 +317,12 @@ function regulationLines(t, tDates, tEntries = []) {
     ? `予選敗退の上位2${unit}で3位決定戦（決勝と同時進行）`
     : `決勝に進めなかった${unit}のうち、予選の最上位`]);
   L.push(["同点", `${s.tiebreak}で決定`]);
+  {
+    const r = ruleOf(s);
+    const oka = (r.kaeshi - r.starting) * 4 / 1000;
+    L.push(["順位点", `配給${r.starting.toLocaleString()}点・返し${r.kaeshi.toLocaleString()}点・ウマ${r.uma.join("/")}${oka ? `（トップにオカ+${oka}）` : ""}`]);
+    L.push(["決勝", { none: "予選の点は持ち越さない（決勝はゼロから）", all: "予選の点を全部持ち越す", half: "予選の点を半分持ち越す" }[s.carryOver] || "予選の点は持ち越さない"]);
+  }
   if (s.format === "tag") {
     if (s.teamMode === "vote") {
       const v = teamTally(tEntries);
@@ -273,15 +350,22 @@ function statusLabel(t) {
   if (!t) return "";
   if (t.status === "entry") return "参加受付中";
   if (t.status === "closed") return "受付終了";
+  if (t.status === "prelim") return "予選中";
+  if (t.status === "final") return "決勝中";
+  if (t.status === "done") return "大会終了";
   return t.status;
 }
-function lineText(t, tDates, tEntries, members = []) {
+function lineText(t, tDates, tEntries, members = [], games = []) {
   const s = settingsOf(t);
   const head = `【${s.edition ? s.edition + " " : ""}${t.name}】${statusLabel(t)}${t.entry_deadline ? `（締切 ${fmtDate(t.entry_deadline)}）` : ""}`;
   let body = regulationLines(t, tDates, tEntries).map(([k, v]) => `■ ${k}：${v}`).join("\n");
   const teams = t.draw?.teams;
   if (!teams?.length && t.draw?.method === "amida" && (t.draw.pickDeadline || t.draw.liveAt)) {
     body += `\n■ あみだくじ：${t.draw.pickDeadline ? `位置選びの締切 ${fmtDate(t.draw.pickDeadline)}` : ""}${t.draw.pickDeadline && t.draw.liveAt ? "／" : ""}${t.draw.liveAt ? `ライブ ${fmtDateTime(t.draw.liveAt)}` : ""}`;
+  }
+  const pg = games.filter(g => g.tournament_id === t.id && g.stage === "prelim" && g.status === "done");
+  if (teams?.length && pg.length) {
+    body += "\n■ 予選順位：\n" + teamStandings(teams, pg).map((r, i) => `　${i + 1}位 チーム${TEAM_NAMES[r.idx]}（${fmtPt(r.pts)}・チップ${r.chips}）`).join("\n");
   }
   if (teams?.length) {
     const nm = id => members.find(m => m.id === id)?.name || "？";
@@ -503,26 +587,30 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
   const [afterWho, setAfterWho] = useState(null);
   const [regOpen, setRegOpen] = useState(false);
   const [copyFallback, setCopyFallback] = useState(null);
+  const [games, setGames] = useState([]);
+  const [gameSheet, setGameSheet] = useState(null); // 点数を入力する対局
 
   // ---- データ ----
   const reload = useCallback(async () => {
-    const [t, d, e] = await Promise.all([
+    const [t, d, e, g] = await Promise.all([
       supabase.from("tournaments").select("*").is("deleted_at", null).order("created_at", { ascending: false }),
       supabase.from("tournament_dates").select("*").order("date"),
       supabase.from("tournament_entries").select("*"),
+      supabase.from("tournament_games").select("*").order("round").order("table_no"),
     ]);
-    const err = t.error || d.error || e.error;
+    const err = t.error || d.error || e.error || g.error;
     if (err) { console.error("taikai load error:", err); showToast("error", "⚠️ 大会データの読み込み失敗: " + err.message); }
     if (t.data) setTournaments(t.data);
     if (d.data) setDates(d.data);
     if (e.data) setEntries(e.data);
+    if (g.data) setGames(g.data);
     setLoaded(true);
   }, [showToast]);
 
   useEffect(() => {
     reload();
     // 即時反映（表ごとに別チャンネル）
-    const chs = ["tournaments", "tournament_dates", "tournament_entries"].map(table =>
+    const chs = ["tournaments", "tournament_dates", "tournament_entries", "tournament_games"].map(table =>
       supabase.channel(`taikai-${table}`)
         .on("postgres_changes", { event: "*", schema: "public", table }, () => reload())
         .subscribe((status, err) => { if (status === "CHANNEL_ERROR") console.error(`Realtime subscribe failed (${table}):`, err); })
@@ -610,7 +698,7 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
 
   const copyLine = async () => {
     if (!cur) return;
-    const text = lineText(cur, tDates, tEntries, members);
+    const text = lineText(cur, tDates, tEntries, members, games);
     try {
       await navigator.clipboard.writeText(text);
       showToast("success", "📋 LINE用の文章をコピーしました");
@@ -688,10 +776,47 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draw.startedAt, phase]);
 
+  // ---- 予選（段階3a） ----
+  const rule = ruleOf(s);
+  const tGames = cur ? games.filter(g => g.tournament_id === cur.id) : [];
+  const prelimGames = tGames.filter(g => g.stage === "prelim");
+  const inProgress = ["prelim", "final", "done"].includes(cur?.status);
+  const standings = teams ? teamStandings(teams, prelimGames) : [];
+  const indiv = teams ? indivStats(teams.flat(), tGames) : {};
+  const myNext = teams ? prelimGames.find(g => g.status !== "done" && gameMembers(g, teams).includes(selfId)) : null;
+  const canInput = g => isAdmin || (g.status !== "done" && !!teams && gameMembers(g, teams).includes(selfId));
+  const makeSchedule = async (skipConfirm) => {
+    if (!teams) return;
+    const R = Math.max(1, Number(s.prelimGames) || 3);
+    if (!skipConfirm && !window.confirm(`予選${R}回分の組み合わせ${s.seatMode === "auto" ? "と席順" : ""}を作ります。よろしいですか？`)) return;
+    const rows = buildSchedule(teams.length, R).flatMap((round, ri) => round.pairs.map((pr, ti) => ({
+      tournament_id: cur.id, stage: "prelim", round: ri + 1, table_no: ti + 1, team_idx: pr,
+      seats: s.seatMode === "auto" ? autoSeats(teams[pr[0]], teams[pr[1]]) : null,
+    })));
+    const { error } = await supabase.from("tournament_games").insert(rows);
+    if (error) { console.error("schedule error:", error); showToast("error", "⚠️ 組み合わせの保存失敗: " + error.message); return; }
+    await supabase.from("tournaments").update({ status: "prelim", updated_at: new Date().toISOString() }).eq("id", cur.id);
+    showToast("success", "🀄 予選の組み合わせを作りました");
+    reload();
+  };
+  const rebuildSchedule = async () => {
+    if (prelimGames.some(g => g.status === "done")) { showToast("error", "⚠️ 点数が入った対局があるので作り直せません"); return; }
+    if (!window.confirm("予選の組み合わせを作り直しますか？")) return;
+    const { error } = await supabase.from("tournament_games").delete().eq("tournament_id", cur.id).eq("stage", "prelim");
+    if (error) { showToast("error", "⚠️ 削除失敗: " + error.message); return; }
+    await makeSchedule(true);
+  };
+
   // ---- 今のあなたがやること ----
   const todo = (() => {
     if (!cur) return null;
     if (!entryOpen) {
+      if (cur.status === "prelim" && teams && myTeamIdx >= 0) {
+        if (!myNext) return { text: "予選のあなたの対局は、すべて終わりました", done: true };
+        const vs = myNext.team_idx.map(i => `チーム${TEAM_NAMES[i]}`).join(" vs ");
+        const seat = myNext.seats ? myNext.seats.indexOf(selfId) : -1;
+        return { text: `次は 第${myNext.round}回戦・卓${myNext.table_no}（${vs}）${seat >= 0 ? `。あなたの席は「${SEAT_NAMES[seat]}」` : ""}`, done: true };
+      }
       if (isTag && myTeamIdx >= 0) {
         const mate = members.find(m => m.id === teams[myTeamIdx].find(id => id !== selfId));
         return { text: `あなたはチーム${TEAM_NAMES[myTeamIdx]}（相方：${mate?.name || "？"}）です`, done: true };
@@ -777,6 +902,90 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
           </div>
         )}
 
+        {/* 予選（段階3a） */}
+        {cur && teams && inProgress && (
+          <>
+            <div className="tk-card" style={{ borderColor: "rgba(247,205,121,.6)" }}>
+              <h3>📊 予選順位（チーム）</h3>
+              {standings.map((r, i) => (
+                <div key={r.idx}>
+                  {i === Number(s.finalists || 2) && <div style={{ textAlign: "center", fontSize: 10, color: "#e74c3c", margin: "4px 0", letterSpacing: ".2em" }}>── 決勝進出ライン ──</div>}
+                  <div className="tk-row" style={{ padding: "7px 0", borderTop: "1px solid rgba(255,255,255,.08)", background: r.idx === myTeamIdx ? "rgba(247,205,121,.10)" : "transparent" }}>
+                    <span style={{ width: 26, fontFamily: "Dela Gothic One, sans-serif", color: i < Number(s.finalists || 2) ? "#f7cd79" : "#bbb" }}>{i + 1}</span>
+                    <span style={{ width: 56, fontSize: 13, fontWeight: 700 }}>チーム{TEAM_NAMES[r.idx]}</span>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: "#ccc", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.members.map(id => members.find(m => m.id === id)?.name || "？").join("・")}</span>
+                    <span style={{ width: 58, textAlign: "right", fontWeight: 700, color: r.pts >= 0 ? "#f7cd79" : "#7fb9e0" }}>{fmtPt(r.pts)}</span>
+                    <span className="tk-muted" style={{ width: 54, textAlign: "right" }}>🪙{r.chips}</span>
+                  </div>
+                </div>
+              ))}
+              <div className="tk-muted" style={{ marginTop: 6 }}>順位点の合計。同点は合計チップ数。消化：{prelimGames.filter(g => g.status === "done").length}／{prelimGames.length}卓</div>
+              <details style={{ marginTop: 8 }}>
+                <summary style={{ fontSize: 12, color: "#f7cd79", cursor: "pointer" }}>個人成績を見る</summary>
+                {teams.flat().map(id => ({ id, ...indiv[id] })).sort((a, b) => b.pts - a.pts).map(o => (
+                  <div key={o.id} className="tk-row" style={{ fontSize: 12, padding: "4px 0", borderTop: "1px solid rgba(255,255,255,.06)" }}>
+                    <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{members.find(m => m.id === o.id)?.name}</span>
+                    <span style={{ width: 52, textAlign: "right" }}>{fmtPt(o.pts)}</span>
+                    <span className="tk-muted" style={{ width: 44, textAlign: "right" }}>🪙{o.chips}</span>
+                    <span className="tk-muted" style={{ width: 70, textAlign: "right" }}>最高{o.best == null ? "—" : o.best.toLocaleString()}</span>
+                    <span style={{ width: 22, textAlign: "right" }}>{o.yakuman ? "★" : ""}</span>
+                  </div>
+                ))}
+              </details>
+            </div>
+
+            <div className="tk-card">
+              <h3>🀄 予選の対局</h3>
+              {[...new Set(prelimGames.map(g => g.round))].sort((a, b) => a - b).map(rd => {
+                const gs = prelimGames.filter(g => g.round === rd).sort((a, b) => a.table_no - b.table_no);
+                const playing = new Set(gs.flatMap(g => g.team_idx));
+                const resting = teams.map((_, i) => i).filter(i => !playing.has(i));
+                return (
+                  <div key={rd} style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#f7cd79", margin: "4px 0 6px" }}>第{rd}回戦{resting.length ? <span className="tk-muted">　休み：{resting.map(i => `チーム${TEAM_NAMES[i]}`).join("・")}</span> : null}</div>
+                    {gs.map(g => {
+                      const ids = gameMembers(g, teams);
+                      const done = g.status === "done";
+                      const mine = ids.includes(selfId);
+                      return (
+                        <div key={g.id} style={{ padding: "8px 10px", marginBottom: 6, borderRadius: 10, border: `1px solid ${mine ? "rgba(247,205,121,.7)" : "rgba(255,255,255,.12)"}`, background: done ? "rgba(255,255,255,.05)" : "rgba(231,76,60,.08)" }}>
+                          <div className="tk-row" style={{ justifyContent: "space-between", marginBottom: 4 }}>
+                            <span style={{ fontSize: 13, fontWeight: 700 }}>卓{g.table_no}：{g.team_idx.map(i => `チーム${TEAM_NAMES[i]}`).join(" vs ")}</span>
+                            <span className="tk-muted">{done ? "✅ 入力済み" : "未入力"}</span>
+                          </div>
+                          {ids.map((id, k) => {
+                            const m = members.find(x => x.id === id);
+                            return (
+                              <div key={id} className="tk-row" style={{ fontSize: 12, padding: "2px 0" }}>
+                                <span className="tk-muted" style={{ width: 18 }}>{g.seats ? SEAT_NAMES[k] : ""}</span>
+                                <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m?.name}{(g.yakuman || []).includes(id) ? " ★役満" : ""}</span>
+                                {done && <>
+                                  <span style={{ width: 60, textAlign: "right" }}>{Number(g.raw?.[id]).toLocaleString()}</span>
+                                  <span style={{ width: 50, textAlign: "right", fontWeight: 700, color: Number(g.points?.[id]) >= 0 ? "#f7cd79" : "#7fb9e0" }}>{fmtPt(g.points?.[id] || 0)}</span>
+                                  <span className="tk-muted" style={{ width: 38, textAlign: "right" }}>🪙{g.chips?.[id] ?? 0}</span>
+                                </>}
+                              </div>
+                            );
+                          })}
+                          {canInput(g) && (
+                            <button className="tk-btn sub" style={{ marginTop: 6, padding: "7px" }} onClick={() => setGameSheet(g.id)}>
+                              {done ? "✏️ 点数を修正（運営）" : "✍️ 点数を入力"}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+              <div className="tk-muted">決勝に進めなかった人の余興の半荘は、いつもの「➕ 対局開始」で卓2・卓3を使って記録できます（リーグ成績に入ります）。</div>
+              {isAdmin && cur.status === "prelim" && !prelimGames.some(g => g.status === "done") && (
+                <button className="tk-btn sub" style={{ marginTop: 8 }} onClick={rebuildSchedule}>↻ 組み合わせを作り直す（運営・点数が入る前だけ）</button>
+              )}
+            </div>
+          </>
+        )}
+
         {/* 候補日と投票状況 */}
         {cur && (
           <div className="tk-card">
@@ -854,7 +1063,10 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
                     🎬 {draw.method === "amida" ? "あみだくじを最初から再生" : "抽選の様子をもう一度見る"}
                   </button>
                 )}
-                {isAdmin && <button className="tk-btn sub" style={{ marginTop: 8, color: "#e74c3c", borderColor: "rgba(231,76,60,.6)" }} onClick={resetDraw}>↩ チームをやり直す（運営）</button>}
+                {isAdmin && cur.status === "closed" && (
+                  <button className="tk-btn" style={{ marginTop: 8 }} onClick={() => makeSchedule(false)}>🀄 予選の組み合わせを作る（運営）</button>
+                )}
+                {isAdmin && cur.status === "closed" && <button className="tk-btn sub" style={{ marginTop: 8, color: "#e74c3c", borderColor: "rgba(231,76,60,.6)" }} onClick={resetDraw}>↩ チームをやり直す（運営）</button>}
               </>
             ) : (
               <>
@@ -987,6 +1199,19 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
         </div>
       )}
 
+      {gameSheet && teams && (() => {
+        const g = tGames.find(x => x.id === gameSheet);
+        if (!g) return null;
+        return (
+          <div className="tk-sheet-bg" onClick={() => setGameSheet(null)}>
+            <div className="tk-sheet" onClick={e => e.stopPropagation()}>
+              <GameSheet game={g} teams={teams} members={members} Av={Av} rule={rule} showToast={showToast}
+                onDone={() => { setGameSheet(null); reload(); }} onClose={() => setGameSheet(null)} />
+            </div>
+          </div>
+        );
+      })()}
+
       {/* コピーできない端末向け：文章を表示して長押しでコピー */}
       {copyFallback && (
         <div className="tk-sheet-bg" onClick={() => setCopyFallback(null)}>
@@ -1038,6 +1263,105 @@ function DateNote({ cur, isAdmin, showToast, reload }) {
         : <div className="tk-muted">運営コメントはまだありません</div>}
       {isAdmin && <button className="tk-btn sub" style={{ marginTop: 6, padding: "5px 10px", width: "auto", fontSize: 11 }} onClick={() => setEditing(true)}>✏️ {note ? "編集" : "コメントを書く"}（運営）</button>}
     </div>
+  );
+}
+
+// ---- 対局の点数入力（素点・チップ・役満） ----
+function GameSheet({ game, teams, members, Av, rule, showToast, onDone, onClose }) {
+  const initIds = gameMembers(game, teams);
+  const [order, setOrder] = useState(initIds); // 席順（東南西北）。手動のときはここで選ぶ
+  const [raw, setRaw] = useState(() => Object.fromEntries(initIds.map(id => [id, game.raw?.[id] != null ? String(game.raw[id]) : ""])));
+  const [chips, setChips] = useState(() => Object.fromEntries(initIds.map(id => [id, game.chips?.[id] != null ? String(game.chips[id]) : ""])));
+  const [yk, setYk] = useState(game.yakuman || []);
+  const [busy, setBusy] = useState(false);
+  const total = rule.starting * 4;
+  const num = v => (v === "" || v === "-" ? null : Number(v));
+  // 3人入っていれば4人目を自動で埋めた値（表示と保存に使う）
+  const fillOne = (obj, sum) => {
+    const r = { ...obj };
+    const empty = order.filter(id => num(r[id]) === null);
+    if (empty.length === 1) r[empty[0]] = String(sum - order.filter(id => id !== empty[0]).reduce((a, id) => a + (num(r[id]) || 0), 0));
+    return r;
+  };
+  const rawF = fillOne(raw, total), chipsF = fillOne(chips, 0);
+  const rawOk = order.every(id => num(rawF[id]) !== null && !isNaN(num(rawF[id])));
+  const rawSum = order.reduce((a, id) => a + (num(rawF[id]) || 0), 0);
+  const chipSum = order.reduce((a, id) => a + (num(chipsF[id]) || 0), 0);
+  const preview = rawOk && rawSum === total ? calcPoints(Object.fromEntries(order.map(id => [id, num(rawF[id])])), order, rule) : null;
+  const seatsDup = new Set(order).size !== 4;
+  const flip = (setter, id) => setter(p => ({ ...p, [id]: p[id].startsWith("-") ? p[id].slice(1) : "-" + p[id] }));
+
+  const save = async () => {
+    if (seatsDup) { showToast("error", "⚠️ 席順に同じ人がいます"); return; }
+    if (!preview) { showToast("error", `⚠️ 素点の合計が${total.toLocaleString()}点になっていません（今 ${rawSum.toLocaleString()}点）`); return; }
+    if (chipSum !== 0) { showToast("error", `⚠️ チップの合計が0になっていません（今 ${chipSum}）`); return; }
+    setBusy(true);
+    const { error } = await supabase.from("tournament_games").update({
+      seats: order,
+      raw: Object.fromEntries(order.map(id => [id, num(rawF[id])])),
+      points: preview,
+      chips: Object.fromEntries(order.map(id => [id, num(chipsF[id]) || 0])),
+      yakuman: yk,
+      status: "done",
+      updated_at: new Date().toISOString(),
+    }).eq("id", game.id);
+    setBusy(false);
+    if (error) { console.error("game save error:", error); showToast("error", "⚠️ 点数の保存失敗: " + error.message); return; }
+    showToast("success", "✅ 点数を保存しました");
+    onDone();
+  };
+
+  const nm = id => members.find(m => m.id === id);
+  return (
+    <>
+      <h3 style={{ fontSize: 16, margin: "0 0 4px" }}>第{game.round}回戦・卓{game.table_no} の点数</h3>
+      <div className="tk-muted" style={{ marginBottom: 10 }}>
+        {game.team_idx.map(i => `チーム${TEAM_NAMES[i]}`).join(" vs ")}　素点を入れてください（3人入れると4人目は自動）。合計 {total.toLocaleString()}点
+      </div>
+      {!game.seats && (
+        <div style={{ marginBottom: 10 }}>
+          <div className="tk-lbl" style={{ marginTop: 0 }}>席順（くじの結果）</div>
+          {SEAT_NAMES.map((sn, k) => (
+            <div key={sn} className="tk-row" style={{ marginBottom: 4 }}>
+              <span style={{ width: 22, color: "#f7cd79" }}>{sn}</span>
+              <select className="tk-in" value={order[k]} onChange={e => { const v = Number(e.target.value); setOrder(o => o.map((x, j) => (j === k ? v : x))); }}>
+                {initIds.map(id => <option key={id} value={id}>{nm(id)?.name}</option>)}
+              </select>
+            </div>
+          ))}
+          {seatsDup && <div className="tk-muted" style={{ color: "#e74c3c" }}>同じ人が2つの席にいます</div>}
+        </div>
+      )}
+      {order.map((id, k) => {
+        const auto = num(raw[id]) === null && num(rawF[id]) !== null;
+        return (
+          <div key={id} style={{ padding: "8px 0", borderTop: "1px solid rgba(255,255,255,.08)" }}>
+            <div className="tk-row" style={{ marginBottom: 6 }}>
+              <span className="tk-muted" style={{ width: 18 }}>{SEAT_NAMES[k]}</span>
+              <span style={{ flexShrink: 0 }}><Av m={nm(id)} sz={26} /></span>
+              <span style={{ flex: 1, fontSize: 14, fontWeight: 700, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{nm(id)?.name}</span>
+              {preview && <span style={{ fontWeight: 700, color: preview[id] >= 0 ? "#f7cd79" : "#7fb9e0" }}>{fmtPt(preview[id])}</span>}
+            </div>
+            <div className="tk-row">
+              <input className="tk-in" style={{ flex: 2 }} inputMode="numeric" placeholder={auto ? `自動 ${Number(rawF[id]).toLocaleString()}` : "素点 例 42300"}
+                value={raw[id]} onChange={e => setRaw(p => ({ ...p, [id]: e.target.value.replace(/[^\d-]/g, "") }))} />
+              <button className="tk-btn sub" style={{ width: 34, padding: "6px 0" }} onClick={() => flip(setRaw, id)}>±</button>
+              <input className="tk-in" style={{ flex: 1 }} inputMode="numeric" placeholder={num(chips[id]) === null && num(chipsF[id]) !== null ? `自動${chipsF[id]}` : "チップ"}
+                value={chips[id]} onChange={e => setChips(p => ({ ...p, [id]: e.target.value.replace(/[^\d-]/g, "") }))} />
+              <button className="tk-btn sub" style={{ width: 34, padding: "6px 0" }} onClick={() => flip(setChips, id)}>±</button>
+              <label className="tk-row" style={{ gap: 3, fontSize: 11, whiteSpace: "nowrap" }}>
+                <input type="checkbox" checked={yk.includes(id)} onChange={e => setYk(p => (e.target.checked ? [...p, id] : p.filter(x => x !== id)))} />役満
+              </label>
+            </div>
+          </div>
+        );
+      })}
+      <div className="tk-muted" style={{ marginTop: 6 }}>
+        素点の合計：<b style={{ color: rawSum === total ? "#2ecc71" : "#e74c3c" }}>{rawSum.toLocaleString()}</b>／{total.toLocaleString()}　チップの合計：<b style={{ color: chipSum === 0 ? "#2ecc71" : "#e74c3c" }}>{chipSum}</b>
+      </div>
+      <button className="tk-btn" style={{ marginTop: 12 }} disabled={busy} onClick={save}>{busy ? "保存中..." : "この点数で確定"}</button>
+      <button className="tk-btn sub" style={{ marginTop: 8 }} onClick={onClose}>閉じる</button>
+    </>
   );
 }
 
@@ -1567,6 +1891,19 @@ function AdminSheet({ me, isAdminUser, adminUnlocked, onUnlock, tournaments, cur
       </div>
       <div className="tk-lbl">3位の決め方</div>
       <Seg value={form.settings.thirdMode} options={[["prelimTop", "予選の最上位"], ["playoff", "3位決定戦"]]} onChange={v => setS("thirdMode", v)} />
+      <div className="tk-lbl">順位点のルール（配給原点・返し・ウマ1〜4位）</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+        <input className="tk-in" type="number" inputMode="numeric" value={form.settings.ruleStarting} onChange={e => setS("ruleStarting", Number(e.target.value))} />
+        <input className="tk-in" type="number" inputMode="numeric" value={form.settings.ruleKaeshi} onChange={e => setS("ruleKaeshi", Number(e.target.value))} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6, marginTop: 6 }}>
+        {[0, 1, 2, 3].map(i => (
+          <input key={i} className="tk-in" inputMode="numeric" value={(form.settings.ruleUma || [20, 10, -10, -20])[i]}
+            onChange={e => { const u = [...(form.settings.ruleUma || [20, 10, -10, -20])]; u[i] = e.target.value === "-" ? "-" : Number(e.target.value); setS("ruleUma", u); }} />
+        ))}
+      </div>
+      <div className="tk-lbl">予選の点を決勝に持ち越す</div>
+      <Seg value={form.settings.carryOver || "none"} options={[["none", "持ち越さない"], ["all", "全部"], ["half", "半分"]]} onChange={v => setS("carryOver", v)} />
       <div className="tk-lbl">同点の規定</div>
       <input className="tk-in" value={form.settings.tiebreak} onChange={e => setS("tiebreak", e.target.value)} />
       <div className="tk-lbl">席順</div>
