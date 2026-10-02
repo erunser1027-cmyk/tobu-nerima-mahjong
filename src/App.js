@@ -1,5 +1,6 @@
 ﻿import { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
+import Taikai, { unlockTaikaiAudio } from "./Taikai";
 
 const INVITE = "とうねり";
 const AC = ["#e74c3c","#3498db","#2ecc71","#f39c12","#9b59b6","#e67e22","#1abc9c","#e91e63"];
@@ -18,6 +19,7 @@ const SHOW_HILO_ICON = false;
 // 今日: 2026-07-04
 const CHANGELOG = [
   { date:"2026-10-02", features:[
+    "🎌 大会モード始動：タブを開くと入場演出（第2回 とうねり杯）とBGM。中央の牌をタップして入場。レギュレーション表示・LINE用全文コピー、参加／不参加の回答と候補日の投票（誰がどの日に入れたか表示）、運営メニュー（大会の作成・候補日の追加）を追加。🔊ボタンで消音できます",
     "複数卓対応：対局タブの上部に「卓1・卓2」の切替ボタンを追加。卓ごとに別の対局を同時に記録・LIVE配信できる（卓を切り替えるとその卓の下書きを読み込む。他の卓がLIVE中ならヘッダーに「卓◯ LIVE」を表示）。外馬は卓1のみ対応",
     "バグ修正：LIVEの途中経過が他のスマホに即時反映されなくなっていた問題を修正（受信をテーブルごとに分割し、1つの失敗で全部止まらないようにした）。対局が精算・破棄されたら、観覧中の画面も自動で初期画面に戻る",
     "バグ修正：深夜0〜9時に始めた対局や日付を変えた対局の下書きが、アプリを開いた時に消えてしまう問題を修正（日付が違っても消さずに復元）",
@@ -3690,6 +3692,7 @@ export default function App() {
               : (tab===t && !(t==="dashboard" && (dashSub==="sotoba" || dashSub==="hilo")));
             return (
               <button key={t} onClick={()=>{
+                if(t==="taikai") unlockTaikaiAudio(); // iPhoneはタップの瞬間でないと音の準備ができないため、ここで準備する
                 if(t==="sotoba"){ setTab("dashboard"); setDashSub("sotoba"); }
                 else if(t==="hilo"){ setTab("dashboard"); setDashSub("hilo"); }
                 else { setTab(t); if(t==="dashboard" && (dashSub==="sotoba" || dashSub==="hilo")) setDashSub("summary"); }
@@ -7644,20 +7647,7 @@ export default function App() {
           </div>
         )}
         {tab==="taikai" && (
-          <div style={{
-            display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-            padding:"60px 20px",textAlign:"center",
-            background:"rgba(255,255,255,0.04)",borderRadius:12,
-            border:"1px dashed rgba(255,255,255,0.2)",
-            marginTop:20,
-          }}>
-            <div style={{fontSize:72,marginBottom:16,filter:"drop-shadow(0 0 8px rgba(255,193,7,0.4))"}}>🚧</div>
-            <div style={{fontSize:18,fontWeight:600,color:"#ffc107",marginBottom:8,letterSpacing:1}}>大会前に実装予定</div>
-            <div style={{fontSize:12,color:"#aaa",lineHeight:1.6}}>
-              🎌 大会モードは現在準備中です。<br/>
-              大会開催に合わせて機能を実装します。
-            </div>
-          </div>
+          <Taikai members={members} Av={Av} showToast={showToast}/>
         )}
       </div>
       {/* confetti */}
