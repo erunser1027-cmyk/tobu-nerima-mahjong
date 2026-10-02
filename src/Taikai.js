@@ -48,6 +48,15 @@ const PRIZES = [
   { key: "yakuman", label: "役満賞", desc: "役満1回につき、他チームの参加者1人500円", noAmount: true },
 ];
 
+// ---- 賞の種類の投票（段階4a）：優勝・準優勝・3位は固定なので対象外。1人2票 ----
+const AWARD_CANDIDATES = ["booby", "chip", "highscore", "yakuman"];
+const AWARD_VOTE_MAX = 2;
+function awardTallyOf(tEntries) {
+  const t = Object.fromEntries(AWARD_CANDIDATES.map(k => [k, []]));
+  tEntries.forEach(e => { if (e.status === "join") (e.award_votes || []).forEach(k => { if (t[k]) t[k].push(e.member_id); }); });
+  return t;
+}
+
 // ---- 日付・金額の表示 ----
 const DOW = ["日", "月", "火", "水", "木", "金", "土"];
 function fmtDate(s) {
@@ -766,6 +775,7 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
 
   const regLines = cur ? regulationLines(cur, tDates, tEntries) : [];
   const teamVoteOn = s.format === "tag" && s.teamMode === "vote";
+  const awardTally = awardTallyOf(cur ? entries.filter(e => e.tournament_id === cur.id) : []);
   const tally = teamTally(tEntries);
   const commentList = tEntries.filter(e => (e.comment || "").trim())
     .map(e => ({ e, m: members.find(m => m.id === e.member_id) })).filter(x => x.m);
@@ -976,6 +986,7 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
       const mine = (myEntry.date_ids || []).filter(id => dateIds.has(id));
       if (tDates.length && !mine.length) return { text: "参加ありがとうございます。候補日に投票してください", action: "候補日に投票する" };
       if (s.format === "tag" && s.teamMode === "vote" && !myEntry.team_vote) return { text: "チーム決めの方法（あみだくじ／戦力均衡）にも投票してください", action: "投票する" };
+      if (!(myEntry.award_votes || []).length) return { text: `採用してほしい賞を${AWARD_VOTE_MAX}つまで投票してください`, action: "投票する" };
       const names = tDates.filter(d => mine.includes(d.id)).map(d => fmtDate(d.date)).join("・");
       return { text: `回答済み：参加${names ? `（${names}）` : ""}`, action: "回答を変更する", done: true };
     }
@@ -1264,6 +1275,28 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
           </div>
         )}
 
+        {/* 賞の種類の投票（段階4a） */}
+        {cur && !["prelim", "final", "done"].includes(cur.status) && (
+          <div className="tk-card">
+            <h3>🏅 賞の投票（採用してほしい賞・1人{AWARD_VOTE_MAX}票）</h3>
+            {AWARD_CANDIDATES.map(k => {
+              const p = PRIZES.find(x => x.key === k);
+              const voters = awardTally[k].map(id => members.find(m => m.id === id)).filter(Boolean);
+              const mine = (myEntry?.award_votes || []).includes(k);
+              return (
+                <div key={k} style={{ padding: "7px 0", borderTop: "1px solid rgba(255,255,255,.08)" }}>
+                  <div className="tk-row" style={{ justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: mine ? "#f7cd79" : "#fff" }}>{mine ? "✔ " : ""}{p.label}<span className="tk-muted" style={{ marginLeft: 6, fontWeight: 400 }}>{p.desc}</span></span>
+                    <span style={{ fontSize: 13, color: "#f7cd79", fontWeight: 700, whiteSpace: "nowrap" }}>{voters.length}票</span>
+                  </div>
+                  <AvatarRow list={voters} Av={Av} empty="まだ投票がありません" />
+                </div>
+              );
+            })}
+            <div className="tk-muted" style={{ marginTop: 6 }}>投票は「参加・不参加を回答」から。採用する賞と金額は、票を参考に運営が決めます。</div>
+          </div>
+        )}
+
         {/* チーム決めの方法（投票） */}
         {cur && teamVoteOn && (
           <div className="tk-card">
@@ -1453,14 +1486,14 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
               </>
             )}
             {sheet === "answer" && cur && me && (
-              <AnswerSheet cur={cur} me={me} Av={Av} tDates={tDates} myEntry={myEntry} dateIds={dateIds} teamVoteOn={teamVoteOn}
+              <AnswerSheet cur={cur} me={me} Av={Av} tDates={tDates} myEntry={myEntry} dateIds={dateIds} teamVoteOn={teamVoteOn} awardVoteOn
                 entryOpen={entryOpen} showToast={showToast} onDone={() => { setSheet(null); reload(); }}
                 onChangeWho={() => { setAfterWho("answer"); setSheet("who"); }} />
             )}
             {sheet === "admin" && (
               <AdminSheet me={me} isAdminUser={isAdminUser} adminUnlocked={adminUnlocked}
                 onUnlock={() => { setAdminUnlocked(true); try { sessionStorage.setItem("tleague_taikai_admin", "1"); } catch (e) { /* 保存できなくても動作は続ける */ } }}
-                tournaments={tournaments} cur={isAdmin ? cur : null} dates={dates} joinCount={joinList.length}
+                tournaments={tournaments} cur={isAdmin ? cur : null} dates={dates} joinCount={joinList.length} awardTally={awardTally}
                 showToast={showToast} onSelectTournament={setSelectedTid} reload={reload} onClose={() => setSheet(null)} />
             )}
           </div>
@@ -1973,11 +2006,13 @@ function ManualTeams({ players, Av, disabled, onSave }) {
 }
 
 // ---- 参加・不参加の回答 ----
-function AnswerSheet({ cur, me, Av, tDates, myEntry, dateIds, teamVoteOn, entryOpen, showToast, onDone, onChangeWho }) {
+function AnswerSheet({ cur, me, Av, tDates, myEntry, dateIds, teamVoteOn, awardVoteOn, entryOpen, showToast, onDone, onChangeWho }) {
   const [status, setStatus] = useState(myEntry?.status || null);
   const [picked, setPicked] = useState(() => (myEntry?.date_ids || []).filter(id => dateIds.has(id)));
   const [teamVote, setTeamVote] = useState(myEntry?.team_vote || null);
   const [comment, setComment] = useState(myEntry?.comment || "");
+  const [awards, setAwards] = useState(myEntry?.award_votes || []);
+  const toggleAward = k => setAwards(a => (a.includes(k) ? a.filter(x => x !== k) : a.length >= AWARD_VOTE_MAX ? a : [...a, k]));
   const [saving, setSaving] = useState(false);
   const toggle = id => setPicked(p => (p.includes(id) ? p.filter(x => x !== id) : [...p, id]));
 
@@ -1991,6 +2026,7 @@ function AnswerSheet({ cur, me, Av, tDates, myEntry, dateIds, teamVoteOn, entryO
       date_ids: status === "join" ? picked : [],
       team_vote: status === "join" && teamVoteOn ? teamVote : null,
       comment: comment.trim().slice(0, 200),
+      award_votes: status === "join" && awardVoteOn ? awards : [],
       updated_at: new Date().toISOString(),
     }, { onConflict: "tournament_id,member_id" });
     setSaving(false);
@@ -2038,6 +2074,19 @@ function AnswerSheet({ cur, me, Av, tDates, myEntry, dateIds, teamVoteOn, entryO
           <div className="tk-muted" style={{ marginTop: 4 }}>締切の時点で多い方に決まります（同数はあみだくじ）</div>
         </>
       )}
+      {status === "join" && awardVoteOn && (
+        <>
+          <div className="tk-lbl">採用してほしい賞（{AWARD_VOTE_MAX}つまで）</div>
+          <div className="tk-seg">
+            {AWARD_CANDIDATES.map(k => (
+              <button key={k} className={awards.includes(k) ? "on" : ""} disabled={!entryOpen || (!awards.includes(k) && awards.length >= AWARD_VOTE_MAX)} onClick={() => toggleAward(k)}>
+                {PRIZES.find(x => x.key === k).label}
+              </button>
+            ))}
+          </div>
+          <div className="tk-muted" style={{ marginTop: 4 }}>{awards.length}／{AWARD_VOTE_MAX}つ選択中</div>
+        </>
+      )}
       {status && (
         <>
           <div className="tk-lbl">コメント（任意・全員に表示されます）</div>
@@ -2053,7 +2102,7 @@ function AnswerSheet({ cur, me, Av, tDates, myEntry, dateIds, teamVoteOn, entryO
 }
 
 // ---- 運営メニュー（りょう＋管理パスワード） ----
-function AdminSheet({ me, isAdminUser, adminUnlocked, onUnlock, tournaments, cur, dates, joinCount, showToast, onSelectTournament, reload, onClose }) {
+function AdminSheet({ me, isAdminUser, adminUnlocked, onUnlock, tournaments, cur, dates, joinCount, awardTally = {}, showToast, onSelectTournament, reload, onClose }) {
   const [pass, setPass] = useState("");
   const [creating, setCreating] = useState(false); // 大会がまだ無いときは、自動的に「新しく作る」になる
   const [form, setForm] = useState(() => toForm(cur));
@@ -2230,7 +2279,7 @@ function AdminSheet({ me, isAdminUser, adminUnlocked, onUnlock, tournaments, cur
           <div key={p.key} className="tk-row" style={{ marginBottom: 6 }}>
             <label className="tk-row" style={{ flex: 1, gap: 6, fontSize: 13 }}>
               <input type="checkbox" checked={!!pr.on} onChange={e => setPrize(p.key, { on: e.target.checked })} style={{ width: 18, height: 18 }} />
-              {p.label}
+              {p.label}{awardTally[p.key] ? <span className="tk-muted">（{awardTally[p.key].length}票）</span> : null}
             </label>
             {p.noAmount
               ? <span className="tk-muted" style={{ width: 150 }}>1人500円（固定）</span>
