@@ -19,6 +19,7 @@ const SHOW_HILO_ICON = false;
 const CHANGELOG = [
   { date:"2026-10-02", features:[
     "バグ修正：対局中の点数・チップ入力でテンキーを開いている間、下部固定メニューが入力欄に被る問題を修正（入力中はメニューを隠し、開いた入力欄を画面上部へ自動スクロール）",
+    "UI改善：成績概要・履歴の期間フィルターを刷新。「全期間／今年／今月」を大きな切替バー（選択中は赤塗り）にし、その下に「◀ 2026年10月 ▶」の月送りと月選択、「📌 表示中：○○（N日分）」の表示を追加",
     "履歴タブ改善：小さな「場代込み」バッジを、カレンダーと同じ「場代込み／場代抜き」切替ボタンに変更。「▼ 全◯半荘の記録を見る」ボタンを追加（ヘッダータップでも従来どおり開閉可）",
     "カレンダー改善：日付タップ後の詳細に「場代込み／場代抜き」の切替ボタンと「全半荘の記録を見る」ボタンを追加。カレンダー下に操作ヒントを見やすく表示",
   ]},
@@ -3712,44 +3713,53 @@ export default function App() {
       `}</style>
 
       <div style={{padding:10,paddingBottom:28}}>
-        {(tab==="dashboard"||tab==="history") && (
-          <div style={{display:"flex",gap:4,marginBottom:8,alignItems:"center",flexWrap:"wrap"}}>
-            {[["all","全期間"],["year","今年"],["month","今月"]].map(([v,l])=>(
-              <button key={v} onClick={()=>setPeriod(v)} style={S.pd(period===v)}>{l}</button>
-            ))}
-            {/* 月別プルダウン */}
-            <select
-              value={period==="pick" ? selectedMonth : ""}
-              onChange={e=>{
-                if(e.target.value){ setPeriod("pick"); setSelectedMonth(e.target.value); }
-              }}
-              style={{
-                padding:"4px 6px", borderRadius:13, fontSize:11, cursor:"pointer",
-                background: period==="pick" ? "transparent" : "transparent",
-                border: period==="pick" ? "1px solid #e74c3c" : "1px solid rgba(255,255,255,0.18)",
-                color: period==="pick" ? "#e74c3c" : "#888",
-                outline:"none", maxWidth:90,
-              }}>
-              <option value="" style={{background:"#1a1a2e",color:"#888"}}>月を選ぶ</option>
-              {monthList.map(m=>(
-                <option key={m} value={m} style={{background:"#1a1a2e",color:"#ccc"}}>
-                  {m.replace("-","年").replace(/^(\d+年)0?(\d+)$/,"$1$2月")}
-                </option>
+        {(tab==="dashboard"||tab==="history") && (() => {
+          const nowP = new Date();
+          const curYm = `${nowP.getFullYear()}-${String(nowP.getMonth()+1).padStart(2,"0")}`;
+          const fmtYm = ym => { const [y,m]=ym.split("-"); return `${y}年${parseInt(m,10)}月`; };
+          const baseYm = period==="pick" ? selectedMonth : period==="month" ? curYm : "";
+          const monthMode = period==="pick" || period==="month";
+          const olderYm = monthMode ? ([...monthList].sort().reverse().find(m=>m<baseYm)||null) : null; // monthListは記録のある月のみ
+          const newerYm = monthMode ? ([...monthList].sort().find(m=>m>baseYm)||null) : null;
+          const goYm = ym => { if(!ym) return; setPeriod(ym===curYm?"month":"pick"); setSelectedMonth(ym); };
+          const cnt = (period==="all" ? sessions : period==="year" ? sessions.filter(x=>x.date.startsWith(String(nowP.getFullYear()))) : sessions.filter(x=>x.date.startsWith(baseYm))).length;
+          const labelText = period==="all" ? "全期間" : period==="year" ? `${nowP.getFullYear()}年（今年）` : period==="month" ? `${fmtYm(curYm)}（今月）` : fmtYm(selectedMonth);
+          const arrowBtn = (ym, ch) => (
+            <button disabled={!ym} onClick={()=>goYm(ym)}
+              style={{width:48,minHeight:40,borderRadius:10,border:"1px solid rgba(255,255,255,0.18)",background:"rgba(255,255,255,0.06)",color:ym?"#fff":"#444",fontSize:18,cursor:ym?"pointer":"default",opacity:ym?1:0.4}}>{ch}</button>
+          );
+          return (
+          <div style={{marginBottom:10}}>
+            <div style={{display:"flex",borderRadius:10,overflow:"hidden",border:"1px solid rgba(255,255,255,0.18)"}}>
+              {[["all","全期間"],["year","今年"],["month","今月"]].map(([v,l])=>(
+                <button key={v} onClick={()=>{ setPeriod(v); if(v==="month") setSelectedMonth(""); }}
+                  style={{flex:1,minHeight:44,border:"none",cursor:"pointer",fontSize:14,fontWeight:period===v?700:400,
+                    background:period===v?"#e74c3c":"rgba(255,255,255,0.04)",color:period===v?"#fff":"#aaa"}}>{l}</button>
               ))}
-            </select>
-            {/* Mリーグタイトル画面 */}
-            {tab==="dashboard" && (
-              <button onClick={()=>setShowMLeague(true)} style={{
-                padding:"4px 10px",borderRadius:13,cursor:"pointer",fontSize:11,
-                background:"rgba(52,152,219,0.15)",
-                border:"1px solid rgba(52,152,219,0.5)",
-                color:"#3498db",fontWeight:600,
-              }}>
-                Mリーグ
-              </button>
-            )}
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8}}>
+              {arrowBtn(olderYm,"◀")}
+              <div style={{position:"relative",flex:1,minHeight:40,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:10,
+                border:period==="pick"?"1px solid #e74c3c":"1px solid rgba(255,255,255,0.18)",background:period==="pick"?"rgba(231,76,60,0.15)":"rgba(255,255,255,0.04)",
+                color:period==="pick"?"#fff":"#aaa",fontSize:14,fontWeight:period==="pick"?700:400}}>
+                {monthMode ? fmtYm(baseYm) : "📅 月を選ぶ"} <span style={{marginLeft:6,fontSize:10,color:"#888"}}>▼</span>
+                <select value={baseYm} onChange={e=>{ if(e.target.value) goYm(e.target.value); }}
+                  style={{position:"absolute",inset:0,width:"100%",height:"100%",opacity:0,cursor:"pointer"}}>
+                  <option value="">月を選ぶ</option>
+                  {monthList.map(m=><option key={m} value={m}>{fmtYm(m)}</option>)}
+                </select>
+              </div>
+              {arrowBtn(newerYm,"▶")}
+            </div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:8}}>
+              <div style={{fontSize:12,color:"#ddd"}}>📌 表示中：<span style={{fontWeight:700,color:"#e74c3c"}}>{labelText}</span><span style={{color:"#888"}}>（{cnt}日分）</span></div>
+              {tab==="dashboard" && (
+                <button onClick={()=>setShowMLeague(true)} style={{padding:"6px 12px",borderRadius:13,cursor:"pointer",fontSize:11,background:"rgba(52,152,219,0.15)",border:"1px solid rgba(52,152,219,0.5)",color:"#3498db",fontWeight:600}}>Mリーグ</button>
+              )}
+            </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* Mリーグ指標 個人タイトル */}
         {showMLeague && (() => {
