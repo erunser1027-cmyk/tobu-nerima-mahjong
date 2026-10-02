@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { supabase } from "./supabase";
 
 // ========================================================
@@ -100,6 +100,63 @@ function shuffle(arr) {
 const REVEAL_INTRO = 1.4, REVEAL_PER = 1.8, REVEAL_TAIL = 1.2; // 抽選発表の演出（秒）
 const revealTotal = n => REVEAL_INTRO + n * REVEAL_PER + REVEAL_TAIL;
 const fmtAdj = v => `${v >= 0 ? "+" : ""}${v.toFixed(1)}`;
+
+// ---- あみだくじ（段階2b） ----
+const AMIDA_ROWS = 12;                                  // 横線の段数
+const AMIDA_LINES = 2.0, AMIDA_PER = 3.0, AMIDA_TAIL = 2.5; // 線が現れる2秒 → 1人3秒 → 発表
+const amidaTotal = n => AMIDA_LINES + n * AMIDA_PER + AMIDA_TAIL;
+const TEAM_COLORS = ["#ff5a4e", "#4ea8ff", "#3ed18a", "#ffc23e", "#c77dff", "#ff8fd0", "#5ee0e0"];
+function fmtDateTime(s) {
+  if (!s) return "";
+  const [d, t] = s.split("T");
+  return `${fmtDate(d)} ${(t || "").slice(0, 5)}`;
+}
+// 種（数字1つ）から決まる乱数。同じ種なら、いつ・どの端末でも同じ並びになる
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// 種から、横線と下のゴール（チーム番号を2つずつ）を作る
+function buildLadder(seed, n) {
+  const rnd = mulberry32(seed);
+  const rungs = [];
+  for (let r = 0; r < AMIDA_ROWS; r++) {
+    const row = new Set();
+    for (let c = 0; c < n - 1; c++) if (!row.has(c - 1) && rnd() < 0.45) row.add(c);
+    rungs.push(row);
+  }
+  const labels = [];
+  for (let i = 0; i < n / 2; i++) labels.push(i, i);
+  for (let i = labels.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [labels[i], labels[j]] = [labels[j], labels[i]]; }
+  return { rungs, labels };
+}
+// 上の列から下までたどったときの、各段での列
+function traceCols(ladder, startCol) {
+  let c = startCol;
+  const cols = [c];
+  ladder.rungs.forEach(row => { if (row.has(c)) c += 1; else if (row.has(c - 1)) c -= 1; cols.push(c); });
+  return cols;
+}
+// 位置（1〜n番）と種から、チーム（2人ずつ）を出す
+function amidaTeams(seed, slots) {
+  const ids = Object.keys(slots).map(Number);
+  const lad = buildLadder(seed, ids.length);
+  const byTeam = {};
+  ids.forEach(id => {
+    const cols = traceCols(lad, slots[id] - 1);
+    const team = lad.labels[cols[cols.length - 1]];
+    (byTeam[team] = byTeam[team] || []).push(id);
+  });
+  return Object.keys(byTeam).map(Number).sort((a, b) => a - b).map(k => byTeam[k].sort((a, b) => slots[a] - slots[b]));
+}
+function randomSeed() {
+  const r = new Uint32Array(1); window.crypto.getRandomValues(r);
+  return r[0] || 1;
+}
 function entryClosed(t) {
   if (!t) return true;
   return t.status !== "entry" || !!(t.entry_deadline && todayStr() > t.entry_deadline);
@@ -223,6 +280,9 @@ function lineText(t, tDates, tEntries, members = []) {
   const head = `【${s.edition ? s.edition + " " : ""}${t.name}】${statusLabel(t)}${t.entry_deadline ? `（締切 ${fmtDate(t.entry_deadline)}）` : ""}`;
   let body = regulationLines(t, tDates, tEntries).map(([k, v]) => `■ ${k}：${v}`).join("\n");
   const teams = t.draw?.teams;
+  if (!teams?.length && t.draw?.method === "amida" && (t.draw.pickDeadline || t.draw.liveAt)) {
+    body += `\n■ あみだくじ：${t.draw.pickDeadline ? `位置選びの締切 ${fmtDate(t.draw.pickDeadline)}` : ""}${t.draw.pickDeadline && t.draw.liveAt ? "／" : ""}${t.draw.liveAt ? `ライブ ${fmtDateTime(t.draw.liveAt)}` : ""}`;
+  }
   if (teams?.length) {
     const nm = id => members.find(m => m.id === id)?.name || "？";
     body += "\n■ チーム：\n" + teams.map((tm, i) => `　チーム${TEAM_NAMES[i]}：${tm.map(nm).join(" × ")}`).join("\n");
@@ -618,12 +678,13 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
   const lastRevealRef = useRef(null);
   useEffect(() => {
     const st = draw.startedAt;
-    if (!st || !teams || draw.method !== "balanced") return;
+    if (!st || !teams || (draw.method !== "balanced" && draw.method !== "amida")) return;
     if (phase !== "done") return; // 入場してから判断する
     if (lastRevealRef.current === st) return;
     lastRevealRef.current = st;
     const startMs = Date.parse(st);
-    if (Date.now() - startMs < revealTotal(teams.length) * 1000) setReveal({ startMs });
+    const total = draw.method === "amida" ? amidaTotal(Object.keys(draw.slots || {}).length) : revealTotal(teams.length);
+    if (Date.now() - startMs < total * 1000) setReveal({ startMs });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draw.startedAt, phase]);
 
@@ -634,6 +695,16 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
       if (isTag && myTeamIdx >= 0) {
         const mate = members.find(m => m.id === teams[myTeamIdx].find(id => id !== selfId));
         return { text: `あなたはチーム${TEAM_NAMES[myTeamIdx]}（相方：${mate?.name || "？"}）です`, done: true };
+      }
+      if (isTag && myEntry?.status === "join" && !teams && teamMethod === "amida") {
+        if (!draw.locked) {
+          const mine = myEntry.amida_slot && myEntry.amida_slot <= players.length ? myEntry.amida_slot : null;
+          const dl = draw.pickDeadline ? `締切 ${fmtDate(draw.pickDeadline)}` : "";
+          return mine
+            ? { text: `あみだの位置は ${mine}番 を選んでいます${dl ? `（${dl}まで変更できます）` : ""}`, done: true }
+            : { text: `あみだの位置（番号）を選んでください${dl ? `（${dl}）` : ""}。下の「チーム決め」の欄から選べます` };
+        }
+        return { text: `あみだのライブ${draw.liveAt ? `は ${fmtDateTime(draw.liveAt)} から` : "の開始をお待ちください"}。あなたは ${draw.slots?.[selfId] ?? "？"}番 です`, done: true };
       }
       if (isTag && myEntry?.status === "join" && !teams) return { text: "参加受付は締め切りました。チーム決めをお待ちください", done: true };
       return { text: deadlinePassed ? "参加受付は締め切りました" : "現在、参加受付はしていません", done: true };
@@ -657,7 +728,10 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
         <Intro kai={cur ? s.edition : ""} title={cur ? cur.name : "大会モード"} sub={s.subtitle} phase={phase} onTap={onIntroTap} />
       )}
       {phase === "wait" && <div className="tk-intro" style={{ background: "#000" }} onClick={onIntroTap} />}
-      {reveal && teams && (
+      {reveal && teams && draw.method === "amida" && draw.slots && (
+        <AmidaLive seed={draw.seed} slots={draw.slots} members={members} Av={Av} startMs={reveal.startMs} onClose={() => setReveal(null)} />
+      )}
+      {reveal && teams && draw.method !== "amida" && (
         <TeamReveal teams={teams} members={members} Av={Av} startMs={reveal.startMs} onClose={() => setReveal(null)} />
       )}
 
@@ -775,8 +849,10 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
                   決め方：{{ balanced: "戦力均衡ランダム", manual: "運営が指定", amida: "あみだくじ" }[draw.method] || "—"}
                   {draw.resets ? `（やり直し ${draw.resets}回）` : ""}
                 </div>
-                {draw.method === "balanced" && (
-                  <button className="tk-btn sub" style={{ marginTop: 8 }} onClick={() => setReveal({ startMs: Date.now() })}>🎬 抽選の様子をもう一度見る</button>
+                {(draw.method === "balanced" || draw.method === "amida") && (
+                  <button className="tk-btn sub" style={{ marginTop: 8 }} onClick={() => setReveal({ startMs: Date.now() })}>
+                    🎬 {draw.method === "amida" ? "あみだくじを最初から再生" : "抽選の様子をもう一度見る"}
+                  </button>
                 )}
                 {isAdmin && <button className="tk-btn sub" style={{ marginTop: 8, color: "#e74c3c", borderColor: "rgba(231,76,60,.6)" }} onClick={resetDraw}>↩ チームをやり直す（運営）</button>}
               </>
@@ -811,7 +887,8 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
                   ? <ManualTeams players={players} Av={Av} disabled={!evenOk} onSave={saveManual} />
                   : <div className="tk-muted">運営がチームを決めるまでお待ちください。</div>)}
                 {teamMethod === "amida" && (
-                  <div className="tk-muted">あみだくじのライブ機能は準備中です（次の更新で公開）。</div>
+                  <AmidaCard cur={cur} draw={draw} players={players} tEntries={tEntries} members={members} Av={Av}
+                    selfId={selfId} isAdmin={isAdmin} evenOk={evenOk} saveDraw={saveDraw} showToast={showToast} reload={reload} />
                 )}
               </>
             )}
@@ -960,6 +1037,239 @@ function DateNote({ cur, isAdmin, showToast, reload }) {
         ? <div style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}><b style={{ color: "#f7cd79" }}>📣 運営より</b><br />{note}</div>
         : <div className="tk-muted">運営コメントはまだありません</div>}
       {isAdmin && <button className="tk-btn sub" style={{ marginTop: 6, padding: "5px 10px", width: "auto", fontSize: 11 }} onClick={() => setEditing(true)}>✏️ {note ? "編集" : "コメントを書く"}（運営）</button>}
+    </div>
+  );
+}
+
+// ---- あみだくじ：位置選び・締め切り・スタート（チーム決めの欄の中） ----
+function AmidaCard({ cur, draw, players, tEntries, members, Av, selfId, isAdmin, evenOk, saveDraw, showToast, reload }) {
+  const n = players.length;
+  const locked = !!draw.locked;
+  const pickClosed = locked || !!(draw.pickDeadline && todayStr() > draw.pickDeadline);
+  const amParticipant = players.some(p => p.id === selfId);
+  const [dl, setDl] = useState(draw.pickDeadline || "");
+  const [live, setLive] = useState(draw.liveAt || "");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setDl(draw.pickDeadline || ""); setLive(draw.liveAt || ""); }, [draw.pickDeadline, draw.liveAt]);
+
+  // 番号 → 選んだ人（締め切り後は確定した番号）
+  const owner = {};
+  if (locked) Object.entries(draw.slots || {}).forEach(([id, sl]) => { owner[sl] = Number(id); });
+  else tEntries.forEach(e => { if (e.status === "join" && e.amida_slot && e.amida_slot <= n && players.some(p => p.id === e.member_id)) owner[e.amida_slot] = e.member_id; });
+  const autoSet = new Set(draw.auto || []);
+
+  const pick = async slot => {
+    if (pickClosed || !amParticipant || busy) return;
+    if (owner[slot] && owner[slot] !== selfId) { showToast("error", "⚠️ その番号はもう選ばれています"); return; }
+    setBusy(true);
+    const { error } = await supabase.from("tournament_entries").update({ amida_slot: slot, updated_at: new Date().toISOString() })
+      .eq("tournament_id", cur.id).eq("member_id", selfId);
+    setBusy(false);
+    if (error) {
+      showToast("error", error.code === "23505" ? "⚠️ その番号は先に選ばれました" : "⚠️ 保存失敗: " + error.message);
+      reload(); return;
+    }
+    showToast("success", `🎲 ${slot}番を選びました`);
+    reload();
+  };
+  const saveSchedule = async () => {
+    await saveDraw({ ...draw, method: "amida", pickDeadline: dl || null, liveAt: live || null }, true);
+    showToast("success", "あみだの日程を保存しました");
+  };
+  const lock = async () => {
+    if (!evenOk) return;
+    if (!window.confirm("位置選びを締め切ります。選んでいない人には、空いている番号を抽選で割り当てます。よろしいですか？")) return;
+    const slots = {}, used = new Set(), auto = [];
+    players.forEach(p => {
+      const e = tEntries.find(x => x.member_id === p.id);
+      const sl = e?.amida_slot;
+      if (sl && sl <= n && !used.has(sl)) { slots[p.id] = sl; used.add(sl); }
+    });
+    const free = shuffle(Array.from({ length: n }, (_, i) => i + 1).filter(sl => !used.has(sl)));
+    players.forEach(p => { if (!slots[p.id]) { slots[p.id] = free.shift(); auto.push(p.id); } });
+    await saveDraw({ ...draw, method: "amida", locked: true, lockedAt: new Date().toISOString(), slots, auto }, true);
+  };
+  const unlock = async () => {
+    if (!window.confirm("締め切りを取り消して、位置選びに戻しますか？")) return;
+    await saveDraw({ ...draw, locked: false, slots: null, auto: null }, true);
+  };
+  const start = async () => {
+    if (!evenOk || !locked) return;
+    if (!window.confirm("あみだくじのライブをスタートします。\n線はこの瞬間に作られ、全員の画面で同時に流れます。やり直しはできません。よろしいですか？")) return;
+    const seed = randomSeed();
+    const teams = amidaTeams(seed, draw.slots);
+    await saveDraw({ ...draw, method: "amida", seed, teams, startedAt: new Date().toISOString() }, true);
+  };
+
+  const sz = n > 10 ? 26 : 32;
+  return (
+    <>
+      <div className="tk-muted" style={{ marginBottom: 8 }}>
+        {draw.pickDeadline && <>位置選びの締切：<b style={{ color: "#f7cd79" }}>{fmtDate(draw.pickDeadline)}</b>　</>}
+        {draw.liveAt && <>ライブ：<b style={{ color: "#f7cd79" }}>{fmtDateTime(draw.liveAt)}</b></>}
+        {!draw.pickDeadline && !draw.liveAt && "位置選びの締切とライブの日時は、運営が決めます。"}
+      </div>
+      <div className="tk-muted" style={{ marginBottom: 6 }}>
+        {locked ? "位置が確定しました。ライブで線が現れるまで、結果は誰にも分かりません。"
+          : pickClosed ? "位置選びの締切を過ぎました。運営の締め切りをお待ちください。"
+          : amParticipant ? "好きな番号を1つ選んでください（線はまだ見えません。締切までは選び直せます）" : "参加者が番号を選んでいます。"}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(n, 7)},1fr)`, gap: 6, marginBottom: 8 }}>
+        {Array.from({ length: n }, (_, i) => i + 1).map(sl => {
+          const m = members.find(x => x.id === owner[sl]);
+          const mine = owner[sl] === selfId;
+          const clickable = !pickClosed && amParticipant && (!owner[sl] || mine);
+          return (
+            <div key={sl} onClick={() => clickable && pick(sl)}
+              style={{ textAlign: "center", padding: "6px 2px", borderRadius: 9, cursor: clickable ? "pointer" : "default",
+                border: mine ? "2px solid #f7cd79" : "1px solid rgba(255,255,255,.15)",
+                background: mine ? "rgba(247,205,121,.16)" : m ? "rgba(255,255,255,.07)" : "rgba(255,255,255,.03)" }}>
+              <div style={{ fontFamily: "Orbitron, sans-serif", fontWeight: 900, fontSize: 13, color: "#f7cd79" }}>{sl}</div>
+              {m ? <Av m={m} sz={sz} /> : <div style={{ width: sz, height: sz, borderRadius: "50%", border: "1px dashed rgba(255,255,255,.3)", margin: "0 auto" }} />}
+              <div style={{ fontSize: 9, color: "#bbb", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {m ? m.name : "空き"}{m && autoSet.has(m.id) ? "（自動）" : ""}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {isAdmin && (
+        <div style={{ borderTop: "1px solid rgba(255,255,255,.1)", paddingTop: 8 }}>
+          <div className="tk-lbl" style={{ marginTop: 0 }}>位置選びの締切（運営）</div>
+          <input className="tk-in" type="date" value={dl} onChange={e => setDl(e.target.value)} />
+          <div className="tk-lbl">ライブの日時（運営）</div>
+          <input className="tk-in" type="datetime-local" value={live} onChange={e => setLive(e.target.value)} />
+          <button className="tk-btn sub" style={{ marginTop: 8 }} onClick={saveSchedule}>💾 日程を保存</button>
+          {!locked
+            ? <button className="tk-btn" style={{ marginTop: 8 }} disabled={!evenOk} onClick={lock}>🔒 位置選びを締め切る（運営）</button>
+            : <>
+                <button className="tk-btn" style={{ marginTop: 8 }} disabled={!evenOk} onClick={start}>🎬 ライブスタート（運営）</button>
+                <button className="tk-btn sub" style={{ marginTop: 8 }} onClick={unlock}>↩ 締め切りを取り消す</button>
+              </>}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ---- あみだくじのライブ演出 ----
+function AmidaLive({ seed, slots, members, Av, startMs, onClose }) {
+  const ids = useMemo(() => Object.keys(slots).map(Number).sort((a, b) => slots[a] - slots[b]), [slots]);
+  const n = ids.length;
+  const lad = useMemo(() => buildLadder(seed, n), [seed, n]);
+  const teams = useMemo(() => amidaTeams(seed, slots), [seed, slots]);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    let raf;
+    const f = () => { setNow(Date.now()); raf = requestAnimationFrame(f); };
+    raf = requestAnimationFrame(f);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const el = (now - startMs) / 1000;
+  const total = amidaTotal(n);
+  const W = Math.min(340, window.innerWidth - 32), PAD = 20, TOP = 52, H = 300, BOT = TOP + H;
+  const x = c => (n === 1 ? W / 2 : PAD + c * (W - 2 * PAD) / (n - 1));
+  const y = r => TOP + (r + 1) * H / (AMIDA_ROWS + 1);
+  const sz = n > 10 ? 20 : 26;
+  const pathOf = id => {
+    const cols = traceCols(lad, slots[id] - 1);
+    const pts = [[x(cols[0]), TOP]];
+    for (let r = 0; r < AMIDA_ROWS; r++) {
+      pts.push([x(cols[r]), y(r)]);
+      if (cols[r + 1] !== cols[r]) pts.push([x(cols[r + 1]), y(r)]);
+    }
+    pts.push([x(cols[AMIDA_ROWS]), BOT]);
+    return { pts, end: cols[AMIDA_ROWS] };
+  };
+  const partial = (pts, p) => {
+    const seg = []; let L = 0;
+    for (let i = 1; i < pts.length; i++) { const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); seg.push(d); L += d; }
+    let rem = p * L; const out = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      if (rem >= seg[i - 1]) { out.push(pts[i]); rem -= seg[i - 1]; }
+      else { const f = seg[i - 1] ? rem / seg[i - 1] : 0; out.push([pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * f, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * f]); break; }
+    }
+    return out;
+  };
+
+  const rowsShown = Math.min(AMIDA_ROWS, Math.floor(Math.max(0, el) / (AMIDA_LINES / AMIDA_ROWS)));
+  const arrived = {};
+  const traces = ids.map((id, i) => {
+    const t0 = AMIDA_LINES + i * AMIDA_PER;
+    const p = Math.max(0, Math.min(1, (el - t0) / (AMIDA_PER - 0.5)));
+    const { pts, end } = pathOf(id);
+    if (p >= 1) arrived[end] = id;
+    return { id, p, part: partial(pts, p), active: el >= t0 && p < 1, color: TEAM_COLORS[lad.labels[end] % TEAM_COLORS.length] };
+  });
+  const active = traces.find(t => t.active);
+  const finished = el >= AMIDA_LINES + n * AMIDA_PER;
+  const nm = id => members.find(m => m.id === id);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 280, overflow: "auto", padding: "26px 16px 30px",
+      background: `linear-gradient(rgba(8,4,6,.86),rgba(8,4,6,.94)),url(${BG_URL}) center/cover no-repeat` }}>
+      <button onClick={onClose} style={{ position: "absolute", top: 10, right: 12, background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.25)", color: "#fff", borderRadius: 16, padding: "4px 12px", fontSize: 12, cursor: "pointer" }}>閉じる</button>
+      <div style={{ textAlign: "center" }}>
+        <div className="tk-kicker" style={{ fontSize: 11 }}>AMIDA LIVE</div>
+        <div className="tk-hero-title" style={{ fontSize: 28, margin: "4px 0 2px" }}>あみだくじ</div>
+        <div style={{ minHeight: 22, fontSize: 13, color: "#ffe9a8", fontWeight: 700 }}>
+          {el < AMIDA_LINES ? "線が現れます…" : active ? `${slots[active.id]}番 ${nm(active.id)?.name || ""} の行き先は…` : finished ? "チームが決まりました！" : ""}
+        </div>
+      </div>
+      <div style={{ position: "relative", width: W, height: BOT + 46, margin: "6px auto 0" }}>
+        <svg width={W} height={BOT + 46} style={{ position: "absolute", left: 0, top: 0 }}>
+          {ids.map((_, c) => <line key={c} x1={x(c)} y1={TOP} x2={x(c)} y2={BOT} stroke="rgba(255,255,255,.45)" strokeWidth="2" />)}
+          {lad.rungs.slice(0, rowsShown).map((row, r) => [...row].map(c => (
+            <line key={`${r}-${c}`} x1={x(c)} y1={y(r)} x2={x(c + 1)} y2={y(r)} stroke="#f7cd79" strokeWidth="2.5" />
+          )))}
+          {traces.filter(t => t.p > 0).map(t => (
+            <polyline key={t.id} points={t.part.map(pt => pt.join(",")).join(" ")} fill="none" stroke={t.color} strokeWidth={t.active ? 5 : 4} strokeLinejoin="round" strokeLinecap="round" opacity={t.active ? 1 : 0.85} />
+          ))}
+        </svg>
+        {/* 上：番号とアイコン */}
+        {ids.map((id, c) => (
+          <div key={id} style={{ position: "absolute", left: x(c) - sz / 2, top: TOP - sz - 14, width: sz, textAlign: "center" }}>
+            <div style={{ fontFamily: "Orbitron, sans-serif", fontSize: 9, fontWeight: 900, color: "#f7cd79", marginBottom: 1 }}>{slots[id]}</div>
+            <Av m={nm(id)} sz={sz} />
+          </div>
+        ))}
+        {/* 線をたどっている人 */}
+        {active && (() => { const pt = active.part[active.part.length - 1]; return (
+          <div style={{ position: "absolute", left: pt[0] - sz / 2 - 3, top: pt[1] - sz / 2 - 3, borderRadius: "50%", border: `3px solid ${active.color}`, boxShadow: `0 0 14px ${active.color}` }}>
+            <Av m={nm(active.id)} sz={sz} />
+          </div>
+        ); })()}
+        {/* 下：ゴール（着いたらチーム名） */}
+        {ids.map((_, c) => {
+          const who = arrived[c];
+          const team = lad.labels[c];
+          return (
+            <div key={c} style={{ position: "absolute", left: x(c) - 15, top: BOT + 4, width: 30, textAlign: "center" }}>
+              {who != null
+                ? <div style={{ fontFamily: "Dela Gothic One, sans-serif", fontSize: 14, color: "#fff", background: TEAM_COLORS[team % TEAM_COLORS.length], borderRadius: 6, padding: "2px 0", boxShadow: `0 0 10px ${TEAM_COLORS[team % TEAM_COLORS.length]}` }}>{TEAM_NAMES[team]}</div>
+                : <div style={{ fontSize: 14, color: "rgba(255,255,255,.5)", border: "1px dashed rgba(255,255,255,.3)", borderRadius: 6, padding: "2px 0" }}>?</div>}
+            </div>
+          );
+        })}
+      </div>
+      {finished && (
+        <div style={{ maxWidth: 420, margin: "10px auto 0" }}>
+          {el < AMIDA_LINES + n * AMIDA_PER + 0.4 && <div style={{ position: "fixed", inset: 0, background: "#fff", opacity: 0.6, pointerEvents: "none" }} />}
+          {teams.map((tm, i) => (
+            <div key={i} className="tk-row" style={{ padding: "10px", marginBottom: 7, borderRadius: 12, border: `1px solid ${TEAM_COLORS[i % TEAM_COLORS.length]}`, background: "rgba(255,255,255,.06)", boxShadow: `0 0 12px ${TEAM_COLORS[i % TEAM_COLORS.length]}55` }}>
+              <span style={{ fontFamily: "Dela Gothic One, sans-serif", color: TEAM_COLORS[i % TEAM_COLORS.length], width: 74, fontSize: 15 }}>チーム{TEAM_NAMES[i]}</span>
+              {tm.map((id, k) => (
+                <span key={id} className="tk-row" style={{ gap: 5, flex: 1 }}>
+                  {k === 1 && <span style={{ color: "#888", marginRight: 4 }}>×</span>}
+                  <Av m={nm(id)} sz={26} /><span style={{ fontSize: 13, fontWeight: 700 }}>{nm(id)?.name}</span>
+                </span>
+              ))}
+            </div>
+          ))}
+          {el > total && <button className="tk-btn" style={{ marginTop: 6 }} onClick={onClose}>閉じる</button>}
+        </div>
+      )}
     </div>
   );
 }
