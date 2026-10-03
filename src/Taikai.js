@@ -9,6 +9,7 @@ import { supabase } from "./supabase";
 const ADMIN_PASS = "1234";
 const ADMIN_NAME = "りょう";
 const APP_URL = "https://tleague.nerima-night-crew.com";
+const SHARE_URL = APP_URL + "/taikai/"; // LINEで大会の画像つきカードになるページ（public/taikai/index.html）
 const BG_URL = "/taikai/taikai_bg.jpg";
 const BGM_URL = "/taikai/taikai_bgm.mp3";
 const BG_RATIO = 1672 / 941; // 背景画像の縦横比（中央の牌の位置計算用）
@@ -534,7 +535,23 @@ function lineText(t, tDates, tEntries, members = [], games = []) {
     const nm = id => members.find(m => m.id === id)?.name || "？";
     body += "\n■ チーム：\n" + teams.map((tm, i) => `　チーム${TEAM_NAMES[i]}：${tm.map(nm).join(" × ")}`).join("\n");
   }
-  return `${head}\n${body}\n▼ 参加・不参加と候補日の投票はアプリから\n${APP_URL}`;
+  // 受付中は、文頭に回答のお願いを入れる（LINEで一目で「回答が必要」とわかるように）
+  if (t.status === "entry") {
+    const title = `${s.edition ? s.edition + " " : ""}${t.name}`;
+    const ask = [
+      `📣【${title}】参加アンケートのお願い`,
+      "",
+      "大会の参加・不参加の回答と、出られる候補日の投票にご協力お願いします🙏",
+      t.entry_deadline ? `締切：${fmtDate(t.entry_deadline)}` : "",
+      "",
+      "▼ アプリの大会タブ →「参加・不参加を回答」から",
+      SHARE_URL,
+      "",
+      "――― 大会の内容 ―――",
+    ].filter((x, i, a) => x !== "" || a[i - 1] !== "").join("\n");
+    return `${ask}\n${head}\n${body}`;
+  }
+  return `${head}\n${body}\n▼ 大会の詳細はアプリから\n${SHARE_URL}`;
 }
 
 // ---- スタイル ----
@@ -877,6 +894,12 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
     } catch (e) {
       setCopyFallback(text); // コピーできない端末では、文章を出して長押しでコピー
     }
+  };
+  // LINEで送る：送り先を選ぶ画面が開く。文章内のリンクが大会の画像つきカードになる
+  const shareLine = () => {
+    if (!cur) return;
+    const text = lineText(cur, tDates, tEntries, members, games);
+    window.open(`https://line.me/R/msg/text/?${encodeURIComponent(text)}`, "_blank");
   };
 
 
@@ -1653,7 +1676,8 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
                 ))}
               </div>
             )}
-            <button className="tk-btn sub" style={{ marginTop: 10 }} onClick={copyLine}>📋 LINE用に全文コピー</button>
+            <button className="tk-btn" style={{ marginTop: 10, background: "linear-gradient(135deg,#06c755,#04a344)", borderColor: "#06c755", color: "#fff" }} onClick={shareLine}>💬 LINEで送る（参加のお願いつき）</button>
+            <button className="tk-btn sub" style={{ marginTop: 8 }} onClick={copyLine}>📋 LINE用に全文コピー</button>
           </div>
         )}
 
