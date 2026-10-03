@@ -306,6 +306,53 @@ function coinsOf(id, sessions, raceBets) {
 }
 const predKey = t => `T${t.id}`; // race_bets.session_date に入れる大会の印（日付の形ではないので、いつもの外馬には混ざらない）
 
+// ---- 表彰写真・歴代チャンピオン ----
+const PHOTO_BUCKET = "tournament-photos";
+const PLACE_COLORS = ["#f7cd79", "#cfd8dc", "#d7a173"];
+const MEDALS = ["🥇", "🥈", "🥉"];
+// 写真を縮める（向きはスマホの撮影情報どおり。maxSide＝長い辺のピクセル数）
+async function resizeToBlob(file, maxSide, quality) {
+  let src = null;
+  try { src = await createImageBitmap(file, { imageOrientation: "from-image" }); } catch (e) { src = null; }
+  if (!src) {
+    src = await new Promise((ok, ng) => { const img = new Image(); img.onload = () => ok(img); img.onerror = ng; img.src = URL.createObjectURL(file); });
+  }
+  const w = src.width, h = src.height;
+  const sc = Math.min(1, maxSide / Math.max(w, h));
+  const c = document.createElement("canvas");
+  c.width = Math.round(w * sc); c.height = Math.round(h * sc);
+  const ctx = c.getContext("2d");
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(src, 0, 0, c.width, c.height);
+  return await new Promise(ok => c.toBlob(ok, "image/jpeg", quality));
+}
+// 表彰写真を置く：大きい写真（1600px）と小さい写真（480px）。名前は毎回変えて上書きしない（スマホに1年保存させるため）
+async function uploadPodiumPhoto(t, slot, file) {
+  const base = `t${t.id}/p${slot}-${Date.now()}`;
+  const [big, thumb] = await Promise.all([resizeToBlob(file, 1600, 0.86), resizeToBlob(file, 480, 0.82)]);
+  const up = async (path, blob) => {
+    const { error } = await supabase.storage.from(PHOTO_BUCKET).upload(path, blob, { contentType: "image/jpeg", cacheControl: "31536000", upsert: false });
+    if (error) throw error;
+    return supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path).data.publicUrl;
+  };
+  const bigUrl = await up(`${base}.jpg`, big);
+  const thumbUrl = await up(`${base}-s.jpg`, thumb);
+  const old = t.result?.photos?.[slot];
+  const photos = { ...(t.result?.photos || {}), [slot]: { big: bigUrl, thumb: thumbUrl, paths: [`${base}.jpg`, `${base}-s.jpg`] } };
+  const { error } = await supabase.from("tournaments").update({ result: { ...(t.result || {}), photos }, updated_at: new Date().toISOString() }).eq("id", t.id);
+  if (error) throw error;
+  if (old?.paths) await supabase.storage.from(PHOTO_BUCKET).remove(old.paths); // 古い写真は消す
+}
+// 1〜3位の顔ぶれ（アプリで行った大会はチームから、過去の記録は入力した内容から）
+function podiumOf(t) {
+  const r = t.result || {};
+  if (r.manual) return [0, 1, 2].map(i => ({ ids: r.podiumIds?.[i] || [], names: r.podiumNames?.[i] || [], teamIdx: null }));
+  const teams = t.draw?.teams || [];
+  return (r.podium || []).map(ti => ({ ids: ti == null ? [] : (teams[ti] || []), names: [], teamIdx: ti }));
+}
+const placeNames = (pl, members) => [...pl.ids.map(id => members.find(m => m.id === id)?.name || "？"), ...pl.names];
+const isHall = t => t.status === "done" && (t.result?.manual ? true : !!(t.result?.podium && t.draw?.teams));
+
 function randomSeed() {
   const r = new Uint32Array(1); window.crypto.getRandomValues(r);
   return r[0] || 1;
@@ -707,6 +754,9 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
   const [copyFallback, setCopyFallback] = useState(null);
   const [games, setGames] = useState([]);
   const [raceBets, setRaceBets] = useState([]);
+  const [photoView, setPhotoView] = useState(null); // 拡大表示する写真のURL
+  const [hallView, setHallView] = useState(null);   // 歴代チャンピオンで開いた大会のID
+  const [uploading, setUploading] = useState(null); // アップロード中の枠 "大会ID-順位"
   const [gameSheet, setGameSheet] = useState(null); // 点数を入力する対局
 
   // ---- データ ----
@@ -788,7 +838,7 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
   const me = members.find(m => m.id === selfId) || null;
   const isAdminUser = me?.name === ADMIN_NAME;
   const isAdmin = isAdminUser && adminUnlocked;
-  const visible = tournaments.filter(t => t.visibility === "public" || isAdmin);
+  const visible = tournaments.filter(t => !t.settings?.manual && (t.visibility === "public" || isAdmin)); // 過去の記録（手入力）は今の大会にしない
   const cur = visible.find(t => t.id === selectedTid) || visible[0] || null;
   const s = settingsOf(cur);
   const tDates = cur ? dates.filter(d => d.tournament_id === cur.id) : [];
@@ -982,7 +1032,8 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
     await settlePredictions(null);
     reload();
   };
-  const hallOfFame = tournaments.filter(t => t.status === "done" && t.result?.podium && t.draw?.teams && (t.visibility === "public" || isAdmin));
+  const hallOfFame = tournaments.filter(t => isHall(t) && (t.visibility === "public" || isAdmin))
+    .sort((a, b) => String(b.result?.decidedAt || "").localeCompare(String(a.result?.decidedAt || "")));
 
   // ---- 優勝チーム予想（段階4b） ----
   const predOpen = !!teams && cur?.status === "closed";
@@ -1015,6 +1066,21 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
       await supabase.from("race_bets").update(podium
         ? { actual_result: [podium[0], podium[1]], is_hit: hit, payout: hit ? Number(b.odds) : 0 }
         : { actual_result: null, is_hit: null, payout: null }).eq("id", b.id);
+    }
+  };
+
+  const onPodiumPhoto = async (t, slot, file) => {
+    if (!file) return;
+    setUploading(`${t.id}-${slot}`);
+    try {
+      await uploadPodiumPhoto(t, slot, file);
+      showToast("success", "📷 写真を入れました");
+      reload();
+    } catch (e) {
+      console.error("photo upload error:", e);
+      showToast("error", "⚠️ 写真の保存失敗: " + (e?.message || e));
+    } finally {
+      setUploading(null);
     }
   };
 
@@ -1156,14 +1222,9 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
           <div className="tk-card" style={{ borderColor: "#f7cd79", boxShadow: "0 0 18px rgba(247,205,121,.35)" }}>
             <div className="tk-kicker" style={{ textAlign: "center" }}>RESULT</div>
             <div className="tk-hero-title" style={{ textAlign: "center", fontSize: 26 }}>結果発表</div>
-            {result.podium.map((ti, i) => ti == null ? null : (
-              <div key={i} className="tk-row" style={{ padding: "10px 8px", marginTop: 6, borderRadius: 12, border: `1px solid ${["#f7cd79", "#cfd8dc", "#d7a173"][i]}`, background: "rgba(255,255,255,.05)" }}>
-                <span style={{ fontSize: 26, width: 36 }}>{["🥇", "🥈", "🥉"][i]}</span>
-                <span style={{ fontFamily: "Dela Gothic One, sans-serif", color: ["#f7cd79", "#cfd8dc", "#d7a173"][i], width: 64, flexShrink: 0 }}>チーム{TEAM_NAMES[ti]}</span>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{teams[ti].map(id => members.find(m => m.id === id)?.name).join(" × ")}</span>
-                {(() => { const p = s.prizes?.[["first", "second", "third"][i]]; return p?.on && Number(p.amount) > 0 ? <span style={{ color: "#f7cd79", fontWeight: 700, fontSize: 12 }}>{yen(p.amount)}</span> : null; })()}
-              </div>
-            ))}
+            <Podium t={cur} members={members} Av={Av} isAdmin={isAdmin} uploading={uploading} onPhoto={onPodiumPhoto} onView={setPhotoView}
+              label={i => (result.podium[i] == null ? "" : `チーム${TEAM_NAMES[result.podium[i]]}`)}
+              prize={i => { const p = s.prizes?.[["first", "second", "third"][i]]; return p?.on && Number(p.amount) > 0 ? yen(p.amount) : ""; }} />
             <div className="tk-lbl" style={{ marginTop: 12 }}>個人賞</div>
             {[
               ["チップ賞", "chip", result.awards?.chip, v => `${v}枚`],
@@ -1595,20 +1656,28 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
           </div>
         )}
 
-        {/* 歴代優勝 */}
-        {hallOfFame.length > 0 && (
+        {/* 歴代チャンピオン */}
+        {(hallOfFame.length > 0 || isAdmin) && (
           <div className="tk-card">
-            <h3>👑 歴代優勝</h3>
+            <h3>👑 歴代チャンピオン</h3>
+            {hallOfFame.length === 0 && <div className="tk-muted">まだ記録がありません。</div>}
             {hallOfFame.map(t => {
-              const tm = t.draw.teams[t.result.podium[0]] || [];
+              const win = podiumOf(t)[0] || { ids: [], names: [] };
+              const ph = t.result?.photos?.[0];
               return (
-                <div key={t.id} className="tk-row" style={{ padding: "6px 0", borderTop: "1px solid rgba(255,255,255,.08)", fontSize: 13 }}>
-                  <span style={{ width: 110, color: "#f7cd79", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{settingsOf(t).edition} {t.name}</span>
-                  <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{tm.map(id => members.find(m => m.id === id)?.name || "？").join(" × ")}</span>
-                  <span className="tk-muted">{(t.result.decidedAt || "").slice(0, 10).replace(/-/g, "/")}</span>
+                <div key={t.id} className="tk-row" onClick={() => setHallView(t.id)} style={{ padding: "8px 0", borderTop: "1px solid rgba(255,255,255,.08)", cursor: "pointer", alignItems: "center" }}>
+                  {ph
+                    ? <img src={ph.thumb} alt="" loading="lazy" style={{ width: 64, height: 48, objectFit: "cover", borderRadius: 8, border: "1px solid #f7cd79", flexShrink: 0 }} />
+                    : <div style={{ width: 64, height: 48, borderRadius: 8, border: "1px dashed rgba(247,205,121,.5)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>🏆</div>}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: "#f7cd79", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{settingsOf(t).edition} {t.name}</div>
+                    <div style={{ fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>🥇 {placeNames(win, members).join(" × ") || "—"}</div>
+                  </div>
+                  <span className="tk-muted" style={{ flexShrink: 0 }}>{fmtDate(String(t.result?.decidedAt || "").slice(0, 10))}</span>
                 </div>
               );
             })}
+            {isAdmin && <button className="tk-btn sub" style={{ marginTop: 10 }} onClick={() => setSheet("history")}>＋ 過去の大会の記録を追加（運営）</button>}
           </div>
         )}
 
@@ -1632,6 +1701,9 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
       {sheet && (
         <div className="tk-sheet-bg" onClick={() => setSheet(null)}>
           <div className="tk-sheet" onClick={e => e.stopPropagation()}>
+            {sheet === "history" && isAdmin && (
+              <HistoryForm members={members} Av={Av} showToast={showToast} onDone={() => { setSheet(null); reload(); }} onClose={() => setSheet(null)} />
+            )}
             {sheet === "who" && (
               <>
                 <h3 style={{ fontSize: 16, margin: "0 0 4px" }}>あなたは誰ですか？</h3>
@@ -1663,6 +1735,39 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
             <div className="tk-sheet" onClick={e => e.stopPropagation()}>
               <GameSheet game={g} teams={teams} members={members} Av={Av} rule={rule} showToast={showToast}
                 onDone={() => { setGameSheet(null); reload(); }} onClose={() => setGameSheet(null)} />
+            </div>
+          </div>
+        );
+      })()}
+
+      {photoView && (
+        <div onClick={() => setPhotoView(null)} style={{ position: "fixed", inset: 0, zIndex: 320, background: "rgba(0,0,0,.92)", display: "flex", alignItems: "center", justifyContent: "center", padding: 10 }}>
+          <img src={photoView} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 6 }} />
+          <div style={{ position: "absolute", bottom: 18, left: 0, right: 0, textAlign: "center", fontSize: 12, color: "#aaa" }}>タップで閉じる</div>
+        </div>
+      )}
+      {hallView && (() => {
+        const t = tournaments.find(x => x.id === hallView);
+        if (!t) return null;
+        const removeRecord = async () => {
+          if (!window.confirm(`「${settingsOf(t).edition} ${t.name}」の記録を削除しますか？`)) return;
+          const { error } = await supabase.from("tournaments").update({ deleted_at: new Date().toISOString() }).eq("id", t.id);
+          if (error) { showToast("error", "⚠️ 削除失敗: " + error.message); return; }
+          // 写真も置き場から消す（容量を無駄にしないため）
+          const paths = Object.values(t.result?.photos || {}).flatMap(ph => ph?.paths || []);
+          if (paths.length) await supabase.storage.from(PHOTO_BUCKET).remove(paths);
+          setHallView(null); reload();
+        };
+        return (
+          <div className="tk-sheet-bg" onClick={() => setHallView(null)}>
+            <div className="tk-sheet" onClick={e => e.stopPropagation()}>
+              <div className="tk-kicker" style={{ textAlign: "center" }}>CHAMPIONS</div>
+              <div className="tk-hero-title" style={{ textAlign: "center", fontSize: 22 }}>{settingsOf(t).edition} {t.name}</div>
+              <div className="tk-muted" style={{ textAlign: "center", marginBottom: 8 }}>{fmtDate(String(t.result?.decidedAt || "").slice(0, 10))}{t.result?.manual ? "（過去の記録）" : ""}</div>
+              <Podium t={t} members={members} Av={Av} isAdmin={isAdmin} uploading={uploading} onPhoto={onPodiumPhoto} onView={setPhotoView}
+                label={i => (t.result?.manual ? "" : (t.result?.podium?.[i] == null ? "" : `チーム${TEAM_NAMES[t.result.podium[i]]}`))} prize={() => ""} />
+              {isAdmin && t.result?.manual && <button className="tk-btn sub" style={{ marginTop: 10, color: "#e74c3c", borderColor: "rgba(231,76,60,.6)" }} onClick={removeRecord}>🗑 この記録を削除（運営）</button>}
+              <button className="tk-btn sub" style={{ marginTop: 8 }} onClick={() => setHallView(null)}>閉じる</button>
             </div>
           </div>
         );
@@ -1719,6 +1824,124 @@ function DateNote({ cur, isAdmin, showToast, reload }) {
         : <div className="tk-muted">運営コメントはまだありません</div>}
       {isAdmin && <button className="tk-btn sub" style={{ marginTop: 6, padding: "5px 10px", width: "auto", fontSize: 11 }} onClick={() => setEditing(true)}>✏️ {note ? "編集" : "コメントを書く"}（運営）</button>}
     </div>
+  );
+}
+
+// ---- 表彰台（1位は大きな写真、2・3位は並べて表示。押すと拡大） ----
+function Podium({ t, members, Av, isAdmin, uploading, onPhoto, onView, label, prize }) {
+  const places = podiumOf(t);
+  const photos = t.result?.photos || {};
+  const PhotoBtn = ({ slot }) => {
+    if (!isAdmin) return null;
+    const busy = uploading === `${t.id}-${slot}`;
+    return (
+      <label className="tk-btn sub" style={{ display: "block", textAlign: "center", marginTop: 6, padding: "6px", fontSize: 11, cursor: busy ? "default" : "pointer" }}>
+        {busy ? "保存中..." : photos[slot] ? "📷 写真を差し替え（運営）" : "📷 写真を入れる（運営）"}
+        <input type="file" accept="image/*" style={{ display: "none" }} disabled={busy} onChange={e => { onPhoto(t, slot, e.target.files?.[0]); e.target.value = ""; }} />
+      </label>
+    );
+  };
+  const Names = ({ i }) => {
+    const pl = places[i]; if (!pl) return null;
+    return (
+      <div style={{ textAlign: "center", marginTop: 6 }}>
+        {label(i) && <div style={{ fontFamily: "Dela Gothic One, sans-serif", color: PLACE_COLORS[i], fontSize: i === 0 ? 16 : 13 }}>{label(i)}</div>}
+        <div style={{ display: "flex", justifyContent: "center", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+          {pl.ids.map(id => { const m = members.find(x => x.id === id); return (
+            <span key={id} className="tk-row" style={{ gap: 4 }}><span style={{ flexShrink: 0 }}><Av m={m} sz={i === 0 ? 26 : 20} /></span><span style={{ fontSize: i === 0 ? 14 : 12, fontWeight: 700 }}>{m?.name || "？"}</span></span>
+          ); })}
+          {pl.names.map((n, k) => <span key={`n${k}`} style={{ fontSize: i === 0 ? 14 : 12, fontWeight: 700 }}>{n}</span>)}
+        </div>
+        {prize(i) && <div style={{ color: PLACE_COLORS[i], fontWeight: 700, fontSize: 12, marginTop: 2 }}>{prize(i)}</div>}
+      </div>
+    );
+  };
+  return (
+    <div>
+      {/* 1位：大きな写真 */}
+      {places[0] && (
+        <div style={{ marginTop: 6, padding: 8, borderRadius: 14, border: `2px solid ${PLACE_COLORS[0]}`, background: "linear-gradient(180deg,rgba(247,205,121,.18),rgba(0,0,0,.2))", boxShadow: "0 0 22px rgba(247,205,121,.35)" }}>
+          <div style={{ textAlign: "center", fontSize: 30, lineHeight: 1 }}>👑</div>
+          {photos[0]
+            ? <img src={photos[0].big} alt="優勝" loading="lazy" onClick={() => onView(photos[0].big)} style={{ display: "block", width: "100%", maxHeight: 420, objectFit: "cover", borderRadius: 10, marginTop: 6, cursor: "zoom-in" }} />
+            : <div style={{ height: 150, borderRadius: 10, marginTop: 6, border: "1px dashed rgba(247,205,121,.5)", display: "flex", alignItems: "center", justifyContent: "center", color: "#bbb", fontSize: 13 }}>🥇 優勝チームの写真</div>}
+          <div style={{ textAlign: "center", fontSize: 13, color: PLACE_COLORS[0], fontWeight: 700, marginTop: 6, letterSpacing: ".2em" }}>{MEDALS[0]} CHAMPION</div>
+          <Names i={0} />
+          <PhotoBtn slot={0} />
+        </div>
+      )}
+      {/* 2位・3位：並べて表示 */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+        {[1, 2].map(i => places[i] && (places[i].ids.length || places[i].names.length) ? (
+          <div key={i} style={{ padding: 6, borderRadius: 12, border: `1px solid ${PLACE_COLORS[i]}`, background: "rgba(255,255,255,.04)" }}>
+            <div style={{ textAlign: "center", fontSize: 20 }}>{MEDALS[i]}</div>
+            {photos[i]
+              ? <img src={photos[i].thumb} alt={`${i + 1}位`} loading="lazy" onClick={() => onView(photos[i].big)} style={{ display: "block", width: "100%", aspectRatio: "4/3", objectFit: "cover", borderRadius: 8, cursor: "zoom-in" }} />
+              : <div style={{ aspectRatio: "4/3", borderRadius: 8, border: "1px dashed rgba(255,255,255,.25)", display: "flex", alignItems: "center", justifyContent: "center", color: "#888", fontSize: 11 }}>{i + 1}位の写真</div>}
+            <Names i={i} />
+            <PhotoBtn slot={i} />
+          </div>
+        ) : <div key={i} />)}
+      </div>
+    </div>
+  );
+}
+
+// ---- 過去の大会の記録を追加（運営） ----
+function HistoryForm({ members, Av, showToast, onDone, onClose }) {
+  const [edition, setEdition] = useState("第1回");
+  const [name, setName] = useState("とうねり杯");
+  const [date, setDate] = useState("");
+  const [ids, setIds] = useState([[], [], []]);
+  const [texts, setTexts] = useState(["", "", ""]);
+  const [busy, setBusy] = useState(false);
+  const addId = (i, id) => { if (!id) return; setIds(p => p.map((a, k) => (k === i && !a.includes(Number(id)) ? [...a, Number(id)] : a))); };
+  const delId = (i, id) => setIds(p => p.map((a, k) => (k === i ? a.filter(x => x !== id) : a)));
+  const save = async () => {
+    if (!date) { showToast("error", "⚠️ 日付を入れてください"); return; }
+    const names = texts.map(tx => tx.split(/[、,，・\s]+/).map(x => x.trim()).filter(Boolean));
+    if (!ids[0].length && !names[0].length) { showToast("error", "⚠️ 優勝の人を入れてください"); return; }
+    setBusy(true);
+    const { error } = await supabase.from("tournaments").insert({
+      name: name.trim() || "とうねり杯", visibility: "public", status: "done",
+      settings: { edition: edition.trim(), manual: true, format: "tag" },
+      result: { manual: true, podiumIds: ids, podiumNames: names, decidedAt: date },
+    });
+    setBusy(false);
+    if (error) { showToast("error", "⚠️ 保存失敗: " + error.message); return; }
+    showToast("success", "👑 過去の記録を追加しました（写真は歴代チャンピオンから入れられます）");
+    onDone();
+  };
+  return (
+    <>
+      <h3 style={{ fontSize: 16, margin: "0 0 4px" }}>＋ 過去の大会の記録</h3>
+      <div className="tk-muted" style={{ marginBottom: 6 }}>歴代チャンピオンに並びます。今の大会（受付・予選など）には出ません。</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 6 }}>
+        <div><div className="tk-lbl">第何回</div><input className="tk-in" value={edition} onChange={e => setEdition(e.target.value)} /></div>
+        <div><div className="tk-lbl">大会名</div><input className="tk-in" value={name} onChange={e => setName(e.target.value)} /></div>
+      </div>
+      <div className="tk-lbl">日付</div>
+      <input className="tk-in" type="date" value={date} onChange={e => setDate(e.target.value)} />
+      {[0, 1, 2].map(i => (
+        <div key={i} style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,.1)" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: PLACE_COLORS[i] }}>{MEDALS[i]} {i + 1}位</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "6px 0" }}>
+            {ids[i].map(id => { const m = members.find(x => x.id === id); return (
+              <span key={id} className="tk-row" onClick={() => delId(i, id)} style={{ gap: 4, padding: "3px 8px", borderRadius: 14, border: "1px solid rgba(255,255,255,.25)", cursor: "pointer", fontSize: 12 }}>
+                <span style={{ flexShrink: 0 }}><Av m={m} sz={18} /></span>{m?.name} ✕
+              </span>
+            ); })}
+          </div>
+          <select className="tk-in" value="" onChange={e => addId(i, e.target.value)}>
+            <option value="">メンバーから選ぶ</option>
+            {members.filter(m => !ids[i].includes(m.id)).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+          <input className="tk-in" style={{ marginTop: 6 }} placeholder="アプリにいない人は名前を入力（複数は「、」で区切る）" value={texts[i]} onChange={e => setTexts(p => p.map((x, k) => (k === i ? e.target.value : x)))} />
+        </div>
+      ))}
+      <button className="tk-btn" style={{ marginTop: 14 }} disabled={busy} onClick={save}>{busy ? "保存中..." : "この記録を追加"}</button>
+      <button className="tk-btn sub" style={{ marginTop: 8 }} onClick={onClose}>閉じる</button>
+    </>
   );
 }
 
@@ -2462,7 +2685,7 @@ function AdminSheet({ me, isAdminUser, adminUnlocked, onUnlock, tournaments, cur
       {options.map(([v, label]) => <button key={v} className={value === v ? "on" : ""} onClick={() => onChange(v)}>{label}</button>)}
     </div>
   );
-  const visibleList = tournaments.filter(t => !t.deleted_at);
+  const visibleList = tournaments.filter(t => !t.deleted_at && !t.settings?.manual);
 
   return (
     <>
