@@ -490,7 +490,15 @@ function regulationLines(t, tDates, tEntries = []) {
     return `${p.label}${money}${notes ? `（${notes}）` : ""}`;
   });
   L.push(["賞金", "参加費の総額を全額、賞金に配分します。金額は参加人数の確定後に決定"]);
-  L.push(["賞", prizes.length ? prizes.join("／") : "未定"]);
+  if (t.status === "entry" && !entryClosed(t)) {
+    // 受付中：優勝・準優勝だけ確定。ほかの賞は参加者の投票で決める（2026-10-03 本人決定）
+    const fixed = PRIZES.filter(p => !AWARD_CANDIDATES.includes(p.key)).map(p => p.label).join("・");
+    const v = awardTallyOf(tEntries);
+    const cnt = AWARD_CANDIDATES.map(k => { const p = PRIZES.find(x => x.key === k); return `${p.voteLabel || p.label} ${v[k].length}票`; }).join("／");
+    L.push(["賞", `確定：${fixed}\nほかは参加者の投票で決定（1人${AWARD_VOTE_MAX}票）\n現在：${cnt}`]);
+  } else {
+    L.push(["賞", prizes.length ? prizes.join("／") : "未定"]);
+  }
   if (s.note) L.push(["補足", s.note]);
   if (s.afterpartyNote) {
     const ys = tEntries.filter(e => e.status === "join" && e.afterparty === "yes");
