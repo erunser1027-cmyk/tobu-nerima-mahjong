@@ -42,15 +42,15 @@ const DEFAULT_SETTINGS = {
 const PRIZES = [
   { key: "first", label: "優勝" },
   { key: "second", label: "準優勝" },
-  { key: "third", label: "3位" },
+  { key: "third", label: "3位", voteLabel: "3位の賞金", voteDesc: "3位のチームにも賞金を出す" },
   { key: "booby", label: "ブービー賞", desc: "決勝に進めなかった人のうち、最下位から2番目" },
   { key: "chip", label: "チップ賞", desc: "大会通算のチップが最多の人" },
   { key: "highscore", label: "最高得点賞", desc: "予選・決勝を通した1半荘の最高素点" },
   { key: "yakuman", label: "役満賞", desc: "役満1回につき、他チームの参加者1人500円", noAmount: true },
 ];
 
-// ---- 賞の種類の投票（段階4a）：優勝・準優勝・3位は固定なので対象外。1人2票 ----
-const AWARD_CANDIDATES = ["booby", "chip", "highscore", "yakuman"];
+// ---- 賞の種類の投票（段階4a）：優勝・準優勝は固定なので対象外。3位の賞金は投票で決める（2026-10-03）。1人2票 ----
+const AWARD_CANDIDATES = ["third", "booby", "chip", "highscore", "yakuman"];
 const AWARD_VOTE_MAX = 2;
 function awardTallyOf(tEntries) {
   const t = Object.fromEntries(AWARD_CANDIDATES.map(k => [k, []]));
@@ -756,6 +756,7 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
   const [raceBets, setRaceBets] = useState([]);
   const [photoView, setPhotoView] = useState(null); // 拡大表示する写真のURL
   const [hallView, setHallView] = useState(null);   // 歴代チャンピオンで開いた大会のID
+  const [historyEdit, setHistoryEdit] = useState(null); // 直す過去の記録（null＝新しく追加）
   const [uploading, setUploading] = useState(null); // アップロード中の枠 "大会ID-順位"
   const [gameSheet, setGameSheet] = useState(null); // 点数を入力する対局
 
@@ -1496,7 +1497,7 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
               return (
                 <div key={k} style={{ padding: "7px 0", borderTop: "1px solid rgba(255,255,255,.08)" }}>
                   <div className="tk-row" style={{ justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: mine ? "#f7cd79" : "#fff" }}>{mine ? "✔ " : ""}{p.label}<span className="tk-muted" style={{ marginLeft: 6, fontWeight: 400 }}>{p.desc}</span></span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: mine ? "#f7cd79" : "#fff" }}>{mine ? "✔ " : ""}{p.voteLabel || p.label}<span className="tk-muted" style={{ marginLeft: 6, fontWeight: 400 }}>{p.voteDesc || p.desc}</span></span>
                     <span style={{ fontSize: 13, color: "#f7cd79", fontWeight: 700, whiteSpace: "nowrap" }}>{voters.length}票</span>
                   </div>
                   <AvatarRow list={voters} Av={Av} empty="まだ投票がありません" />
@@ -1677,7 +1678,7 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
                 </div>
               );
             })}
-            {isAdmin && <button className="tk-btn sub" style={{ marginTop: 10 }} onClick={() => setSheet("history")}>＋ 過去の大会の記録を追加（運営）</button>}
+            {isAdmin && <button className="tk-btn sub" style={{ marginTop: 10 }} onClick={() => { setHistoryEdit(null); setSheet("history"); }}>＋ 過去の大会の記録を追加（運営）</button>}
           </div>
         )}
 
@@ -1702,7 +1703,7 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
         <div className="tk-sheet-bg" onClick={() => setSheet(null)}>
           <div className="tk-sheet" onClick={e => e.stopPropagation()}>
             {sheet === "history" && isAdmin && (
-              <HistoryForm members={members} Av={Av} showToast={showToast} onDone={() => { setSheet(null); reload(); }} onClose={() => setSheet(null)} />
+              <HistoryForm key={historyEdit?.id || "new"} record={historyEdit} members={members} Av={Av} showToast={showToast} onDone={() => { setSheet(null); setHistoryEdit(null); reload(); }} onClose={() => { setSheet(null); setHistoryEdit(null); }} />
             )}
             {sheet === "who" && (
               <>
@@ -1766,7 +1767,8 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
               <div className="tk-muted" style={{ textAlign: "center", marginBottom: 8 }}>{fmtDate(String(t.result?.decidedAt || "").slice(0, 10))}{t.result?.manual ? "（過去の記録）" : ""}</div>
               <Podium t={t} members={members} Av={Av} isAdmin={isAdmin} uploading={uploading} onPhoto={onPodiumPhoto} onView={setPhotoView}
                 label={i => (t.result?.manual ? "" : (t.result?.podium?.[i] == null ? "" : `チーム${TEAM_NAMES[t.result.podium[i]]}`))} prize={() => ""} />
-              {isAdmin && t.result?.manual && <button className="tk-btn sub" style={{ marginTop: 10, color: "#e74c3c", borderColor: "rgba(231,76,60,.6)" }} onClick={removeRecord}>🗑 この記録を削除（運営）</button>}
+              {isAdmin && t.result?.manual && <button className="tk-btn sub" style={{ marginTop: 10 }} onClick={() => { setHistoryEdit(t); setHallView(null); setSheet("history"); }}>✏️ この記録を直す（日付・順位のメンバー）（運営）</button>}
+              {isAdmin && t.result?.manual && <button className="tk-btn sub" style={{ marginTop: 8, color: "#e74c3c", borderColor: "rgba(231,76,60,.6)" }} onClick={removeRecord}>🗑 この記録を削除（運営）</button>}
               <button className="tk-btn sub" style={{ marginTop: 8 }} onClick={() => setHallView(null)}>閉じる</button>
             </div>
           </div>
@@ -1887,13 +1889,14 @@ function Podium({ t, members, Av, isAdmin, uploading, onPhoto, onView, label, pr
   );
 }
 
-// ---- 過去の大会の記録を追加（運営） ----
-function HistoryForm({ members, Av, showToast, onDone, onClose }) {
-  const [edition, setEdition] = useState("第1回");
-  const [name, setName] = useState("とうねり杯");
-  const [date, setDate] = useState("");
-  const [ids, setIds] = useState([[], [], []]);
-  const [texts, setTexts] = useState(["", "", ""]);
+// ---- 過去の大会の記録を追加・直す（運営）。record があれば直す ----
+function HistoryForm({ record, members, Av, showToast, onDone, onClose }) {
+  const r0 = record?.result || {};
+  const [edition, setEdition] = useState(record ? settingsOf(record).edition || "" : "第1回");
+  const [name, setName] = useState(record ? record.name || "" : "とうねり杯");
+  const [date, setDate] = useState(record ? String(r0.decidedAt || "").slice(0, 10) : "");
+  const [ids, setIds] = useState([0, 1, 2].map(i => (r0.podiumIds?.[i] || []).map(Number)));
+  const [texts, setTexts] = useState([0, 1, 2].map(i => (r0.podiumNames?.[i] || []).join("、")));
   const [busy, setBusy] = useState(false);
   const addId = (i, id) => { if (!id) return; setIds(p => p.map((a, k) => (k === i && !a.includes(Number(id)) ? [...a, Number(id)] : a))); };
   const delId = (i, id) => setIds(p => p.map((a, k) => (k === i ? a.filter(x => x !== id) : a)));
@@ -1902,19 +1905,29 @@ function HistoryForm({ members, Av, showToast, onDone, onClose }) {
     const names = texts.map(tx => tx.split(/[、,，・\s]+/).map(x => x.trim()).filter(Boolean));
     if (!ids[0].length && !names[0].length) { showToast("error", "⚠️ 優勝の人を入れてください"); return; }
     setBusy(true);
-    const { error } = await supabase.from("tournaments").insert({
-      name: name.trim() || "とうねり杯", visibility: "public", status: "done",
-      settings: { edition: edition.trim(), manual: true, format: "tag" },
-      result: { manual: true, podiumIds: ids, podiumNames: names, decidedAt: date },
-    });
+    let error;
+    if (record) {
+      // 写真など、この画面で触らないものはそのまま残す
+      ({ error } = await supabase.from("tournaments").update({
+        name: name.trim() || "とうねり杯",
+        settings: { ...(record.settings || {}), edition: edition.trim() },
+        result: { ...r0, podiumIds: ids, podiumNames: names, decidedAt: date },
+      }).eq("id", record.id));
+    } else {
+      ({ error } = await supabase.from("tournaments").insert({
+        name: name.trim() || "とうねり杯", visibility: "public", status: "done",
+        settings: { edition: edition.trim(), manual: true, format: "tag" },
+        result: { manual: true, podiumIds: ids, podiumNames: names, decidedAt: date },
+      }));
+    }
     setBusy(false);
     if (error) { showToast("error", "⚠️ 保存失敗: " + error.message); return; }
-    showToast("success", "👑 過去の記録を追加しました（写真は歴代チャンピオンから入れられます）");
+    showToast("success", record ? "✏️ 記録を直しました" : "👑 過去の記録を追加しました（写真は歴代チャンピオンから入れられます）");
     onDone();
   };
   return (
     <>
-      <h3 style={{ fontSize: 16, margin: "0 0 4px" }}>＋ 過去の大会の記録</h3>
+      <h3 style={{ fontSize: 16, margin: "0 0 4px" }}>{record ? "✏️ 過去の大会の記録を直す" : "＋ 過去の大会の記録"}</h3>
       <div className="tk-muted" style={{ marginBottom: 6 }}>歴代チャンピオンに並びます。今の大会（受付・予選など）には出ません。</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 6 }}>
         <div><div className="tk-lbl">第何回</div><input className="tk-in" value={edition} onChange={e => setEdition(e.target.value)} /></div>
@@ -1939,7 +1952,7 @@ function HistoryForm({ members, Av, showToast, onDone, onClose }) {
           <input className="tk-in" style={{ marginTop: 6 }} placeholder="アプリにいない人は名前を入力（複数は「、」で区切る）" value={texts[i]} onChange={e => setTexts(p => p.map((x, k) => (k === i ? e.target.value : x)))} />
         </div>
       ))}
-      <button className="tk-btn" style={{ marginTop: 14 }} disabled={busy} onClick={save}>{busy ? "保存中..." : "この記録を追加"}</button>
+      <button className="tk-btn" style={{ marginTop: 14 }} disabled={busy} onClick={save}>{busy ? "保存中..." : record ? "この内容で直す" : "この記録を追加"}</button>
       <button className="tk-btn sub" style={{ marginTop: 8 }} onClick={onClose}>閉じる</button>
     </>
   );
@@ -2548,7 +2561,7 @@ function AnswerSheet({ cur, me, Av, tDates, myEntry, dateIds, teamVoteOn, awardV
           <div className="tk-seg">
             {AWARD_CANDIDATES.map(k => (
               <button key={k} className={awards.includes(k) ? "on" : ""} disabled={!entryOpen || (!awards.includes(k) && awards.length >= AWARD_VOTE_MAX)} onClick={() => toggleAward(k)}>
-                {PRIZES.find(x => x.key === k).label}
+                {PRIZES.find(x => x.key === k).voteLabel || PRIZES.find(x => x.key === k).label}
               </button>
             ))}
           </div>
