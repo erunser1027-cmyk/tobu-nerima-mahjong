@@ -49,9 +49,9 @@ const PRIZES = [
   { key: "yakuman", label: "役満賞", desc: "役満1回につき、他チームの参加者1人500円", noAmount: true },
 ];
 
-// ---- 賞の種類の投票（段階4a）：優勝・準優勝は固定なので対象外。3位の賞金は投票で決める（2026-10-03）。1人2票 ----
+// ---- 賞の種類の投票（段階4a）：優勝・準優勝は固定なので対象外。3位の賞金は投票で決める（2026-10-03）。1人3票（2026-10-03に2→3） ----
 const AWARD_CANDIDATES = ["third", "booby", "chip", "highscore", "yakuman"];
-const AWARD_VOTE_MAX = 2;
+const AWARD_VOTE_MAX = 3;
 function awardTallyOf(tEntries) {
   const t = Object.fromEntries(AWARD_CANDIDATES.map(k => [k, []]));
   tEntries.forEach(e => { if (e.status === "join") (e.award_votes || []).forEach(k => { if (t[k]) t[k].push(e.member_id); }); });
