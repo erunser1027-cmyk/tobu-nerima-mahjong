@@ -448,7 +448,8 @@ function regulationLines(t, tDates, tEntries = []) {
   const s = settingsOf(t);
   const unit = s.format === "tag" ? "チーム" : "人";
   const L = [];
-  L.push(["候補日", (tDates.length ? tDates.map(d => fmtDate(d.date)).join("／") : "未定") + (s.startTime ? `（${s.startTime}開始）` : "")]);
+  if (s.eventDate) L.push(["開催日", fmtDate(s.eventDate) + (s.startTime ? `（${s.startTime}開始）` : "")]);
+  else L.push(["候補日", (tDates.length ? tDates.map(d => fmtDate(d.date)).join("／") : "未定") + (s.startTime ? `（${s.startTime}開始）` : "")]);
   if (s.dateNote) L.push(["運営より", s.dateNote]);
   if (t.entry_deadline) L.push(["受付締切", fmtDate(t.entry_deadline)]);
   L.push(["形式", s.format === "tag" ? "タッグ戦（2人1組）" : "個人戦"]);
@@ -1449,7 +1450,13 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
         {/* 候補日と投票状況 */}
         {cur && (
           <div className="tk-card">
-            <h3>候補日と投票状況</h3>
+            <h3>{s.eventDate ? "開催日" : "候補日と投票状況"}</h3>
+            {s.eventDate && (
+              <div style={{ marginBottom: 10, padding: "10px 12px", borderRadius: 10, background: "rgba(247,205,121,.16)", border: "1px solid rgba(247,205,121,.7)", textAlign: "center" }}>
+                <div style={{ fontSize: 12, color: "#f7cd79" }}>開催日が決まりました</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: "#fff" }}>📅 {fmtDate(s.eventDate)}</div>
+              </div>
+            )}
             {s.startTime && (
               <div style={{ display: "inline-block", marginBottom: 10, padding: "4px 12px", borderRadius: 14, background: "rgba(247,205,121,.16)", border: "1px solid rgba(247,205,121,.6)", fontSize: 13, fontWeight: 700, color: "#f7cd79" }}>
                 🕕 当日のスタート {s.startTime}〜
@@ -1463,7 +1470,7 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
               return (
                 <div key={d.id} style={{ padding: "8px 0", borderTop: "1px solid rgba(255,255,255,.08)" }}>
                   <div className="tk-row" style={{ justifyContent: "space-between", marginBottom: 6 }}>
-                    <span style={{ fontSize: 15, fontWeight: 700 }}>{fmtDate(d.date)}</span>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: s.eventDate === d.date ? "#f7cd79" : "#fff" }}>{s.eventDate === d.date ? "📅 " : ""}{fmtDate(d.date)}{s.eventDate === d.date ? "（開催日）" : ""}</span>
                     <span style={{ fontSize: 13, color: "#f7cd79", fontWeight: 700 }}>○ {voters.length}人</span>
                   </div>
                   <AvatarRow list={voters} Av={Av} empty="まだ投票がありません" />
@@ -1754,6 +1761,7 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
               <AdminSheet me={me} isAdminUser={isAdminUser} adminUnlocked={adminUnlocked}
                 onUnlock={() => { setAdminUnlocked(true); try { sessionStorage.setItem("tleague_taikai_admin", "1"); } catch (e) { /* 保存できなくても動作は続ける */ } }}
                 tournaments={tournaments} cur={isAdmin ? cur : null} dates={dates} joinCount={joinList.length} awardTally={awardTally}
+                tEntries={tEntries} members={members} Av={Av}
                 showToast={showToast} onSelectTournament={setSelectedTid} reload={reload} onClose={() => setSheet(null)} />
             )}
           </div>
@@ -2633,7 +2641,7 @@ function AnswerSheet({ cur, me, Av, tDates, myEntry, dateIds, teamVoteOn, awardV
 }
 
 // ---- 運営メニュー（りょう＋管理パスワード） ----
-function AdminSheet({ me, isAdminUser, adminUnlocked, onUnlock, tournaments, cur, dates, joinCount, awardTally = {}, showToast, onSelectTournament, reload, onClose }) {
+function AdminSheet({ me, isAdminUser, adminUnlocked, onUnlock, tournaments, cur, dates, joinCount, awardTally = {}, tEntries = [], members = [], Av, showToast, onSelectTournament, reload, onClose }) {
   const [pass, setPass] = useState("");
   const [creating, setCreating] = useState(false); // 大会がまだ無いときは、自動的に「新しく作る」になる
   const [form, setForm] = useState(() => toForm(cur));
@@ -2725,6 +2733,45 @@ function AdminSheet({ me, isAdminUser, adminUnlocked, onUnlock, tournaments, cur
     onClose();
   };
 
+  // ---- 締切と開催日・参加の取消（その場でDBに保存。入力中のほかの項目は保存しない） ----
+  const quickSave = async (patch, msg) => {
+    const { error } = await supabase.from("tournaments").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", editing.id);
+    if (error) { showToast("error", "⚠️ 保存失敗: " + error.message); return; }
+    if (patch.status) set("status", patch.status);
+    if (patch.settings) setS("eventDate", patch.settings.eventDate || "");
+    showToast("success", msg);
+    reload();
+  };
+  const curSettings = editing?.settings || {};
+  const eventDate = curSettings.eventDate || "";
+  const hasTeams = !!editing?.draw?.teams?.length;
+  const closeNow = () => {
+    if (!window.confirm("参加受付を今すぐ締め切りますか？\n締め切ると、参加・不参加と投票の回答が変えられなくなります。")) return;
+    quickSave({ status: "closed" }, "⏹ 参加受付を締め切りました");
+  };
+  const reopen = () => {
+    if (hasTeams) { showToast("error", "⚠️ チームが決まった後は受付を再開できません"); return; }
+    if (!window.confirm("参加受付を再開しますか？（締切日を過ぎている場合は、締切日も直してください）")) return;
+    quickSave({ status: "entry" }, "▶ 参加受付を再開しました");
+  };
+  const decideDate = d => {
+    if (!window.confirm(`開催日を ${fmtDate(d.date)} に決定しますか？\n参加受付も同時に締め切ります。`)) return;
+    quickSave({ status: "closed", settings: { ...curSettings, eventDate: d.date } }, `📅 開催日を ${fmtDate(d.date)} に決定しました`);
+  };
+  const undoDate = () => {
+    if (!window.confirm("開催日の決定を取り消しますか？（受付の状態はそのままです）")) return;
+    quickSave({ settings: { ...curSettings, eventDate: null } }, "↩ 開催日の決定を取り消しました");
+  };
+  const removeEntry = async (e, m) => {
+    if (hasTeams) { showToast("error", "⚠️ チームが決まった後は外せません。先に「チームをやり直す」をしてください"); return; }
+    if (!window.confirm(`${m.name}さんを参加から外しますか？\n「不参加」に変わり、参加人数・チーム決め・賞金の計算から外れます。\n（本人が回答し直せば、参加に戻せます）`)) return;
+    const { error } = await supabase.from("tournament_entries").update({ status: "decline", amida_slot: null, updated_at: new Date().toISOString() }).eq("id", e.id);
+    if (error) { showToast("error", "⚠️ 保存失敗: " + error.message); return; }
+    showToast("success", `${m.name}さんを不参加にしました`);
+    reload();
+  };
+  const joinedEntries = tEntries.filter(e => e.status === "join").map(e => ({ e, m: members.find(m => m.id === e.member_id) })).filter(x => x.m);
+
   const Seg = ({ value, options, onChange }) => (
     <div className="tk-seg">
       {options.map(([v, label]) => <button key={v} className={value === v ? "on" : ""} onClick={() => onChange(v)}>{label}</button>)}
@@ -2746,6 +2793,42 @@ function AdminSheet({ me, isAdminUser, adminUnlocked, onUnlock, tournaments, cur
             {visibleList.map(t => <option key={t.id} value={t.id}>{settingsOf(t).edition} {t.name}{t.visibility === "draft" ? "（下書き）" : ""}</option>)}
           </select>
           {!creating && <button className="tk-btn sub" style={{ width: "auto", whiteSpace: "nowrap", padding: "8px 10px" }} onClick={() => { setCreating(true); setForm(toForm(null)); }}>＋新規</button>}
+        </div>
+      )}
+
+      {editing && ["entry", "closed"].includes(editing.status) && (
+        <div style={{ margin: "4px 0 14px", padding: 10, borderRadius: 10, border: "1px solid rgba(247,205,121,.45)", background: "rgba(247,205,121,.06)" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#f7cd79", marginBottom: 6 }}>📅 締切と開催日</div>
+          <div className="tk-muted" style={{ marginBottom: 8 }}>
+            いまの状態：<b style={{ color: "#fff" }}>{editing.status === "entry" ? "参加受付中" : "受付終了"}</b>
+            {editing.entry_deadline ? `（締切日 ${fmtDate(editing.entry_deadline)}）` : ""}
+            {eventDate ? <>／開催日 <b style={{ color: "#f7cd79" }}>{fmtDate(eventDate)}</b></> : "／開催日は未決定"}
+          </div>
+          {editing.status === "entry"
+            ? <button className="tk-btn" onClick={closeNow}>⏹ 今すぐ参加受付を締め切る</button>
+            : !hasTeams && <button className="tk-btn sub" onClick={reopen}>▶ 参加受付を再開する</button>}
+          {tDates.length > 0 && <div className="tk-lbl">開催日を決める（○＝参加できる人数）</div>}
+          {tDates.map(d => {
+            const n = tEntries.filter(e => e.status === "join" && (e.date_ids || []).includes(d.id)).length;
+            const on = eventDate === d.date;
+            return (
+              <div key={d.id} className="tk-row" style={{ justifyContent: "space-between", padding: "6px 0", borderTop: "1px solid rgba(255,255,255,.08)" }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: on ? "#f7cd79" : "#fff" }}>{on ? "📅 " : ""}{fmtDate(d.date)}<span className="tk-muted" style={{ marginLeft: 8 }}>○ {n}人</span></span>
+                {on
+                  ? <button className="tk-btn sub" style={{ width: "auto", padding: "4px 10px", fontSize: 11 }} onClick={undoDate}>決定を取り消す</button>
+                  : <button className="tk-btn" style={{ width: "auto", padding: "4px 10px", fontSize: 11 }} onClick={() => decideDate(d)}>この日に決定</button>}
+              </div>
+            );
+          })}
+          <div className="tk-lbl">参加者を外す（予定が入って来られなくなった人など）</div>
+          {!joinedEntries.length && <div className="tk-muted">参加の人はまだいません</div>}
+          {joinedEntries.map(({ e, m }) => (
+            <div key={e.id} className="tk-row" style={{ justifyContent: "space-between", padding: "5px 0", borderTop: "1px solid rgba(255,255,255,.08)" }}>
+              <span className="tk-row" style={{ gap: 6, fontSize: 13 }}>{Av && <Av m={m} sz={22} />}{m.name}</span>
+              <button className="tk-btn sub" style={{ width: "auto", padding: "4px 10px", fontSize: 11, color: "#e74c3c", borderColor: "rgba(231,76,60,.6)" }} onClick={() => removeEntry(e, m)}>外す</button>
+            </div>
+          ))}
+          {hasTeams && <div className="tk-muted" style={{ marginTop: 6 }}>チームが決まった後は、参加者を外せません。</div>}
         </div>
       )}
 
