@@ -933,7 +933,11 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
   const isTag = s.format === "tag";
   const closed = entryClosed(cur);
   const teamMethod = s.teamMode === "vote" ? teamDecision(tally) : s.teamMode;
-  const players = joinList;
+  // 開催日が決まっていたら、その日に「○」を付けた人だけでチームを決める（2026-11-06 ボス決定）
+  const eventDateRow = s.eventDate ? tDates.find(d => d.date === s.eventDate) : null;
+  const canAttend = m => (tEntries.find(e => e.member_id === m.id)?.date_ids || []).map(Number).includes(Number(eventDateRow?.id));
+  const players = eventDateRow ? joinList.filter(canAttend) : joinList;
+  const notAttending = eventDateRow ? joinList.filter(m => !canAttend(m)) : [];
   const strengths = calcStrengths(sessions, players.map(m => m.id));
   const ranked = [...players].sort((a, b) => strengths[b.id].adj - strengths[a.id].adj);
   const half = Math.floor(ranked.length / 2);
@@ -1613,6 +1617,12 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
                   決め方：<b style={{ color: "#f7cd79" }}>{{ balanced: "戦力均衡ランダム", manual: "運営が指定", amida: "あみだくじ" }[teamMethod] || "未定"}</b>
                   {draw.resets ? <span className="tk-muted">（やり直し {draw.resets}回）</span> : null}
                 </div>
+                {eventDateRow && (
+                  <div className="tk-muted" style={{ marginBottom: 8 }}>
+                    開催日（{fmtDate(s.eventDate)}）に参加できる <b style={{ color: "#f7cd79" }}>{players.length}人</b> で決めます。
+                    {notAttending.length > 0 && <>（この日は来られない：{notAttending.map(m => m.name).join("・")}）</>}
+                  </div>
+                )}
                 {!evenOk && <div className="tk-muted" style={{ color: "#e74c3c", marginBottom: 8 }}>参加者が{players.length}人です。タッグ戦は4人以上の偶数が必要です（運営が人数を調整してください）</div>}
                 {teamMethod === "balanced" && (
                   <>
@@ -1760,7 +1770,7 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
             {sheet === "admin" && (
               <AdminSheet me={me} isAdminUser={isAdminUser} adminUnlocked={adminUnlocked}
                 onUnlock={() => { setAdminUnlocked(true); try { sessionStorage.setItem("tleague_taikai_admin", "1"); } catch (e) { /* 保存できなくても動作は続ける */ } }}
-                tournaments={tournaments} cur={isAdmin ? cur : null} dates={dates} joinCount={joinList.length} awardTally={awardTally}
+                tournaments={tournaments} cur={isAdmin ? cur : null} dates={dates} joinCount={players.length} awardTally={awardTally}
                 tEntries={tEntries} members={members} Av={Av}
                 showToast={showToast} onSelectTournament={setSelectedTid} reload={reload} onClose={() => setSheet(null)} />
             )}
@@ -2770,6 +2780,12 @@ function AdminSheet({ me, isAdminUser, adminUnlocked, onUnlock, tournaments, cur
     showToast("success", `${m.name}さんを不参加にしました`);
     reload();
   };
+  const setParty = async (e, m, patch) => {
+    const { error } = await supabase.from("tournament_entries").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", e.id);
+    if (error) { showToast("error", "⚠️ 保存失敗: " + error.message); return; }
+    showToast("success", `🍻 ${m.name}さんの二次会を直しました`);
+    reload();
+  };
   const joinedEntries = tEntries.filter(e => e.status === "join").map(e => ({ e, m: members.find(m => m.id === e.member_id) })).filter(x => x.m);
 
   const Seg = ({ value, options, onChange }) => (
@@ -2829,6 +2845,26 @@ function AdminSheet({ me, isAdminUser, adminUnlocked, onUnlock, tournaments, cur
             </div>
           ))}
           {hasTeams && <div className="tk-muted" style={{ marginTop: 6 }}>チームが決まった後は、参加者を外せません。</div>}
+          {(curSettings.afterpartyNote || "").trim() && (
+            <>
+              <div className="tk-lbl">🍻 二次会の出欠を直す（参加 {joinedEntries.filter(x => x.e.afterparty === "yes").length}名＋同伴 {joinedEntries.filter(x => x.e.afterparty === "yes").reduce((a, x) => a + (x.e.companions || 0), 0)}名）</div>
+              {joinedEntries.map(({ e, m }) => (
+                <div key={e.id} className="tk-row" style={{ justifyContent: "space-between", gap: 6, padding: "5px 0", borderTop: "1px solid rgba(255,255,255,.08)" }}>
+                  <span className="tk-row" style={{ gap: 6, fontSize: 13, minWidth: 0 }}>{Av && <Av m={m} sz={22} />}{m.name}</span>
+                  <span className="tk-row" style={{ gap: 4 }}>
+                    {[["yes", "行く"], ["no", "行かない"]].map(([v, label]) => (
+                      <button key={v} className={e.afterparty === v ? "tk-btn" : "tk-btn sub"} style={{ width: "auto", padding: "4px 8px", fontSize: 11 }}
+                        onClick={() => e.afterparty !== v && setParty(e, m, v === "yes" ? { afterparty: "yes" } : { afterparty: "no", companions: 0 })}>{label}</button>
+                    ))}
+                    <select className="tk-in" style={{ width: 70, padding: "4px 6px", fontSize: 11 }} disabled={e.afterparty !== "yes"} value={e.companions || 0}
+                      onChange={ev => setParty(e, m, { companions: Number(ev.target.value) })}>
+                      {[0, 1, 2, 3, 4, 5].map(n => <option key={n} value={n}>同伴{n}</option>)}
+                    </select>
+                  </span>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       )}
 
