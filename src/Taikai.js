@@ -502,11 +502,27 @@ function regulationLines(t, tDates, tEntries = []) {
   }
   if (s.note) L.push(["補足", s.note]);
   if (s.afterpartyNote) {
-    const ys = tEntries.filter(e => e.status === "join" && e.afterparty === "yes");
-    const comp = ys.reduce((a, e) => a + (e.companions || 0), 0);
-    L.push(["二次会", `${s.afterpartyNote}（参加 ${ys.length}名${comp ? `＋同伴${comp}名` : ""}＝計${ys.length + comp}名）`]);
+    const pr = partyRoster(t, tDates, tEntries);
+    L.push(["二次会", `${s.afterpartyNote}（参加 ${pr.list.length}名${pr.comp ? `＋同伴${pr.comp}名` : ""}＝計${pr.total}名）`]);
   }
   return L;
+}
+// ---- 開催日に来る人（開催日が決まっていなければ「参加」の全員） ----
+function attendsEvent(t, tDates, e) {
+  if (!e || e.status !== "join") return false;
+  const ev = settingsOf(t).eventDate;
+  const d = ev ? tDates.find(x => x.date === ev) : null;
+  if (!d) return true;
+  return (e.date_ids || []).map(Number).includes(Number(d.id));
+}
+// ---- 二次会の名簿：開催日に来る人のうち「行く」の人＋運営が追加した「二次会だけ」の人（settings.partyExtra） ----
+function partyRoster(t, tDates, tEntries) {
+  const att = tEntries.filter(e => attendsEvent(t, tDates, e));
+  const yes = att.filter(e => e.afterparty === "yes").map(e => ({ id: e.member_id, companions: e.companions || 0 }));
+  const extra = (settingsOf(t).partyExtra || []).filter(x => !yes.some(y => y.id === x.id)).map(x => ({ id: x.id, companions: x.companions || 0, extra: true }));
+  const list = [...yes, ...extra];
+  const comp = list.reduce((a, x) => a + x.companions, 0);
+  return { att, list, no: att.filter(e => e.afterparty === "no").map(e => e.member_id), comp, total: list.length + comp };
 }
 function statusLabel(t) {
   if (!t) return "";
@@ -920,9 +936,7 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
   const cTally = carryTally(curEntries);
   const effCarry = effectiveCarry(s, curEntries);
   const partyOn = !!(s.afterpartyNote || "").trim();
-  const partyYes = curEntries.filter(e => e.status === "join" && e.afterparty === "yes");
-  const partyNo = curEntries.filter(e => e.status === "join" && e.afterparty === "no");
-  const partyComp = partyYes.reduce((a, e) => a + (e.companions || 0), 0);
+  const party = cur ? partyRoster(cur, tDates, curEntries) : { list: [], no: [], comp: 0, total: 0 };
   const tally = teamTally(tEntries);
   const commentList = tEntries.filter(e => (e.comment || "").trim())
     .map(e => ({ e, m: members.find(m => m.id === e.member_id) })).filter(x => x.m);
@@ -1511,20 +1525,20 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
           <div className="tk-card">
             <div className="tk-row" style={{ justifyContent: "space-between", marginBottom: 6 }}>
               <h3 style={{ margin: 0 }}>🍻 二次会</h3>
-              <span className="tk-pill on" style={{ fontSize: 11 }}>計 {partyYes.length + partyComp}名</span>
+              <span className="tk-pill on" style={{ fontSize: 11 }}>計 {party.total}名</span>
             </div>
             <div style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap", marginBottom: 8 }}>{s.afterpartyNote}</div>
-            <div className="tk-lbl" style={{ marginTop: 0 }}>参加（{partyYes.length}名{partyComp ? `＋同伴${partyComp}名` : ""}）</div>
-            {partyYes.length === 0 && <div className="tk-muted">まだいません</div>}
-            {partyYes.map(e => { const m = members.find(x => x.id === e.member_id); return m ? (
-              <div key={e.id} className="tk-row" style={{ fontSize: 13, padding: "3px 0" }}>
+            <div className="tk-lbl" style={{ marginTop: 0 }}>参加（{party.list.length}名{party.comp ? `＋同伴${party.comp}名` : ""}）</div>
+            {party.list.length === 0 && <div className="tk-muted">まだいません</div>}
+            {party.list.map(x => { const m = members.find(mm => mm.id === x.id); return m ? (
+              <div key={x.id} className="tk-row" style={{ fontSize: 13, padding: "3px 0" }}>
                 <span style={{ flexShrink: 0 }}><Av m={m} sz={24} /></span>
-                <span style={{ flex: 1 }}>{m.name}</span>
-                {e.companions > 0 && <span style={{ color: "#f7cd79", fontSize: 12 }}>＋同伴{e.companions}名</span>}
+                <span style={{ flex: 1 }}>{m.name}{x.extra && <span className="tk-muted">（二次会のみ）</span>}</span>
+                {x.companions > 0 && <span style={{ color: "#f7cd79", fontSize: 12 }}>＋同伴{x.companions}名</span>}
               </div>
             ) : null; })}
             <div className="tk-lbl">不参加</div>
-            <AvatarRow list={partyNo.map(e => members.find(m => m.id === e.member_id)).filter(Boolean)} Av={Av} empty="まだいません" />
+            <AvatarRow list={party.no.map(id => members.find(m => m.id === id)).filter(Boolean)} Av={Av} empty="まだいません" />
           </div>
         )}
 
@@ -2786,6 +2800,15 @@ function AdminSheet({ me, isAdminUser, adminUnlocked, onUnlock, tournaments, cur
     showToast("success", `🍻 ${m.name}さんの二次会を直しました`);
     reload();
   };
+  const partyNow = editing ? partyRoster(editing, tDates, tEntries) : { att: [], list: [], comp: 0, total: 0 };
+  const partyExtra = curSettings.partyExtra || [];
+  const saveExtra = async (next, msg) => {
+    const { error } = await supabase.from("tournaments").update({ settings: { ...curSettings, partyExtra: next }, updated_at: new Date().toISOString() }).eq("id", editing.id);
+    if (error) { showToast("error", "⚠️ 保存失敗: " + error.message); return; }
+    setS("partyExtra", next); // 「大会を更新」で古い名簿に戻さないように、入力欄側もそろえる
+    showToast("success", msg);
+    reload();
+  };
   const joinedEntries = tEntries.filter(e => e.status === "join").map(e => ({ e, m: members.find(m => m.id === e.member_id) })).filter(x => x.m);
 
   const Seg = ({ value, options, onChange }) => (
@@ -2845,26 +2868,51 @@ function AdminSheet({ me, isAdminUser, adminUnlocked, onUnlock, tournaments, cur
             </div>
           ))}
           {hasTeams && <div className="tk-muted" style={{ marginTop: 6 }}>チームが決まった後は、参加者を外せません。</div>}
-          {(curSettings.afterpartyNote || "").trim() && (
-            <>
-              <div className="tk-lbl">🍻 二次会の出欠を直す（参加 {joinedEntries.filter(x => x.e.afterparty === "yes").length}名＋同伴 {joinedEntries.filter(x => x.e.afterparty === "yes").reduce((a, x) => a + (x.e.companions || 0), 0)}名）</div>
-              {joinedEntries.map(({ e, m }) => (
-                <div key={e.id} className="tk-row" style={{ justifyContent: "space-between", gap: 6, padding: "5px 0", borderTop: "1px solid rgba(255,255,255,.08)" }}>
-                  <span className="tk-row" style={{ gap: 6, fontSize: 13, minWidth: 0 }}>{Av && <Av m={m} sz={22} />}{m.name}</span>
-                  <span className="tk-row" style={{ gap: 4 }}>
-                    {[["yes", "行く"], ["no", "行かない"]].map(([v, label]) => (
-                      <button key={v} className={e.afterparty === v ? "tk-btn" : "tk-btn sub"} style={{ width: "auto", padding: "4px 8px", fontSize: 11 }}
-                        onClick={() => e.afterparty !== v && setParty(e, m, v === "yes" ? { afterparty: "yes" } : { afterparty: "no", companions: 0 })}>{label}</button>
-                    ))}
-                    <select className="tk-in" style={{ width: 70, padding: "4px 6px", fontSize: 11 }} disabled={e.afterparty !== "yes"} value={e.companions || 0}
-                      onChange={ev => setParty(e, m, { companions: Number(ev.target.value) })}>
-                      {[0, 1, 2, 3, 4, 5].map(n => <option key={n} value={n}>同伴{n}</option>)}
-                    </select>
-                  </span>
-                </div>
-              ))}
-            </>
-          )}
+        </div>
+      )}
+
+      {editing && (curSettings.afterpartyNote || "").trim() && editing.status !== "done" && (
+        <div style={{ margin: "0 0 14px", padding: 10, borderRadius: 10, border: "1px solid rgba(247,205,121,.45)", background: "rgba(247,205,121,.06)" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#f7cd79", marginBottom: 4 }}>🍻 二次会（参加 {partyNow.list.length}名＋同伴 {partyNow.comp}名＝計 {partyNow.total}名）</div>
+          <div className="tk-muted" style={{ marginBottom: 6 }}>{eventDate ? `開催日（${fmtDate(eventDate)}）に来る人だけを表示しています。` : "大会に参加の人を表示しています。"}締切の後でも直せます。</div>
+          {partyNow.att.map(e => { const m = members.find(x => x.id === e.member_id); return m ? (
+            <div key={e.id} className="tk-row" style={{ justifyContent: "space-between", gap: 6, padding: "5px 0", borderTop: "1px solid rgba(255,255,255,.08)" }}>
+              <span className="tk-row" style={{ gap: 6, fontSize: 13, minWidth: 0 }}>{Av && <Av m={m} sz={22} />}{m.name}</span>
+              <span className="tk-row" style={{ gap: 4 }}>
+                {[["yes", "行く"], ["no", "行かない"]].map(([v, label]) => (
+                  <button key={v} className={e.afterparty === v ? "tk-btn" : "tk-btn sub"} style={{ width: "auto", padding: "4px 8px", fontSize: 11 }}
+                    onClick={() => e.afterparty !== v && setParty(e, m, v === "yes" ? { afterparty: "yes" } : { afterparty: "no", companions: 0 })}>{label}</button>
+                ))}
+                <select className="tk-in" style={{ width: 70, padding: "4px 6px", fontSize: 11 }} disabled={e.afterparty !== "yes"} value={e.companions || 0}
+                  onChange={ev => setParty(e, m, { companions: Number(ev.target.value) })}>
+                  {[0, 1, 2, 3, 4, 5].map(n => <option key={n} value={n}>同伴{n}</option>)}
+                </select>
+              </span>
+            </div>
+          ) : null; })}
+          <div className="tk-lbl">二次会だけ参加する人（運営が追加）</div>
+          {!partyExtra.length && <div className="tk-muted">まだいません</div>}
+          {partyExtra.map(x => { const m = members.find(mm => mm.id === x.id); return m ? (
+            <div key={x.id} className="tk-row" style={{ justifyContent: "space-between", gap: 6, padding: "5px 0", borderTop: "1px solid rgba(255,255,255,.08)" }}>
+              <span className="tk-row" style={{ gap: 6, fontSize: 13, minWidth: 0 }}>{Av && <Av m={m} sz={22} />}{m.name}</span>
+              <span className="tk-row" style={{ gap: 4 }}>
+                <select className="tk-in" style={{ width: 70, padding: "4px 6px", fontSize: 11 }} value={x.companions || 0}
+                  onChange={ev => saveExtra(partyExtra.map(y => (y.id === x.id ? { ...y, companions: Number(ev.target.value) } : y)), `🍻 ${m.name}さんの同伴を直しました`)}>
+                  {[0, 1, 2, 3, 4, 5].map(n => <option key={n} value={n}>同伴{n}</option>)}
+                </select>
+                <button className="tk-btn sub" style={{ width: "auto", padding: "4px 8px", fontSize: 11, color: "#e74c3c", borderColor: "rgba(231,76,60,.6)" }}
+                  onClick={() => saveExtra(partyExtra.filter(y => y.id !== x.id), `${m.name}さんを二次会から外しました`)}>外す</button>
+              </span>
+            </div>
+          ) : null; })}
+          <select className="tk-in" style={{ marginTop: 6 }} value="" onChange={ev => {
+            const id = Number(ev.target.value); const m = members.find(mm => mm.id === id);
+            if (m) saveExtra([...partyExtra, { id, companions: 0 }], `🍻 ${m.name}さんを二次会に追加しました`);
+          }}>
+            <option value="">＋ 二次会に追加する人を選ぶ</option>
+            {members.filter(m => !partyNow.att.some(e => e.member_id === m.id) && !partyExtra.some(x => x.id === m.id))
+              .map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
         </div>
       )}
 
