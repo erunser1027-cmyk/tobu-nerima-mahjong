@@ -117,8 +117,9 @@ const revealTotal = n => REVEAL_INTRO + n * REVEAL_PER + REVEAL_TAIL;
 const fmtAdj = v => `${v >= 0 ? "+" : ""}${v.toFixed(1)}`;
 
 // ---- あみだくじ（段階2b） ----
-const AMIDA_ROWS = 12;                                  // 横線の段数
-const AMIDA_LINES = 2.0, AMIDA_PER = 3.0, AMIDA_TAIL = 2.5; // 線が現れる2秒 → 1人3秒 → 発表
+const AMIDA_ROWS = 20;                                  // 横線の段数（2026-11-07 12→20。最後までどこに行くか分からないように）
+const AMIDA_FINAL = 3;                                  // 最後の段数：全員が必ず横に動く段（偶数・奇数の交互）
+const AMIDA_LINES = 2.0, AMIDA_PER = 3.5, AMIDA_TAIL = 2.5; // 線が現れる2秒 → 1人3秒 → 発表
 const amidaTotal = n => AMIDA_LINES + n * AMIDA_PER + AMIDA_TAIL;
 const TEAM_COLORS = ["#ff5a4e", "#4ea8ff", "#3ed18a", "#ffc23e", "#c77dff", "#ff8fd0", "#5ee0e0"];
 function fmtDateTime(s) {
@@ -137,11 +138,26 @@ function mulberry32(a) {
 }
 // 種から、横線と下のゴール（チーム番号を2つずつ）を作る
 function buildLadder(seed, n) {
+  // 2026-11-07 ボス要望「最後までドキドキ」：
+  // ・毎段、横線を置く順番をシャッフルして左右に偏らせない
+  // ・下の段ほど横線を多く（35%→65%）
+  // ・最後の3段は全員が必ず横に動く段にして、ゴール直前まで行き先が変わる
+  // （チームの組み合わせの公平さは、最後のゴールの札のシャッフルで決まるので変わらない）
   const rnd = mulberry32(seed);
   const rungs = [];
-  for (let r = 0; r < AMIDA_ROWS; r++) {
+  const body = AMIDA_ROWS - AMIDA_FINAL;
+  for (let r = 0; r < body; r++) {
+    const prob = 0.35 + 0.3 * (r / Math.max(1, body - 1));
+    const order = [...Array(Math.max(0, n - 1)).keys()];
+    for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
     const row = new Set();
-    for (let c = 0; c < n - 1; c++) if (!row.has(c - 1) && rnd() < 0.45) row.add(c);
+    order.forEach(c => { if (!row.has(c - 1) && !row.has(c + 1) && rnd() < prob) row.add(c); });
+    rungs.push(row);
+  }
+  let par = rnd() < 0.5 ? 0 : 1;
+  for (let k = 0; k < AMIDA_FINAL; k++, par ^= 1) {
+    const row = new Set();
+    for (let c = par; c < n - 1; c += 2) row.add(c);
     rungs.push(row);
   }
   const labels = [];
@@ -1046,7 +1062,13 @@ export default function Taikai({ members, sessions = [], Av, showToast }) {
     lastRevealRef.current = st;
     const startMs = Date.parse(st);
     const total = draw.method === "amida" ? amidaTotal(Object.keys(draw.slots || {}).length) : revealTotal(teams.length);
-    if (Date.now() - startMs < total * 1000) setReveal({ startMs });
+    // あみだくじは、この端末でまだ見ていなければ、ライブが終わった後に開いた人にも最初から自動で流す（2026-11-06 ボス決定）
+    const seenKey = `tleague_amida_seen_${cur?.id}`;
+    let seen = null;
+    try { seen = localStorage.getItem(seenKey); } catch (e) { /* 読めなくても動作は続ける */ }
+    const markSeen = () => { try { localStorage.setItem(seenKey, st); } catch (e) { /* 保存できなくても動作は続ける */ } };
+    if (Date.now() - startMs < total * 1000) { setReveal({ startMs }); if (draw.method === "amida") markSeen(); }
+    else if (draw.method === "amida" && seen !== st) { setReveal({ startMs: Date.now() }); markSeen(); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draw.startedAt, phase]);
 
@@ -2406,7 +2428,7 @@ function AmidaLive({ seed, slots, members, Av, startMs, onClose }) {
 
   const el = (now - startMs) / 1000;
   const total = amidaTotal(n);
-  const W = Math.min(340, window.innerWidth - 32), PAD = 20, TOP = 52, H = 300, BOT = TOP + H;
+  const W = Math.min(340, window.innerWidth - 32), PAD = 20, TOP = 52, H = 380, BOT = TOP + H;
   const x = c => (n === 1 ? W / 2 : PAD + c * (W - 2 * PAD) / (n - 1));
   const y = r => TOP + (r + 1) * H / (AMIDA_ROWS + 1);
   const sz = n > 10 ? 20 : 26;
@@ -2438,7 +2460,8 @@ function AmidaLive({ seed, slots, members, Av, startMs, onClose }) {
     const p = Math.max(0, Math.min(1, (el - t0) / (AMIDA_PER - 0.5)));
     const { pts, end } = pathOf(id);
     if (p >= 1) arrived[end] = id;
-    return { id, p, part: partial(pts, p), active: el >= t0 && p < 1, color: TEAM_COLORS[lad.labels[end] % TEAM_COLORS.length] };
+    const pe = 1 - (1 - p) * (1 - p); // 最初は速く、ゴール前でゆっくり
+    return { id, p, part: partial(pts, pe), active: el >= t0 && p < 1, color: TEAM_COLORS[lad.labels[end] % TEAM_COLORS.length] };
   });
   const active = traces.find(t => t.active);
   const finished = el >= AMIDA_LINES + n * AMIDA_PER;
