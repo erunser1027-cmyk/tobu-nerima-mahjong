@@ -450,8 +450,10 @@ function regulationLines(t, tDates, tEntries = []) {
   const L = [];
   if (s.eventDate) L.push(["開催日", fmtDate(s.eventDate) + (s.startTime ? `（${s.startTime}開始）` : "")]);
   else L.push(["候補日", (tDates.length ? tDates.map(d => fmtDate(d.date)).join("／") : "未定") + (s.startTime ? `（${s.startTime}開始）` : "")]);
-  if (s.dateNote) L.push(["運営より", s.dateNote]);
-  if (t.entry_deadline) L.push(["受付締切", fmtDate(t.entry_deadline)]);
+  if (!s.eventDate) {
+    if (s.dateNote) L.push(["運営より", s.dateNote]);
+    if (t.entry_deadline) L.push(["受付締切", fmtDate(t.entry_deadline)]);
+  }
   L.push(["形式", s.format === "tag" ? "タッグ戦（2人1組）" : "個人戦"]);
   L.push(["参加費", `${yen(s.entryFee)}（場代は別）`]);
   L.push(["進行", `予選${s.prelimGames}回 → 上位${s.finalists}${unit}が決勝（${s.finalGames}回）`]);
@@ -490,7 +492,12 @@ function regulationLines(t, tDates, tEntries = []) {
     const notes = [p.desc, !p.noAmount && !hasAmt ? "金額は参加人数の確定後に発表" : ""].filter(Boolean).join("／");
     return `${p.label}${money}${notes ? `（${notes}）` : ""}`;
   });
-  L.push(["賞金", "参加費の総額を全額、賞金に配分します。金額は参加人数の確定後に決定"]);
+  if (entryClosed(t)) {
+    const n = tEntries.filter(e => attendsEvent(t, tDates, e)).length;
+    L.push(["賞金", `参加費の総額（${yen(s.entryFee)}×${n}名＝${yen(Number(s.entryFee || 0) * n)}）を全額、賞金に配分します`]);
+  } else {
+    L.push(["賞金", "参加費の総額を全額、賞金に配分します。金額は参加人数の確定後に決定"]);
+  }
   if (t.status === "entry" && !entryClosed(t)) {
     // 受付中：優勝・準優勝だけ確定。ほかの賞は参加者の投票で決める（2026-10-03 本人決定）
     const fixed = PRIZES.filter(p => !AWARD_CANDIDATES.includes(p.key)).map(p => p.label).join("・");
@@ -538,7 +545,8 @@ function lineText(t, tDates, tEntries, members = [], games = []) {
   const head = `【${s.edition ? s.edition + " " : ""}${t.name}】${statusLabel(t)}${t.entry_deadline ? `（締切 ${fmtDate(t.entry_deadline)}）` : ""}`;
   let body = regulationLines(t, tDates, tEntries).map(([k, v]) => `■ ${k}：${v}`).join("\n");
   const teams = t.draw?.teams;
-  if (!teams?.length && t.draw?.method === "amida" && (t.draw.pickDeadline || t.draw.liveAt)) {
+  const closedAsk = t.status === "closed"; // 受付終了〜予選前は、文頭に「決まったこと・メンバー・チーム決めの案内」を出す
+  if (!closedAsk && !teams?.length && t.draw?.method === "amida" && (t.draw.pickDeadline || t.draw.liveAt)) {
     body += `\n■ あみだくじ：${t.draw.pickDeadline ? `位置選びの締切 ${fmtDate(t.draw.pickDeadline)}` : ""}${t.draw.pickDeadline && t.draw.liveAt ? "／" : ""}${t.draw.liveAt ? `ライブ ${fmtDateTime(t.draw.liveAt)}` : ""}`;
   }
   const pg = games.filter(g => g.tournament_id === t.id && g.stage === "prelim" && g.status === "done");
@@ -575,6 +583,41 @@ function lineText(t, tDates, tEntries, members = [], games = []) {
       "――― 大会の内容 ―――",
     ].filter((x, i, a) => x !== "" || a[i - 1] !== "").join("\n");
     return `${ask}\n${head}\n${body}`;
+  }
+  if (closedAsk) {
+    const title = `${s.edition ? s.edition + " " : ""}${t.name}`;
+    const nm = id => members.find(m => m.id === id)?.name || "？";
+    const players = tEntries.filter(e => attendsEvent(t, tDates, e)).map(e => nm(e.member_id));
+    const method = t.draw?.method || (s.teamMode === "vote" ? teamDecision(teamTally(tEntries)) : s.teamMode);
+    const d = t.draw || {};
+    const teamPart = teams?.length
+      ? ["🤝 チームが決まりました", ...teams.map((tm, i) => `　チーム${TEAM_NAMES[i]}：${tm.map(nm).join(" × ")}`)]
+      : method === "amida"
+        ? [
+          "🎲 チームは「あみだくじ」で決めます！",
+          "アプリの大会タブ →「あみだくじ」で、好きな番号を1つ選んでください🙏",
+          "（早い者勝ち。締切までは選び直せます）",
+          d.pickDeadline ? `⏰ 番号選びの締切：${fmtDate(d.pickDeadline)}まで` : "⏰ 番号選びの締切：運営から後日お知らせします",
+          d.liveAt ? `🎬 ライブ発表：${fmtDateTime(d.liveAt)}（アプリで全員同時に見られます）` : "",
+          "※締切までに選ばなかった人は、空いている番号に自動で入ります",
+        ]
+        : [`🤝 チーム決め：${TEAM_LABEL[method] || "運営が決めます"}（決まったらお知らせします）`];
+    const ask = [
+      `📣【${title}】開催決定のお知らせ`,
+      "",
+      s.eventDate ? `📅 開催日：${fmtDate(s.eventDate)}${s.startTime ? `（${s.startTime}開始）` : ""}` : "",
+      `👥 参加メンバー（${players.length}名）`,
+      `　${players.join("・")}`,
+      "",
+      ...teamPart,
+      "",
+      "▼ アプリの大会タブはこちら",
+      SHARE_URL,
+      "",
+      "――― 大会の内容 ―――",
+    ].filter((x, i, a) => x !== "" || a[i - 1] !== "").join("\n");
+    const body2 = teams?.length ? body.replace(/\n■ チーム：[\s\S]*$/, "") : body; // チーム表は上に出したので重ねない
+    return `${ask}\n${body2}`;
   }
   return `${head}\n${body}\n▼ 大会の詳細はアプリから\n${SHARE_URL}`;
 }
